@@ -1,0 +1,333 @@
+'use client'
+
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { useRouter } from 'next/navigation'
+import type { TestTask, TaskMediaWithUrl } from '@/types/domain'
+import type { Json } from '@/types/database'
+import { createClient } from '@/lib/supabase/client'
+
+import { Button } from '@/components/ui/button'
+import { Separator } from '@/components/ui/separator'
+import { Badge } from '@/components/ui/badge'
+import { ChevronLeft, ChevronRight, Send, Menu, X } from 'lucide-react'
+
+import { TaskNavigator } from './TaskNavigator'
+import { TaskView } from './TaskView'
+import { Timer } from './Timer'
+import { SaveStatus } from './SaveStatus'
+import { SubmitDialog } from './SubmitDialog'
+
+interface TestPlayerProps {
+  assignmentId: string
+  attemptId: string
+  startedAt: string | null
+  tasks: TestTask[]
+  initialAnswers: Record<string, Json>
+  taskMediaMap: Record<string, TaskMediaWithUrl[]>
+  timeLimitSec: number | null
+  testTitle: string
+  subject: string | null
+  examType: string | null
+}
+
+const DEBOUNCE_MS = 3000
+const HEARTBEAT_MS = 30_000
+
+export function TestPlayer({
+  assignmentId,
+  attemptId,
+  startedAt,
+  tasks,
+  initialAnswers,
+  taskMediaMap,
+  timeLimitSec,
+  testTitle,
+  subject,
+  examType,
+}: TestPlayerProps) {
+  const router = useRouter()
+  const supabase = createClient()
+
+  const [currentIdx, setCurrentIdx] = useState(0)
+  const [answers, setAnswers] = useState<Record<string, Json>>(initialAnswers)
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
+  const [showSubmitDialog, setShowSubmitDialog] = useState(false)
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [showNavigator, setShowNavigator] = useState(false)
+
+  // Track pending (unsaved) answer per task
+  const pendingRef = useRef<Record<string, Json>>({})
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const saveAnswer = useCallback(
+    async (taskId: string, answerJson: Json) => {
+      setSaveStatus('saving')
+      try {
+        const res = await fetch(`/api/attempts/${attemptId}/answers`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ task_id: taskId, answer_json: answerJson }),
+        })
+        if (!res.ok) throw new Error('Save failed')
+        delete pendingRef.current[taskId]
+        setSaveStatus('saved')
+        // Clear "saved" status after 2s
+        setTimeout(() => setSaveStatus((s) => (s === 'saved' ? 'idle' : s)), 2000)
+      } catch {
+        setSaveStatus('error')
+      }
+    },
+    [attemptId]
+  )
+
+  const flushPending = useCallback(async () => {
+    const pending = { ...pendingRef.current }
+    const entries = Object.entries(pending)
+    if (entries.length === 0) return
+    // Save all pending answers sequentially
+    for (const [taskId, answerJson] of entries) {
+      await saveAnswer(taskId, answerJson)
+    }
+  }, [saveAnswer])
+
+  function handleAnswerChange(taskId: string, answerJson: Json) {
+    setAnswers((prev) => ({ ...prev, [taskId]: answerJson }))
+    pendingRef.current[taskId] = answerJson
+
+    // Reset debounce
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current)
+    debounceTimerRef.current = setTimeout(() => {
+      saveAnswer(taskId, answerJson)
+    }, DEBOUNCE_MS)
+  }
+
+  async function navigateTo(idx: number) {
+    if (idx === currentIdx) return
+    // Flush pending before navigating
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current)
+      debounceTimerRef.current = null
+    }
+    await flushPending()
+    setCurrentIdx(idx)
+    setShowNavigator(false)
+  }
+
+  // Heartbeat
+  useEffect(() => {
+    async function sendHeartbeat() {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+      await supabase.from('presence_events').insert({
+        attempt_id: attemptId,
+        student_id: user.id,
+        event_type: 'heartbeat',
+        current_task_number: tasks[currentIdx]?.task_number ?? 1,
+      })
+    }
+
+    const interval = setInterval(sendHeartbeat, HEARTBEAT_MS)
+    return () => clearInterval(interval)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [attemptId, currentIdx])
+
+  // Cleanup debounce on unmount
+  useEffect(() => {
+    return () => {
+      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current)
+    }
+  }, [])
+
+  async function handleSubmit() {
+    setIsSubmitting(true)
+    // Flush any unsaved answers first
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current)
+      debounceTimerRef.current = null
+    }
+    await flushPending()
+
+    try {
+      const res = await fetch(`/api/attempts/${attemptId}/submit`, {
+        method: 'POST',
+      })
+      if (!res.ok) throw new Error('Submit failed')
+      router.push(`/student/attempt/${assignmentId}/result`)
+    } catch {
+      setSaveStatus('error')
+      setIsSubmitting(false)
+      setShowSubmitDialog(false)
+    }
+  }
+
+  function handleExpire() {
+    handleSubmit()
+  }
+
+  const currentTask = tasks[currentIdx]
+
+  const answeredCount = tasks.filter((t) => {
+    const ans = answers[t.id]
+    if (ans === undefined || ans === null) return false
+    if (typeof ans === 'object' && !Array.isArray(ans)) {
+      const obj = ans as Record<string, Json | undefined>
+      if ('selected' in obj) {
+        const sel = obj['selected']
+        if (Array.isArray(sel)) return sel.length > 0
+        return sel !== null && sel !== undefined && sel !== ''
+      }
+      if ('text' in obj) return typeof obj['text'] === 'string' && obj['text'].trim().length > 0
+      if ('value' in obj) return typeof obj['value'] === 'string' && obj['value'].trim().length > 0
+      if ('parts' in obj) {
+        const parts = obj['parts']
+        if (parts !== null && typeof parts === 'object' && !Array.isArray(parts)) {
+          return Object.values(parts as Record<string, Json | undefined>).some(
+            (v) => typeof v === 'string' && v.trim().length > 0
+          )
+        }
+      }
+    }
+    return false
+  }).length
+
+  return (
+    <div className="flex h-[100dvh] flex-col overflow-hidden bg-background">
+      {/* Sticky header */}
+      <header className="sticky top-0 z-30 border-b bg-background/95 backdrop-blur supports-backdrop-filter:bg-background/60">
+        <div className="flex h-14 items-center gap-3 px-4">
+          {/* Mobile nav toggle */}
+          <button
+            type="button"
+            className="flex md:hidden items-center justify-center rounded-md p-1.5 hover:bg-muted"
+            onClick={() => setShowNavigator((v) => !v)}
+            aria-label="Навигация по задачам"
+          >
+            {showNavigator ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+          </button>
+
+          <div className="flex flex-1 flex-col justify-center min-w-0">
+            <span className="truncate text-sm font-semibold leading-tight">{testTitle}</span>
+            {(subject || examType) && (
+              <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                {subject && <span>{subject}</span>}
+                {examType && <Badge variant="secondary" className="text-[10px] px-1.5 py-0">{examType}</Badge>}
+              </span>
+            )}
+          </div>
+
+          <div className="flex items-center gap-3 shrink-0">
+            <SaveStatus status={saveStatus} />
+            {timeLimitSec !== null && (
+              <Timer
+                startedAt={startedAt}
+                timeLimitSec={timeLimitSec}
+                onExpire={handleExpire}
+              />
+            )}
+            <Button
+              size="sm"
+              variant="default"
+              onClick={() => setShowSubmitDialog(true)}
+              disabled={isSubmitting}
+            >
+              <Send className="mr-1.5 h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Завершить</span>
+            </Button>
+          </div>
+        </div>
+
+        {/* Mobile task navigator */}
+        {showNavigator && (
+          <div className="border-t px-4 py-3 md:hidden overflow-x-auto">
+            <TaskNavigator
+              tasks={tasks}
+              currentIdx={currentIdx}
+              answers={answers}
+              onSelect={navigateTo}
+            />
+          </div>
+        )}
+      </header>
+
+      {/* Main content */}
+      <div className="flex flex-1 overflow-hidden">
+        {/* Desktop task navigator sidebar */}
+        <aside className="hidden md:flex w-64 flex-col border-r overflow-y-auto">
+          <div className="p-4 space-y-3">
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              Задачи ({answeredCount}/{tasks.length})
+            </p>
+            <TaskNavigator
+              tasks={tasks}
+              currentIdx={currentIdx}
+              answers={answers}
+              onSelect={navigateTo}
+            />
+          </div>
+        </aside>
+
+        {/* Task content */}
+        <main className="flex flex-1 flex-col overflow-y-auto">
+          <div className="flex-1 p-4 md:p-8 max-w-2xl mx-auto w-full">
+            {currentTask && (
+              <TaskView
+                task={currentTask}
+                answer={answers[currentTask.id]}
+                onChange={(ans) => handleAnswerChange(currentTask.id, ans)}
+                images={taskMediaMap[currentTask.id] ?? []}
+                disabled={isSubmitting}
+              />
+            )}
+          </div>
+
+          {/* Prev / Next navigation */}
+          <div className="sticky bottom-0 border-t bg-background px-4 py-3">
+            <div className="flex items-center justify-between max-w-2xl mx-auto">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={currentIdx === 0 || isSubmitting}
+                onClick={() => navigateTo(currentIdx - 1)}
+              >
+                <ChevronLeft className="mr-1 h-4 w-4" />
+                Назад
+              </Button>
+              <span className="text-sm text-muted-foreground">
+                {currentIdx + 1} / {tasks.length}
+              </span>
+              {currentIdx < tasks.length - 1 ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={isSubmitting}
+                  onClick={() => navigateTo(currentIdx + 1)}
+                >
+                  Далее
+                  <ChevronRight className="ml-1 h-4 w-4" />
+                </Button>
+              ) : (
+                <Button
+                  size="sm"
+                  disabled={isSubmitting}
+                  onClick={() => setShowSubmitDialog(true)}
+                >
+                  <Send className="mr-1.5 h-3.5 w-3.5" />
+                  Завершить
+                </Button>
+              )}
+            </div>
+          </div>
+        </main>
+      </div>
+
+      <SubmitDialog
+        open={showSubmitDialog}
+        onClose={() => setShowSubmitDialog(false)}
+        onConfirm={handleSubmit}
+        answeredCount={answeredCount}
+        totalCount={tasks.length}
+        isSubmitting={isSubmitting}
+      />
+    </div>
+  )
+}
