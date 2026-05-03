@@ -30,11 +30,11 @@ export default async function AttemptPage({ params }: PageProps) {
       time_limit_override_sec,
       starts_at,
       ends_at,
-      test_versions (
+      test_versions!test_version_id (
         id,
         time_limit_sec,
         result_visibility,
-        tests (
+        tests!test_id (
           id,
           title,
           subject,

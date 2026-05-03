@@ -52,7 +52,7 @@ export default async function ResultPage({ params }: PageProps) {
   const { data: assignment } = await supabase
     .from('assignments')
     .select(`id, student_id, group_id, test_version_id,
-      test_versions ( id, result_visibility, tests ( id, title, subject, exam_type ) )`)
+      test_versions!test_version_id ( id, result_visibility, tests!test_id ( id, title, subject, exam_type ) )`)
     .eq('id', assignmentId)
     .single()
 

@@ -12,7 +12,7 @@ export default async function AssignmentsPage() {
     .select(`
       id, starts_at, ends_at, max_attempts, created_at,
       group_id, student_id,
-      test_versions ( tests ( title ) ),
+      test_versions!test_version_id ( tests!test_id ( title ) ),
       groups ( name )
     `)
     .order('created_at', { ascending: false })

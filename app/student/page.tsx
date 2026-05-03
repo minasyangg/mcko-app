@@ -37,9 +37,9 @@ export default async function StudentHomePage() {
     .from('assignments')
     .select(`
       id, starts_at, ends_at, max_attempts,
-      test_versions (
+      test_versions!test_version_id (
         id, time_limit_sec,
-        tests ( id, title, subject, exam_type )
+        tests!test_id ( id, title, subject, exam_type )
       )
     `)
 

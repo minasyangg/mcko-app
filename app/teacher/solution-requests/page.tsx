@@ -14,7 +14,7 @@ export default async function SolutionRequestsPage() {
       student_id,
       profiles ( full_name ),
       test_tasks ( task_number, prompt_text,
-        test_versions ( tests ( title ) )
+        test_versions!test_version_id ( tests!test_id ( title ) )
       )
     `)
     .order('created_at', { ascending: false })
