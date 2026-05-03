@@ -3,6 +3,7 @@ import Link from 'next/link'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Plus, BookOpen } from 'lucide-react'
+import { DeleteTestButton } from '@/components/teacher/DeleteTestButton'
 
 const statusLabel: Record<string, string> = {
   draft: 'Черновик',
@@ -81,9 +82,12 @@ export default async function TestsPage() {
                       : '—'}
                   </td>
                   <td className="px-4 py-3">
-                    <Button asChild size="sm" variant="ghost">
-                      <Link href={`/teacher/tests/${test.id}`}>Открыть</Link>
-                    </Button>
+                    <div className="flex items-center gap-1 justify-end">
+                      <Button asChild size="sm" variant="ghost">
+                        <Link href={`/teacher/tests/${test.id}`}>Открыть</Link>
+                      </Button>
+                      <DeleteTestButton testId={test.id} testTitle={test.title} />
+                    </div>
                   </td>
                 </tr>
               ))}

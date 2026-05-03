@@ -1,6 +1,8 @@
 import { createClient } from '@/lib/supabase/server'
 import { Badge } from '@/components/ui/badge'
-import { Users } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { Users, Plus } from 'lucide-react'
+import Link from 'next/link'
 
 export default async function StudentsPage() {
   const supabase = await createClient()
@@ -13,11 +15,19 @@ export default async function StudentsPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold">Ученики</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          {students?.length ?? 0} зарегистрированных учеников
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold">Ученики</h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            {students?.length ?? 0} зарегистрированных учеников
+          </p>
+        </div>
+        <Button asChild>
+          <Link href="/teacher/students/new">
+            <Plus className="h-4 w-4 mr-2" />
+            Добавить ученика
+          </Link>
+        </Button>
       </div>
 
       {!students?.length ? (

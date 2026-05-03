@@ -2,13 +2,14 @@ import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import { LogoutButton } from '@/components/shared/LogoutButton'
-import { BookOpen, Users, Monitor, FileText, ClipboardList, BarChart2 } from 'lucide-react'
+import { BookOpen, Users, Monitor, FileText, ClipboardList, BarChart2, TrendingUp } from 'lucide-react'
 
 const navItems = [
   { href: '/teacher', label: 'Дашборд', icon: BarChart2, exact: true },
   { href: '/teacher/tests', label: 'Тесты', icon: BookOpen },
   { href: '/teacher/assignments', label: 'Назначения', icon: ClipboardList },
   { href: '/teacher/monitor', label: 'Мониторинг', icon: Monitor },
+  { href: '/teacher/results', label: 'Результаты', icon: TrendingUp },
   { href: '/teacher/groups', label: 'Группы', icon: Users },
   { href: '/teacher/solution-requests', label: 'Запросы', icon: FileText },
 ]

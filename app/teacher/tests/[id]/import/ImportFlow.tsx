@@ -306,13 +306,15 @@ export default function ImportFlow({
 
     try {
       const supabase = createClient()
-      const docIds: string[] = []
 
       const filesToUpload: Array<{ file: File; docType: DocType }> = [
         { file: tasksFile.file, docType: 'tasks' },
         ...(answersFile.file ? [{ file: answersFile.file, docType: 'answers' as DocType }] : []),
         ...(solutionsFile.file ? [{ file: solutionsFile.file, docType: 'solutions' as DocType }] : []),
       ]
+
+      // Step 1: Upload files to Storage (client-side)
+      const uploads: Array<{ docType: DocType; storagePath: string; originalFilename: string }> = []
 
       for (const { file, docType } of filesToUpload) {
         const storagePath = `test-documents/${testVersionId}/${docType}/original.pdf`
@@ -325,29 +327,14 @@ export default function ImportFlow({
           throw new Error(`Ошибка загрузки ${docType}: ${uploadError.message}`)
         }
 
-        const { data: doc, error: docError } = await supabase
-          .from('test_documents')
-          .insert({
-            test_version_id: testVersionId,
-            doc_type: docType,
-            storage_path: storagePath,
-            original_filename: file.name,
-            parse_status: 'pending',
-          })
-          .select('id')
-          .single()
-
-        if (docError || !doc) {
-          throw new Error(`Ошибка создания записи документа: ${docError?.message}`)
-        }
-
-        docIds.push(doc.id)
+        uploads.push({ docType, storagePath, originalFilename: file.name })
       }
 
+      // Step 2: Trigger parsing — server creates test_documents records (bypasses RLS)
       const res = await fetch('/api/parsing/trigger', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ test_version_id: testVersionId, doc_ids: docIds }),
+        body: JSON.stringify({ test_version_id: testVersionId, uploads }),
       })
 
       if (!res.ok) {
@@ -379,10 +366,21 @@ export default function ImportFlow({
 
       {phase === 'upload' && (
         <div className="space-y-6">
+          {/* Инструкция */}
+          <div className="rounded-lg border bg-muted/30 p-4 space-y-3">
+            <p className="text-sm font-semibold">Как загружать тесты:</p>
+            <ol className="text-sm text-muted-foreground space-y-1.5 list-decimal list-inside">
+              <li>Загрузите PDF с заданиями — обязательно. Файл должен содержать нумерованные задачи (1., 2., Задание 1 и т.д.)</li>
+              <li>Опционально: PDF с ответами (короткие ответы по номерам) и PDF с решениями (разбор задач)</li>
+              <li>Нажмите "Запустить парсинг" — AI проанализирует текст и создаст задачи автоматически</li>
+              <li>После обработки проверьте и одобрите задачи в режиме Review, затем опубликуйте тест</li>
+            </ol>
+          </div>
+
           <div>
             <h2 className="text-lg font-semibold mb-1">Загрузите PDF-файлы</h2>
             <p className="text-sm text-muted-foreground">
-              Загрузите файлы с заданиями, ответами и решениями. Файл с заданиями обязателен.
+              Файл с заданиями обязателен. Ответы и решения — опционально.
             </p>
           </div>
 

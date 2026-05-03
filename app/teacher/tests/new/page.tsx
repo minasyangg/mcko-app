@@ -168,14 +168,14 @@ export default function NewTestPage() {
             <div className="space-y-2">
               <Label htmlFor="exam_type">Тип экзамена</Label>
               <Select
-                value={examTypeValue || ''}
-                onValueChange={(val) => setValue('exam_type', val)}
+                value={examTypeValue || '_none'}
+                onValueChange={(val) => setValue('exam_type', val === '_none' ? '' : val)}
               >
                 <SelectTrigger id="exam_type">
                   <SelectValue placeholder="Выберите тип..." />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">— Не указан —</SelectItem>
+                  <SelectItem value="_none">— Не указан —</SelectItem>
                   {EXAM_TYPES.map((t) => (
                     <SelectItem key={t} value={t}>
                       {t}

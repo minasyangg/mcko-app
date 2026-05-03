@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { Plus, ClipboardList } from 'lucide-react'
+import { DeleteAssignmentButton } from '@/components/teacher/DeleteAssignmentButton'
 
 export default async function AssignmentsPage() {
   const supabase = await createClient()
@@ -51,6 +52,7 @@ export default async function AssignmentsPage() {
                 <th className="text-left px-4 py-3 font-medium">Конец</th>
                 <th className="text-left px-4 py-3 font-medium">Попыток</th>
                 <th className="text-left px-4 py-3 font-medium">Создано</th>
+                <th className="px-4 py-3" />
               </tr>
             </thead>
             <tbody className="divide-y">
@@ -82,6 +84,9 @@ export default async function AssignmentsPage() {
                       {a.created_at
                         ? new Date(a.created_at).toLocaleDateString('ru-RU')
                         : '—'}
+                    </td>
+                    <td className="px-4 py-3">
+                      <DeleteAssignmentButton assignmentId={a.id} />
                     </td>
                   </tr>
                 )

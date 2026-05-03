@@ -1,40 +1,10 @@
 import { createClient } from '@/lib/supabase/server'
-import { notFound, redirect } from 'next/navigation'
-import Link from 'next/link'
-import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Separator } from '@/components/ui/separator'
-import { ArrowLeft, Plus } from 'lucide-react'
-import { createAdminClient } from '@/lib/supabase/admin'
+import { notFound } from 'next/navigation'
+import { TestDetailClient } from '@/components/teacher/TestDetailClient'
+import type { TestTask } from '@/components/teacher/TestDetailClient'
 
 interface PageProps {
   params: Promise<{ id: string }>
-}
-
-const statusLabel: Record<string, string> = {
-  draft: 'Черновик',
-  in_review: 'На проверке',
-  published: 'Опубликован',
-  archived: 'Архив',
-}
-
-const statusVariant: Record<string, 'secondary' | 'default' | 'outline' | 'destructive'> = {
-  draft: 'secondary',
-  in_review: 'secondary',
-  published: 'default',
-  archived: 'outline',
-}
-
-async function createNewVersion(testId: string, currentMaxVersion: number) {
-  'use server'
-  const supabase = createAdminClient()
-  await supabase.from('test_versions').insert({
-    test_id: testId,
-    version_number: currentMaxVersion + 1,
-    status: 'draft',
-  })
-  redirect(`/teacher/tests/${testId}`)
 }
 
 export default async function TestDetailPage({ params }: PageProps) {
@@ -43,7 +13,7 @@ export default async function TestDetailPage({ params }: PageProps) {
 
   const { data: test, error } = await supabase
     .from('tests')
-    .select('*')
+    .select('id, title, subject, grade, exam_type, description, status')
     .eq('id', id)
     .single()
 
@@ -51,139 +21,74 @@ export default async function TestDetailPage({ params }: PageProps) {
     notFound()
   }
 
+  // Find the working version: prefer draft/in_review, fallback to published
   const { data: versions } = await supabase
     .from('test_versions')
-    .select('*')
+    .select('id, status')
     .eq('test_id', id)
     .order('version_number', { ascending: false })
 
-  const latestVersion = versions?.[0]
+  let workingVersion: { id: string; status: string } | null = null
 
-  const { data: latestJobs } = latestVersion
-    ? await supabase
-        .from('parsing_jobs')
-        .select('id, status, created_at')
-        .eq('test_version_id', latestVersion.id)
-        .order('created_at', { ascending: false })
-        .limit(1)
-    : { data: null }
+  if (versions && versions.length > 0) {
+    // 1. Prefer draft or in_review (editable)
+    workingVersion =
+      versions.find((v) => v.status === 'draft' || v.status === 'in_review') ?? null
 
-  const latestJob = latestJobs?.[0] ?? null
-  const maxVersionNumber = versions?.reduce((max, v) => Math.max(max, v.version_number), 0) ?? 0
+    // 2. Fallback to published
+    if (!workingVersion) {
+      workingVersion = versions.find((v) => v.status === 'published') ?? null
+    }
+  }
 
-  const createVersionAction = createNewVersion.bind(null, id, maxVersionNumber)
+  const canEdit = workingVersion != null && workingVersion.status !== 'published'
+
+  // Load tasks for the working version
+  let tasks: TestTask[] = []
+
+  if (workingVersion) {
+    const { data: rawTasks } = await supabase
+      .from('test_tasks')
+      .select('*, task_answer_keys(correct_answer, grading_method)')
+      .eq('test_version_id', workingVersion.id)
+      .order('task_number', { ascending: true })
+
+    if (rawTasks) {
+      tasks = rawTasks.map((t) => {
+        const key = (t as any).task_answer_keys
+        return {
+          id: t.id,
+          task_number: t.task_number,
+          sort_order: t.sort_order,
+          prompt_text: t.prompt_text,
+          task_type: t.task_type,
+          options: t.options,
+          answer_format_hint: t.answer_format_hint,
+          max_score: t.max_score,
+          review_status: t.review_status,
+          parse_confidence: t.parse_confidence,
+          correct_answer: key ? String(key.correct_answer ?? '') || null : null,
+          grading_method: key?.grading_method ?? null,
+        } satisfies TestTask
+      })
+    }
+  }
 
   return (
-    <div className="max-w-4xl mx-auto py-8 px-4 space-y-6">
-      <div className="flex items-center gap-4">
-        <Button asChild variant="ghost" size="sm">
-          <Link href="/teacher/tests">
-            <ArrowLeft className="h-4 w-4 mr-1" />
-            Назад
-          </Link>
-        </Button>
-      </div>
-
-      <div className="flex items-start justify-between gap-4">
-        <div className="space-y-1">
-          <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-semibold">{test.title}</h1>
-            <Badge variant={statusVariant[test.status] ?? 'secondary'}>
-              {statusLabel[test.status] ?? test.status}
-            </Badge>
-          </div>
-          <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
-            {test.subject && <span>Предмет: {test.subject}</span>}
-            {test.grade && <span>Класс: {test.grade}</span>}
-            {test.exam_type && <span>Тип: {test.exam_type}</span>}
-          </div>
-          {test.description && (
-            <p className="text-sm text-muted-foreground mt-2">{test.description}</p>
-          )}
-        </div>
-
-        <form action={createVersionAction}>
-          <Button type="submit" variant="outline" size="sm">
-            <Plus className="h-4 w-4 mr-1" />
-            Новая версия
-          </Button>
-        </form>
-      </div>
-
-      <Separator />
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Версии теста</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {!versions?.length ? (
-            <p className="text-sm text-muted-foreground py-4 text-center">
-              Нет версий. Нажмите &quot;Новая версия&quot; для создания.
-            </p>
-          ) : (
-            <div className="space-y-3">
-              {versions.map((version) => {
-                const isLatest = version.id === latestVersion?.id
-                const hasJob = isLatest && latestJob?.status === 'done'
-
-                return (
-                  <div
-                    key={version.id}
-                    className="flex items-center justify-between py-3 px-4 rounded-md border bg-muted/20"
-                  >
-                    <div className="flex items-center gap-3">
-                      <span className="font-medium text-sm">
-                        Версия {version.version_number}
-                      </span>
-                      <Badge variant={statusVariant[version.status] ?? 'secondary'} className="text-xs">
-                        {statusLabel[version.status] ?? version.status}
-                      </Badge>
-                      {version.published_at && (
-                        <span className="text-xs text-muted-foreground">
-                          Опубликована:{' '}
-                          {new Date(version.published_at).toLocaleDateString('ru-RU')}
-                        </span>
-                      )}
-                    </div>
-
-                    <div className="flex gap-2">
-                      {version.status === 'draft' && !hasJob && (
-                        <Button asChild size="sm" variant="outline">
-                          <Link href={`/teacher/tests/${id}/import?version=${version.id}`}>
-                            Загрузить PDF
-                          </Link>
-                        </Button>
-                      )}
-                      {version.status === 'draft' && hasJob && (
-                        <Button asChild size="sm" variant="outline">
-                          <Link href={`/teacher/tests/${id}/review`}>
-                            Проверить
-                          </Link>
-                        </Button>
-                      )}
-                      {version.status === 'in_review' && (
-                        <Button asChild size="sm" variant="outline">
-                          <Link href={`/teacher/tests/${id}/review`}>
-                            Проверить
-                          </Link>
-                        </Button>
-                      )}
-                      {version.status === 'published' && (
-                        <Button asChild size="sm" variant="outline">
-                          <Link href={`/teacher/assignments/new?version=${version.id}`}>
-                            Назначить
-                          </Link>
-                        </Button>
-                      )}
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-    </div>
+    <TestDetailClient
+      testId={id}
+      test={{
+        title: test.title,
+        subject: test.subject,
+        grade: test.grade,
+        exam_type: test.exam_type,
+        description: test.description,
+        status: test.status,
+      }}
+      versionId={workingVersion?.id ?? null}
+      versionStatus={workingVersion?.status ?? null}
+      tasks={tasks}
+      canEdit={canEdit}
+    />
   )
 }

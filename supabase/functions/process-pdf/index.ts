@@ -1,25 +1,19 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
+// @ts-nocheck — Deno runtime, npm: imports, no TS strict checks needed
 import { createClient } from "npm:@supabase/supabase-js@2"
 
-// ---------------------------------------------------------------------------
+// -------------------------------------------------------------------------
 // Types
-// ---------------------------------------------------------------------------
+// -------------------------------------------------------------------------
 
 interface ParsedTask {
   number: number
   prompt_text: string
-  task_type_guess:
-    | "single_choice"
-    | "multiple_choice"
-    | "short_text"
-    | "numeric"
-    | "composite"
-    | "manual_review"
+  task_type_guess: "single_choice"|"multiple_choice"|"short_text"|"numeric"|"composite"|"manual_review"
   options?: Array<{ id: string; text: string }>
   answer_parts?: Array<{ label: string; type: string }>
   answer_format_hint?: string
   image_refs: string[]
-  images_placement: "above_text" | "below_text" | "inline"
+  images_placement: "above_text"|"below_text"|"inline"
   has_unmatched_images: boolean
   source_pages: number[]
   confidence: number
@@ -27,8 +21,8 @@ interface ParsedTask {
 
 interface ParsedAnswer {
   task_number: number
-  correct_answer: string | string[] | Record<string, string>
-  grading_method_guess: "exact" | "normalized" | "numeric_tolerance" | "set_match" | "manual"
+  correct_answer: unknown
+  grading_method_guess: "exact"|"normalized"|"numeric_tolerance"|"set_match"|"manual"
   confidence: number
 }
 
@@ -46,181 +40,84 @@ interface ParsedTestResult {
   warnings: Array<{ type: string; description: string; task_number?: number }>
 }
 
-interface TextItem {
-  str: string
-  transform?: number[]
-}
-
-interface ExtractedPageText {
-  page: number
-  text: string
-}
-
-// ---------------------------------------------------------------------------
-// Supabase admin client helper
-// ---------------------------------------------------------------------------
+// -------------------------------------------------------------------------
+// Admin client (uses built-in Supabase env vars)
+// -------------------------------------------------------------------------
 
 function getAdminClient() {
   const url = Deno.env.get("SUPABASE_URL")!
   const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
-  return createClient(url, key, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  })
+  return createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } })
 }
 
-// ---------------------------------------------------------------------------
-// PDF text extraction using pdfjs-dist
-// ---------------------------------------------------------------------------
+// -------------------------------------------------------------------------
+// PDF text extraction — tries pdf-parse (npm), falls back to raw binary
+// -------------------------------------------------------------------------
 
-async function extractTextFromPdf(
-  pdfBytes: ArrayBuffer
-): Promise<{ pages: ExtractedPageText[]; pageCount: number }> {
-  // Dynamic import to handle potential Deno compatibility issues
-  const pdfjs = await import("npm:pdfjs-dist@3.11.174/legacy/build/pdf.mjs")
+async function extractTextFromPdf(pdfBytes: ArrayBuffer): Promise<{ pages: Array<{page:number;text:string}>; pageCount: number }> {
+  const bytes = new Uint8Array(pdfBytes)
 
-  // Disable worker in Deno environment
-  // deno-lint-ignore no-explicit-any
-  ;(pdfjs as any).GlobalWorkerOptions = (pdfjs as any).GlobalWorkerOptions ?? {}
-  // deno-lint-ignore no-explicit-any
-  ;(pdfjs as any).GlobalWorkerOptions.workerSrc = ""
-
-  const data = new Uint8Array(pdfBytes)
-  // deno-lint-ignore no-explicit-any
-  const loadingTask = (pdfjs as any).getDocument({ data, useWorkerFetch: false, isEvalSupported: false, useSystemFonts: true })
-  const pdf = await loadingTask.promise
-  const pageCount: number = pdf.numPages
-  const pages: ExtractedPageText[] = []
-
-  for (let pageNum = 1; pageNum <= pageCount; pageNum++) {
-    const page = await pdf.getPage(pageNum)
-    const textContent = await page.getTextContent()
-    const text = (textContent.items as TextItem[])
-      .map((item) => item.str ?? "")
-      .join(" ")
-      .replace(/\s+/g, " ")
-      .trim()
-    pages.push({ page: pageNum, text })
-  }
-
-  return { pages, pageCount }
-}
-
-// ---------------------------------------------------------------------------
-// PDF image extraction using pdfjs-dist operator list
-// ---------------------------------------------------------------------------
-
-async function extractImagesFromPdf(
-  pdfBytes: ArrayBuffer,
-  supabase: ReturnType<typeof createClient>,
-  testVersionId: string,
-  docId: string
-): Promise<{ count: number; mediaPaths: string[] }> {
-  const pdfjs = await import("npm:pdfjs-dist@3.11.174/legacy/build/pdf.mjs")
-
-  // deno-lint-ignore no-explicit-any
-  ;(pdfjs as any).GlobalWorkerOptions = (pdfjs as any).GlobalWorkerOptions ?? {}
-  // deno-lint-ignore no-explicit-any
-  ;(pdfjs as any).GlobalWorkerOptions.workerSrc = ""
-
-  const data = new Uint8Array(pdfBytes)
-  // deno-lint-ignore no-explicit-any
-  const loadingTask = (pdfjs as any).getDocument({ data, useWorkerFetch: false, isEvalSupported: false, useSystemFonts: true })
-  const pdf = await loadingTask.promise
-
-  const mediaPaths: string[] = []
-  let globalImgIndex = 0
-
-  for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
-    try {
-      const page = await pdf.getPage(pageNum)
-      const opList = await page.getOperatorList()
-      // deno-lint-ignore no-explicit-any
-      const OPS = (pdfjs as any).OPS
-
-      for (let i = 0; i < opList.fnArray.length; i++) {
-        const fn = opList.fnArray[i]
-        const isPaintImage =
-          fn === OPS.paintImageXObject ||
-          fn === OPS.paintInlineImageXObject ||
-          fn === OPS.paintImageXObjectRepeat
-
-        if (!isPaintImage) continue
-
-        try {
-          const imgName = opList.argsArray[i]?.[0] as string | undefined
-          if (!imgName) continue
-
-          const objs = page.commonObjs
-          let imgData: { data: Uint8Array; width: number; height: number } | null = null
-
-          // Try to retrieve image data from page objects
-          try {
-            imgData = await new Promise((resolve, reject) => {
-              // deno-lint-ignore no-explicit-any
-              const obj = (page as any).objs?.get(imgName) ?? (objs as any)?.get(imgName)
-              if (obj?.data) {
-                resolve(obj)
-              } else {
-                // Some images may not be directly accessible; skip
-                reject(new Error("no data"))
-              }
-            })
-          } catch {
-            continue
-          }
-
-          if (!imgData?.data) continue
-
-          // Convert raw RGBA to a simple PNG-like representation
-          // We store as raw bytes in webp bucket path but keep content type image/webp
-          // For a true webp we'd need a canvas, but in Deno we store the raw image bytes
-          // and rely on the browser to handle rendering via signed URL
-          const storagePath = `task-media/raw/${testVersionId}/doc_${docId}_page_${pageNum}_img_${globalImgIndex}.webp`
-
-          const { error: uploadErr } = await supabase.storage
-            .from("task-media")
-            .upload(storagePath, imgData.data, {
-              contentType: "image/webp",
-              upsert: true,
-            })
-
-          if (uploadErr) {
-            console.warn(`Image upload failed for ${storagePath}: ${uploadErr.message}`)
-            globalImgIndex++
-            continue
-          }
-
-          // Create task_media record with task_id = null (unmatched)
-          await supabase.from("task_media").insert({
-            storage_path: storagePath,
-            task_id: null,
-            media_type: "image",
-            format: "webp",
-            source_page: pageNum,
-            is_manually_uploaded: false,
-          })
-
-          mediaPaths.push(storagePath)
-          globalImgIndex++
-        } catch (imgErr) {
-          console.warn(`Image extraction error on page ${pageNum}, image ${globalImgIndex}:`, imgErr)
-          globalImgIndex++
-        }
-      }
-    } catch (pageErr) {
-      console.warn(`Page ${pageNum} operator list error:`, pageErr)
+  // Strategy 1: pdf-parse (npm, Node.js-compatible, works in Deno)
+  try {
+    const pdfParse = (await import("npm:pdf-parse/lib/pdf-parse.js")).default
+    const { Buffer } = await import("node:buffer")
+    const buf = Buffer.from(bytes)
+    const result = await pdfParse(buf)
+    const text: string = result.text ?? ""
+    console.log(`[pdf-parse] extracted ${text.length} chars, ${result.numpages} pages`)
+    if (text.trim().length > 0) {
+      // Split by page breaks if available, otherwise treat as single page
+      const pages = text.split(/\f/).map((pageText, i) => ({
+        page: i + 1,
+        text: pageText.replace(/\s+/g, " ").trim(),
+      })).filter(p => p.text.length > 0)
+      return { pages, pageCount: result.numpages }
     }
+  } catch (e) {
+    console.warn("[pdf-parse] failed:", e instanceof Error ? e.message : String(e))
   }
 
-  return { count: mediaPaths.length, mediaPaths }
+  // Strategy 2: raw binary text extraction (works for text-based PDFs)
+  try {
+    const decoder = new TextDecoder("latin1")
+    const pdfStr = decoder.decode(bytes)
+    const texts: string[] = []
+
+    // Extract text between parentheses in BT/ET blocks (PDF text operators)
+    const btEtRegex = /BT\s*([\s\S]*?)\s*ET/g
+    let match
+    while ((match = btEtRegex.exec(pdfStr)) !== null) {
+      const block = match[1]
+      const tjRegex = /\(([^)\\]*(?:\\.[^)\\]*)*)\)\s*(?:Tj|'|")/g
+      let tjMatch
+      while ((tjMatch = tjRegex.exec(block)) !== null) {
+        const txt = tjMatch[1]
+          .replace(/\\n/g, "\n").replace(/\\r/g, "\r")
+          .replace(/\\t/g, "\t").replace(/\\\\/g, "\\")
+          .replace(/\\([()])/g, "$1")
+        if (txt.trim()) texts.push(txt)
+      }
+    }
+
+    const rawText = texts.join(" ").replace(/\s+/g, " ").trim()
+    console.log(`[raw-extract] extracted ${rawText.length} chars`)
+    if (rawText.length > 50) {
+      return { pages: [{ page: 1, text: rawText }], pageCount: 1 }
+    }
+  } catch (e) {
+    console.warn("[raw-extract] failed:", e instanceof Error ? e.message : String(e))
+  }
+
+  console.warn("[text-extraction] both strategies failed — no text extracted")
+  return { pages: [], pageCount: 0 }
 }
 
-// ---------------------------------------------------------------------------
+// -------------------------------------------------------------------------
 // DeepSeek AI parsing
-// ---------------------------------------------------------------------------
+// -------------------------------------------------------------------------
 
 const SYSTEM_PROMPT = `Ты — парсер экзаменационных тестов. Тебе дан текст из PDF-документов.
-Верни ТОЛЬКО JSON без комментариев в формате ParsedTest.
+Верни ТОЛЬКО валидный JSON без комментариев и без markdown.
 
 Правила:
 1. Найди все задачи по номерам (1., 2., Задание 1, Задача 3 и т.д.)
@@ -229,34 +126,33 @@ const SYSTEM_PROMPT = `Ты — парсер экзаменационных те
    - multiple_choice: "выберите несколько", "отметьте все"
    - numeric: "вычислите", "найдите значение", числовой ответ
    - short_text: короткий текстовый ответ
-   - composite: несколько подпунктов а), б), в) или 1), 2), 3)
+   - composite: несколько подпунктов а), б), в)
    - manual_review: развёрнутый ответ, эссе
 3. Если в тексте встречается "на рисунке", "по графику", "см. схему" — has_unmatched_images=true
-4. Confidence < 0.7 если задача неполная или тип неясен
-5. Правильные ответы ищи в тексте после "Ответ:", "Правильный ответ:"
+4. confidence < 0.7 если задача неполная или тип неясен
+5. Правильные ответы ищи после "Ответ:", "Правильный ответ:", "Ключ:"
 6. НЕ домысливай ответы — если не нашёл, оставь null
+7. Ответ должен быть строго в JSON формате ниже:
+
+{
+  "meta": {"title": "...", "subject": "...", "exam_type": "...", "grade": "..."},
+  "tasks": [{"number": 1, "prompt_text": "...", "task_type_guess": "short_text", "options": [], "answer_parts": [], "answer_format_hint": null, "image_refs": [], "images_placement": "above_text", "has_unmatched_images": false, "source_pages": [1], "confidence": 0.9}],
+  "answers": [{"task_number": 1, "correct_answer": "...", "grading_method_guess": "exact", "confidence": 0.9}],
+  "solutions": [],
+  "warnings": []
+}
 
 Текст документов:
-[DOCUMENT_TEXT]
+[DOCUMENT_TEXT]`
 
-Метаданные изображений:
-[IMAGE_METADATA]`
+async function parseWithDeepSeek(documentsText: string, apiKey: string): Promise<ParsedTestResult> {
+  const prompt = SYSTEM_PROMPT.replace("[DOCUMENT_TEXT]", documentsText.slice(0, 30000))
 
-async function parseWithDeepSeek(
-  documentsText: string,
-  imageMetadata: string,
-  apiKey: string
-): Promise<ParsedTestResult> {
-  const prompt = SYSTEM_PROMPT
-    .replace("[DOCUMENT_TEXT]", documentsText)
-    .replace("[IMAGE_METADATA]", imageMetadata)
+  console.log(`[deepseek] sending ${documentsText.length} chars of text`)
 
   const response = await fetch("https://api.deepseek.com/v1/chat/completions", {
     method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
+    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
     body: JSON.stringify({
       model: "deepseek-chat",
       messages: [{ role: "user", content: prompt }],
@@ -273,10 +169,9 @@ async function parseWithDeepSeek(
 
   const data = await response.json()
   const content: string = data.choices?.[0]?.message?.content ?? ""
+  console.log(`[deepseek] response length: ${content.length}`)
 
-  if (!content) {
-    throw new Error("DeepSeek returned empty response")
-  }
+  if (!content) throw new Error("DeepSeek returned empty response")
 
   const parsed: ParsedTestResult = JSON.parse(content)
   if (!parsed.meta) parsed.meta = {}
@@ -285,21 +180,18 @@ async function parseWithDeepSeek(
   if (!Array.isArray(parsed.solutions)) parsed.solutions = []
   if (!Array.isArray(parsed.warnings)) parsed.warnings = []
 
+  console.log(`[deepseek] parsed ${parsed.tasks.length} tasks, ${parsed.answers.length} answers`)
   return parsed
 }
 
-// ---------------------------------------------------------------------------
+// -------------------------------------------------------------------------
 // Main handler
-// ---------------------------------------------------------------------------
+// -------------------------------------------------------------------------
 
-serve(async (req: Request) => {
-  // CORS pre-flight
+Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", {
-      headers: {
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-      },
+      headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type" },
     })
   }
 
@@ -308,251 +200,140 @@ serve(async (req: Request) => {
 
   try {
     const body = await req.json()
-    const { job_id, test_version_id, doc_ids } = body as {
-      job_id: string
-      test_version_id: string
-      doc_ids: string[]
-    }
+    const { job_id, test_version_id, doc_ids } = body as { job_id: string; test_version_id: string; doc_ids: string[] }
     jobId = job_id
+    console.log(`[process-pdf] job=${job_id}, version=${test_version_id}, docs=${doc_ids?.length}`)
 
-    if (!job_id || !test_version_id || !Array.isArray(doc_ids)) {
+    if (!job_id || !test_version_id || !Array.isArray(doc_ids) || doc_ids.length === 0) {
       return new Response(JSON.stringify({ error: "Invalid request body" }), { status: 400 })
     }
 
     const deepseekApiKey = Deno.env.get("DEEPSEEK_API_KEY")
-    if (!deepseekApiKey) {
-      throw new Error("DEEPSEEK_API_KEY environment variable is not set")
-    }
+    if (!deepseekApiKey) throw new Error("DEEPSEEK_API_KEY is not set in Supabase Edge Function Secrets.")
 
-    // -----------------------------------------------------------------------
     // Step 1: Mark job as processing
-    // -----------------------------------------------------------------------
-    await supabase
+    const { error: jobUpdateErr } = await supabase
       .from("parsing_jobs")
       .update({ status: "processing", started_at: new Date().toISOString() })
       .eq("id", job_id)
+    if (jobUpdateErr) console.error("[step1] job update error:", jobUpdateErr.message)
 
-    // -----------------------------------------------------------------------
-    // Step 2: Load each document and extract text + images
-    // -----------------------------------------------------------------------
-    const allPageTexts: ExtractedPageText[] = []
-    const allMediaPaths: string[] = []
-    const imageMetadataLines: string[] = []
+    // Step 2: Download and extract text from each document
+    const allPageTexts: Array<{ page: number; text: string }> = []
 
     for (const docId of doc_ids) {
-      // Fetch document record to get storage_path and doc_type
-      const { data: docRecord, error: docFetchErr } = await supabase
+      console.log(`[step2] processing doc=${docId}`)
+
+      const { data: docRecord, error: docErr } = await supabase
         .from("test_documents")
         .select("id, storage_path, doc_type")
         .eq("id", docId)
         .single()
 
-      if (docFetchErr || !docRecord) {
-        console.warn(`Document ${docId} not found, skipping`)
+      if (docErr || !docRecord) {
+        console.error(`[step2] doc not found: ${docId}`, docErr?.message)
         continue
       }
 
-      // Download PDF from Storage
+      console.log(`[step2] downloading ${docRecord.storage_path}`)
       const { data: downloadData, error: downloadErr } = await supabase.storage
         .from("test-documents")
         .download(docRecord.storage_path)
 
       if (downloadErr || !downloadData) {
-        console.warn(`Failed to download ${docRecord.storage_path}: ${downloadErr?.message}`)
-        await supabase
-          .from("test_documents")
-          .update({ parse_status: "failed" })
-          .eq("id", docId)
+        console.error(`[step2] download failed for ${docRecord.storage_path}:`, downloadErr?.message)
+        await supabase.from("test_documents").update({ parse_status: "failed" }).eq("id", docId)
         continue
       }
 
       const pdfBytes = await downloadData.arrayBuffer()
+      console.log(`[step2] downloaded ${pdfBytes.byteLength} bytes`)
 
-      // --- EXTRACT TEXT ---
-      let pages: ExtractedPageText[] = []
-      let pageCount = 0
+      const { pages, pageCount } = await extractTextFromPdf(pdfBytes)
+      console.log(`[step2] extracted ${pages.length} pages, ${pageCount} total`)
 
-      try {
-        const result = await extractTextFromPdf(pdfBytes)
-        pages = result.pages
-        pageCount = result.pageCount
-
-        await supabase
-          .from("test_documents")
-          .update({
-            extracted_text: pages,
-            page_count: pageCount,
-            parse_status: "text_extracted",
-          })
-          .eq("id", docId)
+      if (pages.length > 0) {
+        const { error: updateErr } = await supabase.from("test_documents").update({
+          extracted_text: pages,
+          page_count: pageCount,
+          parse_status: "text_extracted",
+        }).eq("id", docId)
+        if (updateErr) console.error(`[step2] DB update error for ${docId}:`, updateErr.message)
 
         for (const p of pages) {
           allPageTexts.push({ page: p.page, text: `[Doc:${docRecord.doc_type} Page:${p.page}] ${p.text}` })
         }
-      } catch (textErr) {
-        console.warn(`Text extraction failed for ${docId}:`, textErr)
-        await supabase
-          .from("test_documents")
-          .update({ parse_status: "text_failed" })
-          .eq("id", docId)
-      }
-
-      // --- EXTRACT IMAGES (only for tasks and solutions docs) ---
-      if (docRecord.doc_type === "tasks" || docRecord.doc_type === "solutions") {
-        try {
-          const { count, mediaPaths } = await extractImagesFromPdf(
-            pdfBytes,
-            supabase,
-            test_version_id,
-            docId
-          )
-
-          allMediaPaths.push(...mediaPaths)
-
-          await supabase
-            .from("test_documents")
-            .update({ extracted_images_count: count })
-            .eq("id", docId)
-
-          for (const path of mediaPaths) {
-            imageMetadataLines.push(`Path: ${path}`)
-          }
-        } catch (imgErr) {
-          // Image extraction failure is non-fatal — continue with text only
-          console.warn(`Image extraction failed for ${docId}, continuing without images:`, imgErr)
-        }
+      } else {
+        const { error: updateErr } = await supabase.from("test_documents").update({
+          parse_status: "text_failed",
+          page_count: pageCount,
+        }).eq("id", docId)
+        if (updateErr) console.error(`[step2] text_failed update error for ${docId}:`, updateErr.message)
       }
     }
 
-    // -----------------------------------------------------------------------
-    // Step 3: AI parse
-    // -----------------------------------------------------------------------
-    const documentsText = allPageTexts.map((p) => p.text).join("\n\n")
-    const imageMetadata = imageMetadataLines.join("\n") || "Изображения не найдены."
-
-    let parsedResult: ParsedTestResult
-    try {
-      parsedResult = await parseWithDeepSeek(documentsText, imageMetadata, deepseekApiKey)
-    } catch (aiErr) {
-      throw new Error(`AI parsing failed: ${aiErr instanceof Error ? aiErr.message : String(aiErr)}`)
+    // Step 3: Call DeepSeek
+    const documentsText = allPageTexts.map(p => p.text).join("\n\n")
+    if (!documentsText.trim()) {
+      throw new Error("No text could be extracted from the uploaded PDFs. Make sure the PDF contains selectable text (not a scan).")
     }
 
-    // -----------------------------------------------------------------------
-    // Step 4: Save tasks, answer keys, solutions, match images
-    // -----------------------------------------------------------------------
+    const parsedResult = await parseWithDeepSeek(documentsText, deepseekApiKey)
 
-    // Build answer map keyed by task number
+    // Step 4: Save tasks, answers, solutions
     const answerMap = new Map<number, ParsedAnswer>()
-    for (const answer of parsedResult.answers) {
-      answerMap.set(answer.task_number, answer)
-    }
-
-    // Build solution map keyed by task number
+    for (const a of parsedResult.answers) answerMap.set(a.task_number, a)
     const solutionMap = new Map<number, ParsedSolution>()
-    for (const sol of parsedResult.solutions) {
-      solutionMap.set(sol.task_number, sol)
-    }
+    for (const s of parsedResult.solutions) solutionMap.set(s.task_number, s)
 
-    let tasksInserted = 0
-    let answersMatched = 0
-    let solutionsMatched = 0
-    const insertedTaskMap = new Map<number, string>() // task_number → task.id
+    let tasksInserted = 0, answersMatched = 0, solutionsMatched = 0
+    const insertedTaskMap = new Map<number, string>()
 
     for (const parsedTask of parsedResult.tasks) {
-      const { data: task, error: taskErr } = await supabase
-        .from("test_tasks")
-        .insert({
-          test_version_id,
-          task_number: parsedTask.number,
-          sort_order: parsedTask.number,
-          prompt_text: parsedTask.prompt_text,
-          task_type: parsedTask.task_type_guess,
-          options: parsedTask.options ?? null,
-          answer_parts: parsedTask.answer_parts ?? null,
-          answer_format_hint: parsedTask.answer_format_hint ?? null,
-          parse_confidence: parsedTask.confidence,
-          has_images: parsedTask.image_refs.length > 0 || parsedTask.has_unmatched_images,
-          source_pages: parsedTask.source_pages,
-          review_status: "pending",
-          max_score: 1,
-        })
-        .select("id")
-        .single()
+      const { data: task, error: taskErr } = await supabase.from("test_tasks").insert({
+        test_version_id,
+        task_number: parsedTask.number,
+        sort_order: parsedTask.number,
+        prompt_text: parsedTask.prompt_text,
+        task_type: parsedTask.task_type_guess,
+        options: parsedTask.options?.length ? parsedTask.options : null,
+        answer_parts: parsedTask.answer_parts?.length ? parsedTask.answer_parts : null,
+        answer_format_hint: parsedTask.answer_format_hint ?? null,
+        parse_confidence: parsedTask.confidence,
+        has_images: parsedTask.has_unmatched_images,
+        source_pages: parsedTask.source_pages,
+        review_status: "pending",
+        max_score: 1,
+      }).select("id").single()
 
-      if (taskErr || !task) {
-        console.warn(`Failed to insert task ${parsedTask.number}:`, taskErr?.message)
-        continue
-      }
-
+      if (taskErr || !task) { console.warn(`[step4] task insert error:`, taskErr?.message); continue }
       insertedTaskMap.set(parsedTask.number, task.id)
       tasksInserted++
 
-      // Insert answer key if available
       const answer = answerMap.get(parsedTask.number)
       if (answer) {
-        const { error: answerErr } = await supabase.from("task_answer_keys").insert({
+        const { error: ae } = await supabase.from("task_answer_keys").insert({
           task_id: task.id,
           correct_answer: answer.correct_answer,
           grading_method: answer.grading_method_guess,
           parse_confidence: answer.confidence,
         })
-        if (!answerErr) answersMatched++
+        if (!ae) answersMatched++
       }
 
-      // Insert solution if available
       const solution = solutionMap.get(parsedTask.number)
       if (solution) {
-        const { error: solErr } = await supabase.from("task_solutions").insert({
+        const { error: se } = await supabase.from("task_solutions").insert({
           task_id: task.id,
           solution_text: solution.solution_text,
         })
-        if (!solErr) solutionsMatched++
+        if (!se) solutionsMatched++
       }
     }
 
-    // Match images to tasks via image_refs
-    let imagesAttached = 0
-    for (const parsedTask of parsedResult.tasks) {
-      const taskId = insertedTaskMap.get(parsedTask.number)
-      if (!taskId) continue
-
-      for (const ref of parsedTask.image_refs) {
-        // Find task_media record by storage_path matching the ref
-        const { data: mediaRecord } = await supabase
-          .from("task_media")
-          .select("id")
-          .eq("storage_path", ref)
-          .is("task_id", null)
-          .limit(1)
-          .single()
-
-        if (mediaRecord) {
-          await supabase
-            .from("task_media")
-            .update({
-              task_id: taskId,
-              placement: parsedTask.images_placement ?? "above_text",
-            })
-            .eq("id", mediaRecord.id)
-
-          await supabase
-            .from("test_tasks")
-            .update({ has_images: true })
-            .eq("id", taskId)
-
-          imagesAttached++
-        }
-      }
-    }
-
-    // -----------------------------------------------------------------------
-    // Step 5: Save parsing warnings
-    // -----------------------------------------------------------------------
+    // Step 5: Save warnings
     for (const warning of parsedResult.warnings) {
-      const taskId = warning.task_number
-        ? insertedTaskMap.get(warning.task_number)
-        : null
-
+      const taskId = warning.task_number ? insertedTaskMap.get(warning.task_number) : null
       await supabase.from("parsing_warnings").insert({
         parsing_job_id: job_id,
         warning_type: warning.type,
@@ -562,53 +343,41 @@ serve(async (req: Request) => {
       })
     }
 
-    // -----------------------------------------------------------------------
-    // Step 6: Update job as done and test_version as in_review
-    // -----------------------------------------------------------------------
+    // Step 6: Finalize
     const resultSummary = {
       tasks_found: tasksInserted,
       answers_matched: answersMatched,
       solutions_matched: solutionsMatched,
-      images_extracted: allMediaPaths.length,
-      images_attached: imagesAttached,
+      images_extracted: 0,
+      images_attached: 0,
       warnings_count: parsedResult.warnings.length,
     }
 
-    await supabase
-      .from("parsing_jobs")
-      .update({
-        status: "done",
-        completed_at: new Date().toISOString(),
-        result_summary: resultSummary,
-      })
-      .eq("id", job_id)
+    await supabase.from("parsing_jobs").update({
+      status: "done",
+      completed_at: new Date().toISOString(),
+      result_summary: resultSummary,
+    }).eq("id", job_id)
 
     if (tasksInserted > 0) {
-      await supabase
-        .from("test_versions")
-        .update({ status: "in_review" })
-        .eq("id", test_version_id)
+      await supabase.from("test_versions").update({ status: "in_review" }).eq("id", test_version_id)
     }
 
+    console.log(`[process-pdf] done: ${tasksInserted} tasks`)
     return new Response(JSON.stringify({ success: true, result_summary: resultSummary }), {
       headers: { "Content-Type": "application/json" },
     })
+
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     console.error("[process-pdf] Fatal error:", message)
 
-    // Update job to failed if we know the job id
     if (jobId) {
-      const supabaseForError = getAdminClient()
-      await supabaseForError
+      await getAdminClient()
         .from("parsing_jobs")
-        .update({
-          status: "failed",
-          error_message: message,
-          completed_at: new Date().toISOString(),
-        })
+        .update({ status: "failed", error_message: message, completed_at: new Date().toISOString() })
         .eq("id", jobId)
-        .catch(console.error)
+        .catch(e => console.error("[process-pdf] failed to update job status:", e))
     }
 
     return new Response(JSON.stringify({ error: message }), {

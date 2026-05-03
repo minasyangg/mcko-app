@@ -1,0 +1,108 @@
+import { NextRequest } from 'next/server'
+import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
+
+export async function PUT(
+  request: NextRequest,
+  { params }: { params: Promise<{ taskId: string }> }
+) {
+  try {
+    const { taskId } = await params
+    const supabase = await createClient()
+
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser()
+
+    if (authError || !user) {
+      return Response.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('id', user.id)
+      .single()
+
+    if (profileError || !profile || !['teacher', 'admin'].includes(profile.role)) {
+      return Response.json({ error: 'Forbidden' }, { status: 403 })
+    }
+
+    const { data: task, error: taskError } = await supabase
+      .from('test_tasks')
+      .select('id, test_version_id')
+      .eq('id', taskId)
+      .single()
+
+    if (taskError || !task) {
+      return Response.json({ error: 'Task not found' }, { status: 404 })
+    }
+
+    if (task.test_version_id) {
+      const { data: version } = await supabase
+        .from('test_versions')
+        .select('status')
+        .eq('id', task.test_version_id)
+        .single()
+
+      if (version?.status === 'published') {
+        return Response.json({ error: 'Cannot modify tasks in a published version' }, { status: 422 })
+      }
+    }
+
+    const body = await request.json()
+    const { correct_answer, grading_method } = body
+
+    if (correct_answer === undefined || correct_answer === null) {
+      return Response.json({ error: 'correct_answer is required' }, { status: 400 })
+    }
+
+    const admin = createAdminClient()
+
+    // Check if answer key exists
+    const { data: existing } = await admin
+      .from('task_answer_keys')
+      .select('id')
+      .eq('task_id', taskId)
+      .single()
+
+    let result
+    if (existing) {
+      const { data, error } = await admin
+        .from('task_answer_keys')
+        .update({
+          correct_answer,
+          grading_method: grading_method ?? 'exact',
+        })
+        .eq('task_id', taskId)
+        .select()
+        .single()
+
+      if (error) {
+        return Response.json({ error: error.message }, { status: 500 })
+      }
+      result = data
+    } else {
+      const { data, error } = await admin
+        .from('task_answer_keys')
+        .insert({
+          task_id: taskId,
+          correct_answer,
+          grading_method: grading_method ?? 'exact',
+        })
+        .select()
+        .single()
+
+      if (error) {
+        return Response.json({ error: error.message }, { status: 500 })
+      }
+      result = data
+    }
+
+    return Response.json(result)
+  } catch (err) {
+    console.error('[PUT /api/tests/tasks/[taskId]/answer]', err)
+    return Response.json({ error: 'Internal server error' }, { status: 500 })
+  }
+}

@@ -7,7 +7,14 @@ export default async function StudentHomePage() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
 
-  const { data: assignments } = await supabase
+  const { data: memberships } = await supabase
+    .from('group_members')
+    .select('group_id')
+    .eq('user_id', user!.id)
+
+  const groupIds = (memberships ?? []).map((m) => m.group_id as string)
+
+  let query = supabase
     .from('assignments')
     .select(`
       id, starts_at, ends_at, max_attempts,
@@ -16,8 +23,14 @@ export default async function StudentHomePage() {
         tests ( id, title, subject, exam_type )
       )
     `)
-    .or(`student_id.eq.${user!.id},group_id.in.(select group_id from group_members where user_id = '${user!.id}')`)
-    .order('created_at', { ascending: false })
+
+  if (groupIds.length > 0) {
+    query = query.or(`student_id.eq.${user!.id},group_id.in.(${groupIds.join(',')})`)
+  } else {
+    query = query.eq('student_id', user!.id)
+  }
+
+  const { data: assignments } = await query.order('created_at', { ascending: false })
 
   return (
     <div className="space-y-6">
