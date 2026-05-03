@@ -50,10 +50,11 @@ async function extractPdfText(buffer: Buffer): Promise<string> {
 
 interface ExtractedImage {
   data: Buffer
-  format: 'jpeg' | 'png' | 'rgba'
+  format: 'jpeg' | 'png' | 'rgba' | 'rgb' | 'grayscale'
   index: number
   width?: number
   height?: number
+  channels?: number  // 1=grayscale, 3=rgb, 4=rgba — only set for raw pixel data from pdfjs
 }
 
 // pdfjs-based extraction — handles FlateDecode and all compressed image streams
@@ -66,6 +67,8 @@ async function extractImagesWithPdfjs(pdfBuffer: Buffer): Promise<ExtractedImage
     const workerPath: string = require.resolve('pdfjs-dist/legacy/build/pdf.worker.mjs')
     pdfjsLib.GlobalWorkerOptions.workerSrc = pathToFileURL(workerPath).href
 
+    const { OPS, ImageKind } = pdfjsLib
+
     const pdfDoc = await pdfjsLib.getDocument({
       data: new Uint8Array(pdfBuffer),
       disableFontFace: true,
@@ -74,28 +77,57 @@ async function extractImagesWithPdfjs(pdfBuffer: Buffer): Promise<ExtractedImage
 
     const images: ExtractedImage[] = []
 
+    // Helper: page.objs.get() is async — the worker sends image data via a separate
+    // message channel AFTER getOperatorList() resolves. Always use the callback form.
+    function getObjAsync(objs: any, name: string): Promise<any> {
+      return new Promise((res, rej) => {
+        const t = setTimeout(() => rej(new Error(`timeout waiting for obj: ${name}`)), 10000)
+        objs.get(name, (data: any) => { clearTimeout(t); res(data) })
+      })
+    }
+
     for (let pageNum = 1; pageNum <= pdfDoc.numPages; pageNum++) {
       const page = await pdfDoc.getPage(pageNum)
       try {
         const ops = await page.getOperatorList()
         const seenNames = new Set<string>()
         for (let i = 0; i < ops.fnArray.length; i++) {
-          if (ops.fnArray[i] === pdfjsLib.OPS.paintImageXObject) {
+          if (ops.fnArray[i] === OPS.paintImageXObject) {
             seenNames.add(String(ops.argsArray[i][0]))
           }
         }
         for (const name of seenNames) {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const img: any = page.objs.get(name)
-          if (!img?.data || img.width <= 0 || img.height <= 0) continue
-          if (img.width < 32 || img.height < 32) continue
-          images.push({
-            data: Buffer.from(img.data.buffer ?? img.data),
-            format: 'rgba',
-            index: images.length,
-            width: img.width,
-            height: img.height,
-          })
+          try {
+            // FIX 1: use callback form — synchronous get() throws if obj not yet resolved
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const img: any = await getObjAsync(page.objs, name)
+            if (!img?.data || img.width <= 0 || img.height <= 0) continue
+            if (img.width < 32 || img.height < 32) continue
+
+            // FIX 2: Buffer.from(img.data) — NOT Buffer.from(img.data.buffer)
+            // img.data is a TypedArray view; its .buffer may be larger than the view
+            // due to memory alignment (e.g. 31212-byte view in a 41616-byte ArrayBuffer).
+            const rawBuf = Buffer.from(img.data)
+
+            // FIX 3: derive channels from img.kind (ImageKind exported by pdfjs-dist).
+            // Most PDFs use RGB_24BPP (kind=2, channels=3). Hardcoding channels:4
+            // causes sharp to crash with "memory area too small" for RGB images.
+            const channels: number =
+              img.kind === ImageKind.RGBA_32BPP ? 4
+              : img.kind === ImageKind.RGB_24BPP ? 3
+              : 1  // GRAYSCALE_1BPP
+
+            images.push({
+              data: rawBuf,
+              format: channels === 4 ? 'rgba' : channels === 3 ? 'rgb' : 'grayscale',
+              index: images.length,
+              width: img.width,
+              height: img.height,
+              channels,
+            })
+          } catch (e) {
+            console.warn(`[pdfjs] page ${pageNum} obj ${name} error:`, (e as Error).message)
+          }
         }
       } catch (e) {
         console.warn(`[pdfjs] page ${pageNum} error:`, e)
@@ -182,10 +214,10 @@ async function uploadImages(
 
   for (const img of images) {
     try {
-      const sharpInput =
-        img.format === 'rgba'
-          ? sharp(img.data, { raw: { width: img.width!, height: img.height!, channels: 4 } })
-          : sharp(img.data)
+      const isRawPixels = img.format === 'rgba' || img.format === 'rgb' || img.format === 'grayscale'
+      const sharpInput = isRawPixels
+        ? sharp(img.data, { raw: { width: img.width!, height: img.height!, channels: (img.channels ?? 4) as 1 | 2 | 3 | 4 } })
+        : sharp(img.data)
 
       const webpBuf = await sharpInput
         .resize({ width: 1200, withoutEnlargement: true })
@@ -203,10 +235,11 @@ async function uploadImages(
         continue
       }
 
-      // For jpeg/png raw bytes, read dimensions from sharp after converting
+      // For jpeg/png encoded bytes, read dimensions from sharp after converting.
+      // For raw pixel data (rgba/rgb/grayscale) width/height are already known from pdfjs.
       let widthPx = img.width ?? null
       let heightPx = img.height ?? null
-      if (img.format !== 'rgba') {
+      if (img.format === 'jpeg' || img.format === 'png') {
         const meta = await sharp(img.data).metadata()
         widthPx = meta.width ?? null
         heightPx = meta.height ?? null
