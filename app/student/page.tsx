@@ -62,9 +62,10 @@ export default async function StudentHomePage() {
         .order('created_at', { ascending: false })
     : { data: [] }
 
+  type AttemptRow = { id: string; assignment_id: string | null; status: string; score: number | null; max_score: number | null }
   // Group attempts by assignment_id, keep latest per assignment
-  const attemptMap = new Map<string, typeof attempts extends (infer T)[] | null ? T : never>()
-  for (const a of attempts ?? []) {
+  const attemptMap = new Map<string, AttemptRow>()
+  for (const a of (attempts ?? []) as AttemptRow[]) {
     if (a.assignment_id && !attemptMap.has(a.assignment_id)) {
       attemptMap.set(a.assignment_id, a)
     }

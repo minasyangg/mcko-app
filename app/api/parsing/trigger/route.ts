@@ -61,10 +61,11 @@ interface ExtractedImage {
 async function extractImagesWithPdfjs(pdfBuffer: Buffer): Promise<ExtractedImage[]> {
   try {
     const { pathToFileURL } = await import('url')
+    const { join } = await import('path')
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const pdfjsLib: any = await import('pdfjs-dist/legacy/build/pdf.mjs')
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const workerPath: string = require.resolve('pdfjs-dist/legacy/build/pdf.worker.mjs')
+    // process.cwd() = project root at runtime (works on Vercel too: /var/task)
+    const workerPath = join(process.cwd(), 'node_modules', 'pdfjs-dist', 'legacy', 'build', 'pdf.worker.mjs')
     pdfjsLib.GlobalWorkerOptions.workerSrc = pathToFileURL(workerPath).href
 
     const { OPS, ImageKind } = pdfjsLib
