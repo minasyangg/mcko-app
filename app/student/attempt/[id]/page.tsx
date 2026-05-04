@@ -30,6 +30,7 @@ export default async function AttemptPage({ params }: PageProps) {
       time_limit_override_sec,
       starts_at,
       ends_at,
+      preserve_answers,
       test_versions!test_version_id (
         id,
         time_limit_sec,
@@ -116,6 +117,31 @@ export default async function AttemptPage({ params }: PageProps) {
     }
 
     attempt = newAttempt
+
+    // If preserve_answers is enabled and there's a previous completed attempt,
+    // copy its answers into the new attempt so the student sees them pre-filled
+    const asgn = assignment as any
+    if (asgn?.preserve_answers) {
+      const prevAttempt = existingAttempts?.find(
+        (a) => a.status === 'submitted' || a.status === 'checked'
+      )
+      if (prevAttempt) {
+        const { data: prevAnswers } = await supabase
+          .from('attempt_task_answers')
+          .select('task_id, answer_json')
+          .eq('attempt_id', prevAttempt.id)
+
+        if (prevAnswers && prevAnswers.length > 0) {
+          await supabase.from('attempt_task_answers').insert(
+            prevAnswers.map((a) => ({
+              attempt_id: newAttempt.id,
+              task_id: a.task_id,
+              answer_json: a.answer_json,
+            }))
+          )
+        }
+      }
+    }
   } else if (attempt.status === 'not_started') {
     // Transition to in_progress
     await supabase

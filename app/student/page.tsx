@@ -124,22 +124,27 @@ export default async function StudentHomePage() {
                     <p>Попыток: {attemptsUsed}/{a.max_attempts ?? 1}</p>
                   </div>
 
-                  <div className="pt-2">
-                    {isDone ? (
+                  <div className="pt-2 space-y-2">
+                    {isDone && (
                       <Button asChild variant="outline" size="sm" className="w-full">
                         <Link href={`/student/attempt/${a.id}/result`}>Посмотреть результат</Link>
                       </Button>
-                    ) : attemptStatus === 'in_progress' ? (
+                    )}
+                    {isDone && canStart ? (
+                      <Button asChild size="sm" className="w-full">
+                        <Link href={`/student/attempt/${a.id}`}>Пройти ещё раз</Link>
+                      </Button>
+                    ) : !isDone && attemptStatus === 'in_progress' ? (
                       <Button asChild size="sm" className="w-full">
                         <Link href={`/student/attempt/${a.id}`}>Продолжить</Link>
                       </Button>
-                    ) : canStart ? (
+                    ) : !isDone && canStart ? (
                       <Button asChild size="sm" className="w-full">
                         <Link href={`/student/attempt/${a.id}`}>Начать тест</Link>
                       </Button>
-                    ) : (
+                    ) : !isDone && !canStart ? (
                       <p className="text-xs text-muted-foreground text-center">Попытки исчерпаны</p>
-                    )}
+                    ) : null}
                   </div>
                 </CardContent>
               </Card>

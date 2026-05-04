@@ -23,6 +23,7 @@ export type Database = {
           id: string
           max_attempts: number | null
           organization_id: string
+          preserve_answers: boolean
           starts_at: string | null
           student_id: string | null
           test_version_id: string
@@ -36,6 +37,7 @@ export type Database = {
           id?: string
           max_attempts?: number | null
           organization_id: string
+          preserve_answers?: boolean
           starts_at?: string | null
           student_id?: string | null
           test_version_id: string
@@ -49,6 +51,7 @@ export type Database = {
           id?: string
           max_attempts?: number | null
           organization_id?: string
+          preserve_answers?: boolean
           starts_at?: string | null
           student_id?: string | null
           test_version_id?: string

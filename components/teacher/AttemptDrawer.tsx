@@ -8,7 +8,8 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Skeleton } from '@/components/ui/skeleton'
-import { CheckCircle2, XCircle, MinusCircle, Loader2 } from 'lucide-react'
+import { CheckCircle2, XCircle, MinusCircle, Loader2, ZoomIn, X } from 'lucide-react'
+import { MathText } from '@/components/shared/MathText'
 import { cn } from '@/lib/utils'
 
 interface AttemptDetail {
@@ -40,6 +41,17 @@ interface AnswerRow {
     prompt_text: string
     max_score: number | null
   } | null
+}
+
+interface MediaRow {
+  id: string
+  task_id: string | null
+  storage_path: string
+  width_px: number | null
+  height_px: number | null
+  alt_text: string | null
+  sort_order: number | null
+  signedUrl?: string
 }
 
 interface Props {
@@ -81,14 +93,38 @@ function answerToString(json: unknown): string {
   return JSON.stringify(json)
 }
 
-interface GradeState {
-  score: string
-  comment: string
+function ImageThumb({ src, alt }: { src: string; alt?: string | null }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <>
+      <div
+        className="relative cursor-zoom-in group rounded border overflow-hidden bg-muted shrink-0"
+        style={{ width: 80, height: 60 }}
+        onClick={() => setOpen(true)}
+      >
+        <img src={src} alt={alt ?? ''} className="w-full h-full object-contain" />
+        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
+          <ZoomIn className="h-4 w-4 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+        </div>
+      </div>
+      {open && (
+        <div className="fixed inset-0 z-100 flex items-center justify-center bg-black/80 p-4" onClick={() => setOpen(false)}>
+          <button type="button" onClick={() => setOpen(false)} className="absolute top-4 right-4 rounded-full bg-white/10 p-2 text-white hover:bg-white/20">
+            <X className="h-5 w-5" />
+          </button>
+          <img src={src} alt={alt ?? ''} className="max-w-full max-h-[90vh] object-contain rounded shadow-2xl" onClick={(e) => e.stopPropagation()} />
+        </div>
+      )}
+    </>
+  )
 }
+
+interface GradeState { score: string; comment: string }
 
 export function AttemptDrawer({ attemptId, onClose, onGraded }: Props) {
   const [attempt, setAttempt] = useState<AttemptDetail | null>(null)
   const [answers, setAnswers] = useState<AnswerRow[]>([])
+  const [mediaByTask, setMediaByTask] = useState<Record<string, MediaRow[]>>({})
   const [loading, setLoading] = useState(false)
   const [grades, setGrades] = useState<Record<string, GradeState>>({})
   const [teacherComment, setTeacherComment] = useState('')
@@ -98,7 +134,7 @@ export function AttemptDrawer({ attemptId, onClose, onGraded }: Props) {
   const supabase = createClient()
 
   useEffect(() => {
-    if (!attemptId) { setAttempt(null); setAnswers([]); setGrades({}); return }
+    if (!attemptId) { setAttempt(null); setAnswers([]); setMediaByTask({}); setGrades({}); return }
     let cancelled = false
     setLoading(true); setSaveError(null)
 
@@ -124,22 +160,48 @@ export function AttemptDrawer({ attemptId, onClose, onGraded }: Props) {
         setAttempt(a)
         setTeacherComment(a.teacher_comment ?? '')
       }
+
       if (!answersRes.error && answersRes.data) {
         const sorted = [...(answersRes.data as unknown as AnswerRow[])].sort(
           (a, b) => (a.test_tasks?.task_number ?? 0) - (b.test_tasks?.task_number ?? 0)
         )
         setAnswers(sorted)
-        // Initialize grade state for manual_review tasks
+
+        // Initialize grades for ALL task types
         const init: Record<string, GradeState> = {}
         for (const ans of sorted) {
-          if (ans.test_tasks?.task_type === 'manual_review' || ans.awarded_score === null) {
-            init[ans.id] = {
-              score: String(ans.awarded_score ?? 0),
-              comment: ans.teacher_comment ?? '',
-            }
+          init[ans.id] = {
+            score: ans.awarded_score !== null ? String(ans.awarded_score) : '',
+            comment: ans.teacher_comment ?? '',
           }
         }
         setGrades(init)
+
+        // Load task media for all tasks
+        const taskIds = sorted.map((a) => a.task_id).filter(Boolean) as string[]
+        if (taskIds.length > 0) {
+          const { data: rawMedia } = await supabase
+            .from('task_media')
+            .select('id, task_id, storage_path, width_px, height_px, alt_text, sort_order')
+            .in('task_id', taskIds)
+            .order('sort_order', { ascending: true })
+
+          if (rawMedia && rawMedia.length > 0 && !cancelled) {
+            const paths = rawMedia.map((m) => m.storage_path)
+            const { data: signed } = await supabase.storage
+              .from('task-media')
+              .createSignedUrls(paths, 3600)
+
+            const urlMap = Object.fromEntries((signed ?? []).map((s) => [s.path, s.signedUrl]))
+            const byTask: Record<string, MediaRow[]> = {}
+            for (const m of rawMedia) {
+              if (!m.task_id) continue
+              if (!byTask[m.task_id]) byTask[m.task_id] = []
+              byTask[m.task_id].push({ ...m, signedUrl: urlMap[m.storage_path] ?? '' })
+            }
+            setMediaByTask(byTask)
+          }
+        }
       }
       setLoading(false)
     }
@@ -148,18 +210,20 @@ export function AttemptDrawer({ attemptId, onClose, onGraded }: Props) {
   }, [attemptId])
 
   const needsGrading = ['submitted', 'under_review'].includes(attempt?.status ?? '')
-  const manualAnswers = answers.filter((a) => a.test_tasks?.task_type === 'manual_review')
 
   const handleFinalize = async () => {
     if (!attemptId) return
     setIsSaving(true); setSaveError(null)
     try {
-      const gradeUpdates = Object.entries(grades).map(([answerId, g]) => ({
-        answer_id: answerId,
-        awarded_score: parseFloat(g.score) || 0,
-        is_correct: (parseFloat(g.score) || 0) > 0,
-        teacher_comment: g.comment || undefined,
-      }))
+      const gradeUpdates = Object.entries(grades)
+        .filter(([, g]) => g.score !== '')
+        .map(([answerId, g]) => ({
+          answer_id: answerId,
+          awarded_score: parseFloat(g.score) || 0,
+          is_correct: (parseFloat(g.score) || 0) > 0,
+          teacher_comment: g.comment || undefined,
+        }))
+
       const res = await fetch(`/api/attempts/${attemptId}/grade`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -179,6 +243,12 @@ export function AttemptDrawer({ attemptId, onClose, onGraded }: Props) {
       setIsSaving(false)
     }
   }
+
+  const taskTypeLabel = (t: string) => ({
+    manual_review: 'Развёрнутый', single_choice: 'Один ответ',
+    multiple_choice: 'Несколько', numeric: 'Число',
+    short_text: 'Краткий', composite: 'Составное',
+  }[t] ?? t)
 
   return (
     <Sheet open={!!attemptId} onOpenChange={(v) => { if (!v) onClose() }}>
@@ -218,8 +288,8 @@ export function AttemptDrawer({ attemptId, onClose, onGraded }: Props) {
                   {(attempt.max_score ?? 0) > 0 && (
                     <span className={cn(
                       'text-sm font-semibold',
-                      (attempt.score / (attempt.max_score!)) >= 0.8 ? 'text-green-600' :
-                      (attempt.score / (attempt.max_score!)) >= 0.6 ? 'text-orange-500' : 'text-destructive'
+                      (attempt.score / attempt.max_score!) >= 0.8 ? 'text-green-600' :
+                      (attempt.score / attempt.max_score!) >= 0.6 ? 'text-orange-500' : 'text-destructive'
                     )}>
                       {Math.round((attempt.score / attempt.max_score!) * 100)}%
                     </span>
@@ -238,60 +308,78 @@ export function AttemptDrawer({ attemptId, onClose, onGraded }: Props) {
 
             {/* Answers */}
             <div className="space-y-3">
-              <h3 className="text-sm font-semibold">Ответы на задания ({answers.length})</h3>
-              <div className="space-y-2">
+              <h3 className="text-sm font-semibold">Ответы ({answers.length})</h3>
+              <div className="space-y-3">
                 {answers.map((ans) => {
-                  const isManual = ans.test_tasks?.task_type === 'manual_review'
+                  const isManual = ans.test_tasks?.task_type === 'manual_review' ||
+                                   ans.test_tasks?.task_type === 'composite' ||
+                                   ans.test_tasks?.task_type === 'short_text'
                   const g = grades[ans.id]
+                  const taskMedia = (mediaByTask[ans.task_id ?? ''] ?? [])
+
                   return (
                     <div
                       key={ans.id}
                       className={cn(
                         'rounded-md border p-3 space-y-2',
-                        ans.is_correct === true && 'border-green-200 bg-green-50/30',
-                        ans.is_correct === false && !isManual && 'border-red-100 bg-red-50/20',
-                        isManual && needsGrading && 'border-orange-200 bg-orange-50/20',
+                        ans.is_correct === true && 'border-green-200 bg-green-50/30 dark:border-green-800',
+                        ans.is_correct === false && 'border-red-100 bg-red-50/20',
+                        (ans.is_correct === null && needsGrading) && 'border-orange-200 bg-orange-50/20',
                       )}
                     >
-                      <div className="flex items-start justify-between gap-2">
+                      {/* Header */}
+                      <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
                           <span className="text-xs font-mono font-semibold bg-muted px-1.5 py-0.5 rounded">
                             №{ans.test_tasks?.task_number ?? '?'}
                           </span>
                           <span className="text-xs text-muted-foreground">
-                            {ans.test_tasks?.task_type === 'manual_review' ? 'Развёрнутый' :
-                             ans.test_tasks?.task_type === 'single_choice' ? 'Один ответ' :
-                             ans.test_tasks?.task_type === 'multiple_choice' ? 'Несколько' :
-                             ans.test_tasks?.task_type === 'numeric' ? 'Число' : 'Текст'}
+                            {taskTypeLabel(ans.test_tasks?.task_type ?? '')}
                           </span>
                         </div>
                         <div className="flex items-center gap-2 shrink-0">
                           {ans.is_correct === true && <CheckCircle2 className="h-4 w-4 text-green-500" />}
-                          {ans.is_correct === false && !isManual && <XCircle className="h-4 w-4 text-red-400" />}
-                          {(ans.is_correct === null || isManual) && <MinusCircle className="h-4 w-4 text-muted-foreground" />}
-                          <span className="text-xs font-medium tabular-nums">
-                            {isManual && needsGrading ? (
-                              <span className="text-orange-600">нужна проверка</span>
-                            ) : (
-                              `${ans.awarded_score ?? '—'} / ${ans.test_tasks?.max_score ?? '?'}`
-                            )}
+                          {ans.is_correct === false && <XCircle className="h-4 w-4 text-red-400" />}
+                          {ans.is_correct === null && <MinusCircle className="h-4 w-4 text-muted-foreground" />}
+                          <span className="text-xs font-medium tabular-nums text-muted-foreground">
+                            {ans.awarded_score ?? '—'}/{ans.test_tasks?.max_score ?? '?'}
                           </span>
                         </div>
                       </div>
 
+                      {/* Task text */}
                       <p className="text-xs text-muted-foreground line-clamp-2">
                         {ans.test_tasks?.prompt_text}
                       </p>
 
+                      {/* Task images (miniatures) */}
+                      {taskMedia.length > 0 && (
+                        <div className="flex flex-wrap gap-2">
+                          {taskMedia.map((m) => m.signedUrl && (
+                            <ImageThumb key={m.id} src={m.signedUrl} alt={m.alt_text} />
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Student answer */}
                       <div className="text-sm bg-muted/50 rounded px-2 py-1.5">
                         <span className="text-xs text-muted-foreground mr-1">Ответ:</span>
-                        <span className="font-medium wrap-break-word">{answerToString(ans.answer_json)}</span>
+                        <span className="font-medium wrap-break-word">
+                          {answerToString(ans.answer_json)}
+                        </span>
                       </div>
 
-                      {/* Teacher grading for manual tasks */}
-                      {isManual && g && (
+                      {/* Existing teacher comment (read-only when checked) */}
+                      {!needsGrading && ans.teacher_comment && (
+                        <div className="rounded bg-yellow-50/60 border border-yellow-200 px-2 py-1.5 text-xs">
+                          <span className="font-medium text-yellow-800 mr-1">Комментарий:</span>
+                          <MathText text={ans.teacher_comment} className="text-yellow-900 inline" />
+                        </div>
+                      )}
+
+                      {/* Teacher grading inputs for ALL task types when reviewing */}
+                      {needsGrading && g && (
                         <div className="space-y-2 pt-1 border-t">
-                          <p className="text-xs font-medium text-orange-700">Выставить оценку:</p>
                           <div className="flex items-center gap-2">
                             <Input
                               type="number"
@@ -299,26 +387,31 @@ export function AttemptDrawer({ attemptId, onClose, onGraded }: Props) {
                               max={ans.test_tasks?.max_score ?? 10}
                               value={g.score}
                               onChange={(e) => setGrades((prev) => ({
-                                ...prev,
-                                [ans.id]: { ...prev[ans.id], score: e.target.value }
+                                ...prev, [ans.id]: { ...prev[ans.id], score: e.target.value }
                               }))}
                               className="w-20 h-7 text-sm"
-                              placeholder="0"
+                              placeholder="Балл"
                             />
                             <span className="text-xs text-muted-foreground">
-                              из {ans.test_tasks?.max_score ?? '?'} баллов
+                              из {ans.test_tasks?.max_score ?? '?'} б.
                             </span>
                           </div>
                           <Textarea
                             value={g.comment}
                             onChange={(e) => setGrades((prev) => ({
-                              ...prev,
-                              [ans.id]: { ...prev[ans.id], comment: e.target.value }
+                              ...prev, [ans.id]: { ...prev[ans.id], comment: e.target.value }
                             }))}
-                            placeholder="Комментарий к ответу (необязательно)"
+                            placeholder="Комментарий (поддерживается LaTeX: $x^2$, $$\frac{a}{b}$$)"
                             rows={2}
                             className="text-xs resize-none"
                           />
+                          {/* LaTeX preview */}
+                          {g.comment.trim() && (
+                            <div className="text-xs text-muted-foreground border rounded px-2 py-1">
+                              <span className="font-medium">Предпросмотр: </span>
+                              <MathText text={g.comment} className="inline" />
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
@@ -327,34 +420,38 @@ export function AttemptDrawer({ attemptId, onClose, onGraded }: Props) {
               </div>
             </div>
 
-            {/* Teacher comment + finalize */}
+            {/* Global teacher comment + finalize */}
             {needsGrading && (
               <div className="space-y-3 border-t pt-4">
-                <Textarea
-                  value={teacherComment}
-                  onChange={(e) => setTeacherComment(e.target.value)}
-                  placeholder="Общий комментарий к попытке (необязательно)"
-                  rows={2}
-                  className="text-sm resize-none"
-                />
+                <div className="space-y-1">
+                  <p className="text-xs font-medium text-muted-foreground">Общий комментарий к попытке</p>
+                  <Textarea
+                    value={teacherComment}
+                    onChange={(e) => setTeacherComment(e.target.value)}
+                    placeholder="Необязательно. Поддерживается LaTeX: $F = ma$"
+                    rows={2}
+                    className="text-sm resize-none"
+                  />
+                  {teacherComment.trim() && (
+                    <div className="text-xs border rounded px-2 py-1 text-muted-foreground">
+                      <span className="font-medium">Предпросмотр: </span>
+                      <MathText text={teacherComment} className="inline" />
+                    </div>
+                  )}
+                </div>
                 {saveError && <p className="text-xs text-destructive">{saveError}</p>}
-                <Button
-                  className="w-full"
-                  onClick={handleFinalize}
-                  disabled={isSaving}
-                >
+                <Button className="w-full" onClick={handleFinalize} disabled={isSaving}>
                   {isSaving ? (
                     <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Сохранение...</>
-                  ) : (
-                    manualAnswers.length > 0 ? 'Сохранить оценки и закрыть проверку' : 'Закрыть проверку'
-                  )}
+                  ) : 'Закрыть проверку'}
                 </Button>
               </div>
             )}
 
             {!needsGrading && attempt.teacher_comment && (
               <div className="rounded-md bg-muted p-3 text-sm">
-                <span className="font-medium">Комментарий:</span> {attempt.teacher_comment}
+                <span className="font-medium">Комментарий: </span>
+                <MathText text={attempt.teacher_comment} className="inline" />
               </div>
             )}
           </div>
