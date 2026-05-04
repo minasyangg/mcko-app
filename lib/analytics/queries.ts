@@ -156,9 +156,9 @@ export async function getAttemptRows(
       assignments (
         group_id,
         groups ( name ),
-        test_versions (
+        test_versions!test_version_id (
           id,
-          tests ( title )
+          tests!test_id ( title )
         )
       )
     `)
