@@ -15,7 +15,8 @@ export default async function StudentLayout({ children }: { children: React.Reac
     .eq('id', user.id)
     .single()
 
-  if (profile?.role !== 'student') redirect('/teacher')
+  if (!profile) redirect('/no-profile')
+  if (profile.role !== 'student') redirect('/teacher')
 
   return (
     <div className="min-h-screen flex flex-col">
