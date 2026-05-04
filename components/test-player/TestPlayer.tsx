@@ -9,7 +9,7 @@ import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { Badge } from '@/components/ui/badge'
-import { ChevronLeft, ChevronRight, Send, Menu, X } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Send, Menu, X, CheckCheck, Loader2 } from 'lucide-react'
 
 import { TaskNavigator } from './TaskNavigator'
 import { TaskView } from './TaskView'
@@ -54,6 +54,10 @@ export function TestPlayer({
   const [showSubmitDialog, setShowSubmitDialog] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [showNavigator, setShowNavigator] = useState(false)
+  // Track which tasks have a confirmed saved answer in the DB
+  const [savedTaskIds, setSavedTaskIds] = useState<Set<string>>(
+    () => new Set(Object.keys(initialAnswers))
+  )
 
   // Track pending (unsaved) answer per task
   const pendingRef = useRef<Record<string, Json>>({})
@@ -70,8 +74,8 @@ export function TestPlayer({
         })
         if (!res.ok) throw new Error('Save failed')
         delete pendingRef.current[taskId]
+        setSavedTaskIds((prev) => new Set([...prev, taskId]))
         setSaveStatus('saved')
-        // Clear "saved" status after 2s
         setTimeout(() => setSaveStatus((s) => (s === 'saved' ? 'idle' : s)), 2000)
       } catch {
         setSaveStatus('error')
@@ -93,8 +97,9 @@ export function TestPlayer({
   function handleAnswerChange(taskId: string, answerJson: Json) {
     setAnswers((prev) => ({ ...prev, [taskId]: answerJson }))
     pendingRef.current[taskId] = answerJson
+    // Mark as having unsaved changes
+    setSavedTaskIds((prev) => { const n = new Set(prev); n.delete(taskId); return n })
 
-    // Reset debounce
     if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current)
     debounceTimerRef.current = setTimeout(() => {
       saveAnswer(taskId, answerJson)
@@ -268,7 +273,7 @@ export function TestPlayer({
 
         {/* Task content */}
         <main className="flex flex-1 flex-col overflow-y-auto">
-          <div className="flex-1 p-4 md:p-8 max-w-2xl mx-auto w-full">
+          <div className="flex-1 p-4 md:p-8 max-w-2xl mx-auto w-full space-y-4">
             {currentTask && (
               <TaskView
                 task={currentTask}
@@ -277,6 +282,46 @@ export function TestPlayer({
                 images={taskMediaMap[currentTask.id] ?? []}
                 disabled={isSubmitting}
               />
+            )}
+
+            {/* Save / update answer button */}
+            {currentTask && !isSubmitting && (
+              <div className="flex justify-end">
+                {savedTaskIds.has(currentTask.id) ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="text-green-600 border-green-300 hover:bg-green-50"
+                    disabled
+                  >
+                    <CheckCheck className="mr-1.5 h-3.5 w-3.5" />
+                    Ответ записан
+                  </Button>
+                ) : (
+                  <Button
+                    variant="default"
+                    size="sm"
+                    onClick={async () => {
+                      if (debounceTimerRef.current) {
+                        clearTimeout(debounceTimerRef.current)
+                        debounceTimerRef.current = null
+                      }
+                      const taskId = currentTask.id
+                      const pending = pendingRef.current[taskId] ?? answers[taskId]
+                      if (pending !== undefined) {
+                        await saveAnswer(taskId, pending)
+                      }
+                    }}
+                    disabled={saveStatus === 'saving'}
+                  >
+                    {saveStatus === 'saving' ? (
+                      <><Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />Сохранение...</>
+                    ) : (
+                      <><CheckCheck className="mr-1.5 h-3.5 w-3.5" />Записать ответ</>
+                    )}
+                  </Button>
+                )}
+              </div>
             )}
           </div>
 

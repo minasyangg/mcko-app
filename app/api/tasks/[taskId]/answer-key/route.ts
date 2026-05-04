@@ -1,0 +1,44 @@
+import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
+import { NextRequest } from 'next/server'
+
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: Promise<{ taskId: string }> }
+) {
+  const { taskId } = await params
+
+  const supabase = await createClient()
+  const { data: { user }, error: authError } = await supabase.auth.getUser()
+  if (authError || !user) return Response.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const { data: profile } = await supabase
+    .from('profiles').select('role').eq('id', user.id).single()
+  if (!profile || !['teacher', 'admin'].includes(profile.role)) {
+    return Response.json({ error: 'Forbidden' }, { status: 403 })
+  }
+
+  const body = await request.json() as { correct_answer?: string; grading_method?: string }
+  const { correct_answer, grading_method } = body
+
+  if (correct_answer === undefined) {
+    return Response.json({ error: 'correct_answer required' }, { status: 400 })
+  }
+
+  const admin = createAdminClient()
+
+  // Upsert answer key
+  const { error } = await admin.from('task_answer_keys').upsert(
+    {
+      task_id: taskId,
+      correct_answer: correct_answer,
+      grading_method: grading_method ?? 'exact',
+      parse_confidence: 1.0,
+    },
+    { onConflict: 'task_id' }
+  )
+
+  if (error) return Response.json({ error: error.message }, { status: 500 })
+
+  return Response.json({ ok: true })
+}

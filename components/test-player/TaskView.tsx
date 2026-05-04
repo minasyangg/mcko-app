@@ -87,12 +87,17 @@ export function TaskView({ task, answer, onChange, images = [], disabled }: Task
 
       case 'short_text': {
         const text = typeof answerObj['text'] === 'string' ? answerObj['text'] : ''
+        // Use small (single-line) only if hint suggests a number/code, else medium textarea
+        const isNumericHint = task.answer_format_hint
+          ? /числ|цифр|число|балл|\d/.test(task.answer_format_hint.toLowerCase())
+          : false
         return (
           <ShortText
             value={text}
             onChange={(v) => onChange({ text: v })}
             hint={task.answer_format_hint}
             disabled={disabled}
+            size={isNumericHint ? 'small' : 'medium'}
           />
         )
       }
@@ -111,6 +116,19 @@ export function TaskView({ task, answer, onChange, images = [], disabled }: Task
 
       case 'composite': {
         const parts = toParts(task.answer_parts)
+        // If no parts defined, fall back to a large text area (teacher forgot to define parts)
+        if (parts.length === 0) {
+          const text = typeof answerObj['text'] === 'string' ? answerObj['text'] : ''
+          return (
+            <ShortText
+              value={text}
+              onChange={(v) => onChange({ text: v })}
+              hint={task.answer_format_hint ?? 'Запишите решение и ответ...'}
+              disabled={disabled}
+              size="large"
+            />
+          )
+        }
         const rawParts = answerObj['parts']
         const partsValue: Record<string, string> =
           rawParts !== null && rawParts !== undefined && typeof rawParts === 'object' && !Array.isArray(rawParts)
@@ -136,6 +154,7 @@ export function TaskView({ task, answer, onChange, images = [], disabled }: Task
             onChange={(v) => onChange({ text: v })}
             hint={task.answer_format_hint ?? 'Введите развёрнутый ответ'}
             disabled={disabled}
+            size="large"
           />
         )
       }

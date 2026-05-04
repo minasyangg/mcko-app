@@ -12,6 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { Input } from '@/components/ui/input'
 import {
   AlertCircle,
   CheckCircle2,
@@ -22,6 +23,7 @@ import {
   Loader2,
   X,
   Clipboard,
+  Save,
 } from 'lucide-react'
 
 export interface TaskWithReview {
@@ -119,6 +121,25 @@ function TaskRow({
   const [isUploading, setIsUploading] = useState(false)
   const [uploadError, setUploadError] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const expandedDivRef = useRef<HTMLDivElement>(null)
+  const [correctAnswer, setCorrectAnswer] = useState(task.correct_answer ?? '')
+  const [isSavingAnswer, setIsSavingAnswer] = useState(false)
+  const [answerSaved, setAnswerSaved] = useState(false)
+
+  const handleSaveAnswer = async () => {
+    setIsSavingAnswer(true)
+    setAnswerSaved(false)
+    try {
+      const res = await fetch(`/api/tasks/${task.id}/answer-key`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ correct_answer: correctAnswer }),
+      })
+      if (res.ok) setAnswerSaved(true)
+    } finally {
+      setIsSavingAnswer(false)
+    }
+  }
 
   const confidenceLow = task.parse_confidence !== null && task.parse_confidence < 0.7
 
@@ -141,24 +162,25 @@ function TaskRow({
     }
   }, [task.id])
 
-  // Paste from clipboard (screenshot)
+  // Auto-focus the expanded container so onPaste fires scoped to this row
   useEffect(() => {
-    if (!expanded) return
-    const handler = async (e: ClipboardEvent) => {
-      const items = e.clipboardData?.items
-      if (!items) return
-      for (const item of Array.from(items)) {
-        if (item.type.startsWith('image/')) {
-          e.preventDefault()
-          const file = item.getAsFile()
-          if (file) await handleFile(file)
-          break
-        }
+    if (expanded) {
+      setTimeout(() => expandedDivRef.current?.focus(), 30)
+    }
+  }, [expanded])
+
+  const handlePaste = useCallback(async (e: React.ClipboardEvent) => {
+    const items = e.clipboardData?.items
+    if (!items) return
+    for (const item of Array.from(items)) {
+      if (item.type.startsWith('image/')) {
+        e.preventDefault()
+        const file = item.getAsFile()
+        if (file) await handleFile(file)
+        break
       }
     }
-    window.addEventListener('paste', handler)
-    return () => window.removeEventListener('paste', handler)
-  }, [expanded, handleFile])
+  }, [handleFile])
 
   const handleFileInput = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -276,7 +298,12 @@ function TaskRow({
       {expanded && (
         <tr className="border-b bg-muted/10">
           <td colSpan={7} className="px-6 py-4">
-            <div className="space-y-4">
+            <div
+              ref={expandedDivRef}
+              tabIndex={0}
+              onPaste={handlePaste}
+              className="space-y-4 outline-none"
+            >
               {/* Task text */}
               <div>
                 <p className="text-xs font-medium text-muted-foreground mb-1">Полный текст задания</p>
@@ -349,22 +376,36 @@ function TaskRow({
                 )}
               </div>
 
-              {/* Answer */}
-              {task.correct_answer && (
-                <div>
-                  <p className="text-xs font-medium text-muted-foreground mb-1">Правильный ответ</p>
-                  <p className="text-sm font-mono bg-muted rounded px-2 py-1 inline-block">
-                    {task.correct_answer}
-                  </p>
+              {/* Editable correct answer */}
+              <div>
+                <p className="text-xs font-medium text-muted-foreground mb-1.5">Правильный ответ</p>
+                <div className="flex items-center gap-2 max-w-sm">
+                  <Input
+                    value={correctAnswer}
+                    onChange={(e) => { setCorrectAnswer(e.target.value); setAnswerSaved(false) }}
+                    placeholder="Введите правильный ответ..."
+                    className="font-mono text-sm h-8"
+                  />
+                  <Button
+                    size="sm"
+                    variant={answerSaved ? 'default' : 'outline'}
+                    className={`h-8 px-3 shrink-0 ${answerSaved ? 'bg-green-600 hover:bg-green-700 text-white' : ''}`}
+                    onClick={handleSaveAnswer}
+                    disabled={isSavingAnswer || !correctAnswer.trim()}
+                  >
+                    {isSavingAnswer ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : answerSaved ? (
+                      <><CheckCircle2 className="h-3.5 w-3.5 mr-1" />Сохранено</>
+                    ) : (
+                      <><Save className="h-3.5 w-3.5 mr-1" />Сохранить</>
+                    )}
+                  </Button>
                 </div>
-              )}
-
-              {task.answer_format_hint && (
-                <div>
-                  <p className="text-xs font-medium text-muted-foreground mb-1">Формат ответа</p>
-                  <p className="text-sm">{task.answer_format_hint}</p>
-                </div>
-              )}
+                {task.answer_format_hint && (
+                  <p className="text-xs text-muted-foreground mt-1">{task.answer_format_hint}</p>
+                )}
+              </div>
             </div>
           </td>
         </tr>

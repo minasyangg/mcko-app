@@ -23,6 +23,7 @@ const schema = z.object({
   starts_at: z.string().optional(),
   ends_at: z.string().optional(),
   max_attempts: z.number().min(1, 'Минимум 1 попытка'),
+  preserve_answers: z.boolean(),
 }).superRefine((d, ctx) => {
   if (d.target_type === 'group' && !d.group_id) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Выберите группу', path: ['group_id'] })
@@ -49,7 +50,7 @@ export default function NewAssignmentPage() {
 
   const { register, handleSubmit, control, watch, setValue, formState: { errors, isSubmitting } } = useForm<FormData>({
     resolver: zodResolver(schema),
-    defaultValues: { target_type: 'group', max_attempts: 1 },
+    defaultValues: { target_type: 'group', max_attempts: 1, preserve_answers: false },
   })
   const targetType = watch('target_type')
 
@@ -232,11 +233,29 @@ export default function NewAssignmentPage() {
               </div>
 
               {/* Попытки */}
-              <div className="space-y-1">
-                <Label htmlFor="max_attempts">Количество попыток</Label>
-                <Input id="max_attempts" type="number" min={1} className="w-32"
-                  {...register('max_attempts', { valueAsNumber: true })} />
-                {errors.max_attempts && <p className="text-sm text-destructive">{errors.max_attempts.message}</p>}
+              <div className="space-y-2">
+                <div className="space-y-1">
+                  <Label htmlFor="max_attempts">Количество попыток</Label>
+                  <Input id="max_attempts" type="number" min={1} className="w-32"
+                    {...register('max_attempts', { valueAsNumber: true })} />
+                  {errors.max_attempts && <p className="text-sm text-destructive">{errors.max_attempts.message}</p>}
+                </div>
+                {/* Preserve answers — only shown when max_attempts > 1 */}
+                {(watch('max_attempts') ?? 1) > 1 && (
+                  <label className="flex items-start gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5 rounded border-input"
+                      {...register('preserve_answers')}
+                    />
+                    <div>
+                      <span className="text-sm font-medium">Перезаписываемые ответы</span>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        При новой попытке ответ на вопрос, оставленный пустым, сохраняется из предыдущей попытки.
+                      </p>
+                    </div>
+                  </label>
+                )}
               </div>
 
               <Button type="submit" className="w-full" disabled={isSubmitting || loading}>

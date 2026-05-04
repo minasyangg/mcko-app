@@ -11,6 +11,7 @@ const schema = z.object({
   starts_at: z.string().optional().nullable(),
   ends_at: z.string().optional().nullable(),
   max_attempts: z.number().min(1).default(1),
+  preserve_answers: z.boolean().default(false),
 })
 
 export async function POST(request: Request) {
@@ -38,7 +39,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: parsed.error.issues[0]?.message ?? 'Invalid body' }, { status: 400 })
   }
 
-  const { test_id, target_type, group_id, student_id, starts_at, ends_at, max_attempts } = parsed.data
+  const { test_id, target_type, group_id, student_id, starts_at, ends_at, max_attempts, preserve_answers } = parsed.data
 
   if (target_type === 'group' && !group_id) {
     return NextResponse.json({ error: 'Выберите группу' }, { status: 400 })
@@ -71,6 +72,7 @@ export async function POST(request: Request) {
     starts_at: starts_at || null,
     ends_at: ends_at || null,
     max_attempts,
+    preserve_answers,
     created_by: user.id,
   }).select('id').single()
 
