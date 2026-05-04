@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useState, useTransition, useRef, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -18,7 +18,10 @@ import {
   ChevronDown,
   ChevronRight,
   Wrench,
-  ExternalLink,
+  ImagePlus,
+  Loader2,
+  X,
+  Clipboard,
 } from 'lucide-react'
 
 export interface TaskWithReview {
@@ -86,6 +89,23 @@ const reviewStatusLabel: Record<string, string> = {
   rejected: 'Отклонено',
 }
 
+interface MediaItem {
+  id: string
+  signedUrl: string
+  placement: string
+  sort_order: number
+  alt_text: string | null
+}
+
+async function uploadImageFile(taskId: string, file: File): Promise<MediaItem | null> {
+  const form = new FormData()
+  form.append('file', file)
+  const res = await fetch(`/api/tasks/${taskId}/media`, { method: 'POST', body: form })
+  if (!res.ok) return null
+  const data = await res.json()
+  return { id: data.id, signedUrl: data.signedUrl, placement: 'above_text', sort_order: 0, alt_text: null }
+}
+
 function TaskRow({
   task,
   onStatusChange,
@@ -95,8 +115,61 @@ function TaskRow({
 }) {
   const [expanded, setExpanded] = useState(false)
   const [isUpdating, setIsUpdating] = useState(false)
+  const [media, setMedia] = useState<MediaItem[]>(task.media)
+  const [isUploading, setIsUploading] = useState(false)
+  const [uploadError, setUploadError] = useState<string | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const confidenceLow = task.parse_confidence !== null && task.parse_confidence < 0.7
+
+  const handleFile = useCallback(async (file: File) => {
+    if (!file.type.startsWith('image/')) {
+      setUploadError('Только изображения')
+      return
+    }
+    setUploadError(null)
+    setIsUploading(true)
+    try {
+      const item = await uploadImageFile(task.id, file)
+      if (item) {
+        setMedia((prev) => [...prev, { ...item, sort_order: prev.length }])
+      } else {
+        setUploadError('Ошибка загрузки')
+      }
+    } finally {
+      setIsUploading(false)
+    }
+  }, [task.id])
+
+  // Paste from clipboard (screenshot)
+  useEffect(() => {
+    if (!expanded) return
+    const handler = async (e: ClipboardEvent) => {
+      const items = e.clipboardData?.items
+      if (!items) return
+      for (const item of Array.from(items)) {
+        if (item.type.startsWith('image/')) {
+          e.preventDefault()
+          const file = item.getAsFile()
+          if (file) await handleFile(file)
+          break
+        }
+      }
+    }
+    window.addEventListener('paste', handler)
+    return () => window.removeEventListener('paste', handler)
+  }, [expanded, handleFile])
+
+  const handleFileInput = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) await handleFile(file)
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
+  const handleDelete = async (mediaId: string) => {
+    const res = await fetch(`/api/tasks/${task.id}/media/${mediaId}`, { method: 'DELETE' })
+    if (res.ok) setMedia((prev) => prev.filter((m) => m.id !== mediaId))
+  }
 
   const handleApprove = async () => {
     setIsUpdating(true)
@@ -203,38 +276,80 @@ function TaskRow({
       {expanded && (
         <tr className="border-b bg-muted/10">
           <td colSpan={7} className="px-6 py-4">
-            <div className="space-y-3">
+            <div className="space-y-4">
+              {/* Task text */}
               <div>
                 <p className="text-xs font-medium text-muted-foreground mb-1">Полный текст задания</p>
                 <p className="text-sm whitespace-pre-wrap">{task.prompt_text}</p>
               </div>
 
-              {task.media.length > 0 && (
-                <div>
-                  <p className="text-xs font-medium text-muted-foreground mb-2">
-                    Изображения ({task.media.length})
+              {/* Images */}
+              <div>
+                <div className="flex items-center gap-2 mb-2">
+                  <p className="text-xs font-medium text-muted-foreground">
+                    Изображения {media.length > 0 ? `(${media.length})` : ''}
                   </p>
-                  <div className="flex flex-wrap gap-3">
-                    {task.media
-                      .sort((a, b) => a.sort_order - b.sort_order)
-                      .map((img) => (
-                        <div key={img.id} className="relative group">
-                          <img
-                            src={img.signedUrl}
-                            alt={img.alt_text ?? `Изображение к заданию ${task.task_number}`}
-                            className="h-32 w-auto rounded border object-contain bg-white"
-                          />
-                          <div className="absolute bottom-1 left-1">
-                            <span className="text-xs bg-black/60 text-white rounded px-1">
-                              {img.placement}
-                            </span>
-                          </div>
-                        </div>
-                      ))}
-                  </div>
+                  <span className="text-xs text-muted-foreground/60 flex items-center gap-1">
+                    <Clipboard className="h-3 w-3" />
+                    Ctrl+V для вставки скриншота
+                  </span>
                 </div>
-              )}
 
+                <div className="flex flex-wrap gap-3 items-start">
+                  {media
+                    .sort((a, b) => a.sort_order - b.sort_order)
+                    .map((img) => (
+                      <div key={img.id} className="relative group">
+                        <img
+                          src={img.signedUrl}
+                          alt={img.alt_text ?? `Изображение к заданию ${task.task_number}`}
+                          className="h-36 w-auto max-w-xs rounded border object-contain bg-white"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handleDelete(img.id)}
+                          className="absolute top-1 right-1 hidden group-hover:flex items-center justify-center h-5 w-5 rounded-full bg-destructive text-destructive-foreground shadow"
+                          title="Удалить изображение"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </div>
+                    ))}
+
+                  {/* Upload button */}
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={isUploading}
+                    className="h-36 w-28 rounded border-2 border-dashed border-muted-foreground/30 flex flex-col items-center justify-center gap-1.5 text-muted-foreground hover:border-primary hover:text-primary transition-colors disabled:opacity-50"
+                    title="Нажмите для выбора файла или Ctrl+V для вставки скриншота"
+                  >
+                    {isUploading ? (
+                      <Loader2 className="h-6 w-6 animate-spin" />
+                    ) : (
+                      <>
+                        <ImagePlus className="h-6 w-6" />
+                        <span className="text-xs text-center leading-tight px-1">
+                          Выбрать<br />или вставить
+                        </span>
+                      </>
+                    )}
+                  </button>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={handleFileInput}
+                  />
+                </div>
+
+                {uploadError && (
+                  <p className="text-xs text-destructive mt-1">{uploadError}</p>
+                )}
+              </div>
+
+              {/* Answer */}
               {task.correct_answer && (
                 <div>
                   <p className="text-xs font-medium text-muted-foreground mb-1">Правильный ответ</p>
