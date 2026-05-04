@@ -119,6 +119,7 @@ function TaskRow({
   const [isUploading, setIsUploading] = useState(false)
   const [uploadError, setUploadError] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const expandedDivRef = useRef<HTMLDivElement>(null)
 
   const confidenceLow = task.parse_confidence !== null && task.parse_confidence < 0.7
 
@@ -141,24 +142,25 @@ function TaskRow({
     }
   }, [task.id])
 
-  // Paste from clipboard (screenshot)
+  // Auto-focus the expanded container so onPaste fires scoped to this row
   useEffect(() => {
-    if (!expanded) return
-    const handler = async (e: ClipboardEvent) => {
-      const items = e.clipboardData?.items
-      if (!items) return
-      for (const item of Array.from(items)) {
-        if (item.type.startsWith('image/')) {
-          e.preventDefault()
-          const file = item.getAsFile()
-          if (file) await handleFile(file)
-          break
-        }
+    if (expanded) {
+      setTimeout(() => expandedDivRef.current?.focus(), 30)
+    }
+  }, [expanded])
+
+  const handlePaste = useCallback(async (e: React.ClipboardEvent) => {
+    const items = e.clipboardData?.items
+    if (!items) return
+    for (const item of Array.from(items)) {
+      if (item.type.startsWith('image/')) {
+        e.preventDefault()
+        const file = item.getAsFile()
+        if (file) await handleFile(file)
+        break
       }
     }
-    window.addEventListener('paste', handler)
-    return () => window.removeEventListener('paste', handler)
-  }, [expanded, handleFile])
+  }, [handleFile])
 
   const handleFileInput = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -276,7 +278,12 @@ function TaskRow({
       {expanded && (
         <tr className="border-b bg-muted/10">
           <td colSpan={7} className="px-6 py-4">
-            <div className="space-y-4">
+            <div
+              ref={expandedDivRef}
+              tabIndex={0}
+              onPaste={handlePaste}
+              className="space-y-4 outline-none"
+            >
               {/* Task text */}
               <div>
                 <p className="text-xs font-medium text-muted-foreground mb-1">Полный текст задания</p>

@@ -14,6 +14,19 @@ function toObj(j: Json): Record<string, Json | undefined> {
   return {}
 }
 
+// Extract the scalar answer string from whatever shape the value has.
+// Handles: plain string/number, { text }, { value }, { selected }
+function extractScalar(j: Json | undefined): string {
+  if (j === undefined || j === null) return ''
+  if (typeof j === 'string') return j
+  if (typeof j === 'number') return String(j)
+  const o = toObj(j as Json)
+  if (o['selected'] !== undefined) return toString(o['selected'])
+  if (o['text'] !== undefined) return toString(o['text'])
+  if (o['value'] !== undefined) return toString(o['value'])
+  return ''
+}
+
 function toString(j: Json | undefined): string {
   if (typeof j === 'string') return j
   if (typeof j === 'number') return String(j)
@@ -33,26 +46,8 @@ export function checkAnswer(
 
   switch (gradingMethod) {
     case 'exact': {
-      const ans = toObj(answerJson)
-      const correct = toObj(correctAnswer)
-
-      // Determine actual value strings based on answer shape
-      const ansText = ans['selected'] !== undefined
-        ? toString(ans['selected'])
-        : ans['text'] !== undefined
-        ? toString(ans['text'])
-        : ans['value'] !== undefined
-        ? toString(ans['value'])
-        : ''
-
-      const correctText = correct['selected'] !== undefined
-        ? toString(correct['selected'])
-        : correct['text'] !== undefined
-        ? toString(correct['text'])
-        : correct['value'] !== undefined
-        ? toString(correct['value'])
-        : ''
-
+      const ansText = extractScalar(answerJson)
+      const correctText = extractScalar(correctAnswer)
       const normalizedAns = normalizeText(ansText, caseSensitive)
       const normalizedCorrect = normalizeText(correctText, caseSensitive)
       const is_correct = normalizedAns === normalizedCorrect
@@ -65,21 +60,8 @@ export function checkAnswer(
     }
 
     case 'normalized': {
-      const ans = toObj(answerJson)
-      const correct = toObj(correctAnswer)
-
-      const ansText = ans['text'] !== undefined
-        ? toString(ans['text'])
-        : ans['selected'] !== undefined
-        ? toString(ans['selected'])
-        : toString(ans['value'])
-
-      const correctText = correct['text'] !== undefined
-        ? toString(correct['text'])
-        : correct['selected'] !== undefined
-        ? toString(correct['selected'])
-        : toString(correct['value'])
-
+      const ansText = extractScalar(answerJson)
+      const correctText = extractScalar(correctAnswer)
       const normalizedAns = normalizeText(ansText, caseSensitive)
       const normalizedCorrect = normalizeText(correctText, caseSensitive)
       const is_correct = normalizedAns === normalizedCorrect
@@ -92,11 +74,8 @@ export function checkAnswer(
     }
 
     case 'numeric_tolerance': {
-      const ans = toObj(answerJson)
-      const correct = toObj(correctAnswer)
-
-      const ansValueStr = toString(ans['value'] ?? ans['text'])
-      const correctValueStr = toString(correct['value'] ?? correct['text'])
+      const ansValueStr = extractScalar(answerJson)
+      const correctValueStr = extractScalar(correctAnswer)
 
       const ansNum = normalizeNumeric(ansValueStr)
       const correctNum = normalizeNumeric(correctValueStr)
@@ -122,15 +101,23 @@ export function checkAnswer(
 
     case 'set_match': {
       const ans = toObj(answerJson)
-      const correct = toObj(correctAnswer)
+      // correct can be plain "1,2,4" or ["1","2","4"] or {selected:[...]}
+      const rawCorrect = correctAnswer
+      const correctRawSelected: Json[] = Array.isArray(rawCorrect)
+        ? rawCorrect
+        : typeof rawCorrect === 'string' && rawCorrect.includes(',')
+        ? rawCorrect.split(',').map((s) => s.trim())
+        : toObj(rawCorrect as Json)['selected'] !== undefined
+        ? (Array.isArray(toObj(rawCorrect as Json)['selected'])
+            ? (toObj(rawCorrect as Json)['selected'] as Json[])
+            : [toObj(rawCorrect as Json)['selected'] as Json])
+        : [rawCorrect as Json]
 
       const ansSelected = Array.isArray(ans['selected'])
         ? (ans['selected'] as Json[]).map((v) => normalizeText(toString(v), caseSensitive))
         : [normalizeText(toString(ans['selected']), caseSensitive)]
 
-      const correctSelected = Array.isArray(correct['selected'])
-        ? (correct['selected'] as Json[]).map((v) => normalizeText(toString(v), caseSensitive))
-        : [normalizeText(toString(correct['selected']), caseSensitive)]
+      const correctSelected = correctRawSelected.map((v) => normalizeText(toString(v as Json), caseSensitive))
 
       const correctSet = new Set(correctSelected)
       const matchCount = ansSelected.filter((v) => correctSet.has(v)).length
@@ -165,8 +152,7 @@ export function checkAnswer(
     }
 
     case 'contains': {
-      const ans = toObj(answerJson)
-      const ansText = normalizeText(toString(ans['text'] ?? ans['value'] ?? ans['selected']), caseSensitive)
+      const ansText = normalizeText(extractScalar(answerJson), caseSensitive)
 
       const keywords = Array.isArray(config['keywords'])
         ? (config['keywords'] as Json[]).map((k) => normalizeText(toString(k), caseSensitive))
@@ -182,8 +168,7 @@ export function checkAnswer(
     }
 
     case 'regex': {
-      const ans = toObj(answerJson)
-      const ansText = toString(ans['text'] ?? ans['value'] ?? ans['selected'])
+      const ansText = extractScalar(answerJson)
       const pattern = typeof config['pattern'] === 'string' ? config['pattern'] : ''
 
       let is_correct = false

@@ -9,7 +9,7 @@ import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { Badge } from '@/components/ui/badge'
-import { ChevronLeft, ChevronRight, Send, Menu, X } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Send, Menu, X, CheckCheck } from 'lucide-react'
 
 import { TaskNavigator } from './TaskNavigator'
 import { TaskView } from './TaskView'
@@ -268,7 +268,7 @@ export function TestPlayer({
 
         {/* Task content */}
         <main className="flex flex-1 flex-col overflow-y-auto">
-          <div className="flex-1 p-4 md:p-8 max-w-2xl mx-auto w-full">
+          <div className="flex-1 p-4 md:p-8 max-w-2xl mx-auto w-full space-y-4">
             {currentTask && (
               <TaskView
                 task={currentTask}
@@ -277,6 +277,30 @@ export function TestPlayer({
                 images={taskMediaMap[currentTask.id] ?? []}
                 disabled={isSubmitting}
               />
+            )}
+
+            {/* Save answer button */}
+            {currentTask && !isSubmitting && (
+              <div className="flex justify-end">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={async () => {
+                    if (debounceTimerRef.current) {
+                      clearTimeout(debounceTimerRef.current)
+                      debounceTimerRef.current = null
+                    }
+                    const pending = pendingRef.current[currentTask.id]
+                    if (pending !== undefined) {
+                      await saveAnswer(currentTask.id, pending)
+                    }
+                  }}
+                  disabled={saveStatus === 'saving'}
+                >
+                  <CheckCheck className="mr-1.5 h-3.5 w-3.5" />
+                  Записать ответ
+                </Button>
+              </div>
             )}
           </div>
 

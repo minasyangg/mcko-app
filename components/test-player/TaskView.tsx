@@ -93,6 +93,7 @@ export function TaskView({ task, answer, onChange, images = [], disabled }: Task
             onChange={(v) => onChange({ text: v })}
             hint={task.answer_format_hint}
             disabled={disabled}
+            size="small"
           />
         )
       }
@@ -136,6 +137,7 @@ export function TaskView({ task, answer, onChange, images = [], disabled }: Task
             onChange={(v) => onChange({ text: v })}
             hint={task.answer_format_hint ?? 'Введите развёрнутый ответ'}
             disabled={disabled}
+            size="large"
           />
         )
       }
