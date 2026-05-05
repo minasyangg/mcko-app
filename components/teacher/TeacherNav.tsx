@@ -14,6 +14,7 @@ const navItems = [
   { href: '/teacher/monitor', label: 'Мониторинг', icon: Monitor },
   { href: '/teacher/results', label: 'Результаты', icon: TrendingUp },
   { href: '/teacher/groups', label: 'Группы', icon: Users },
+  { href: '/teacher/students', label: 'Ученики', icon: Users },
   { href: '/teacher/solution-requests', label: 'Запросы', icon: FileText },
 ]
 

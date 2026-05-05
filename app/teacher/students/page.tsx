@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
-import { Badge } from '@/components/ui/badge'
+import { StudentsTableClient } from '@/components/teacher/StudentsTableClient'
 import { Button } from '@/components/ui/button'
 import { Users, Plus } from 'lucide-react'
 import Link from 'next/link'
@@ -9,9 +9,10 @@ export default async function StudentsPage() {
 
   const { data: students } = await supabase
     .from('profiles')
-    .select('id, full_name, grade, is_active, created_at')
+    .select('id, full_name, grade, is_active, created_at, deleted_at')
     .eq('role', 'student')
-    .order('full_name')
+    .order('deleted_at', { ascending: false })
+    .order('full_name', { ascending: true })
 
   return (
     <div className="space-y-6">
@@ -19,7 +20,12 @@ export default async function StudentsPage() {
         <div>
           <h1 className="text-2xl font-semibold">Ученики</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            {students?.length ?? 0} зарегистрированных учеников
+            {students?.length ?? 0} ученик
+            {(students?.length ?? 0) % 10 === 1 && (students?.length ?? 0) % 100 !== 11
+              ? ''
+              : (students?.length ?? 0) % 10 < 5 && !((students?.length ?? 0) % 100 >= 11 && (students?.length ?? 0) % 100 <= 19)
+                ? 'а'
+                : 'ов'}
           </p>
         </div>
         <Button asChild>
@@ -36,36 +42,12 @@ export default async function StudentsPage() {
           <p>Нет зарегистрированных учеников.</p>
         </div>
       ) : (
-        <div className="rounded-md border overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="bg-muted/50">
-              <tr>
-                <th className="text-left px-4 py-3 font-medium">ФИО</th>
-                <th className="text-left px-4 py-3 font-medium">Класс</th>
-                <th className="text-left px-4 py-3 font-medium">Статус</th>
-                <th className="text-left px-4 py-3 font-medium">Дата регистрации</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y">
-              {students.map((s) => (
-                <tr key={s.id} className="hover:bg-muted/30 transition-colors">
-                  <td className="px-4 py-3 font-medium">{s.full_name}</td>
-                  <td className="px-4 py-3 text-muted-foreground">{s.grade ?? '—'}</td>
-                  <td className="px-4 py-3">
-                    <Badge variant={s.is_active ? 'default' : 'secondary'}>
-                      {s.is_active ? 'Активен' : 'Неактивен'}
-                    </Badge>
-                  </td>
-                  <td className="px-4 py-3 text-muted-foreground">
-                    {s.created_at
-                      ? new Date(s.created_at).toLocaleDateString('ru-RU')
-                      : '—'}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <StudentsTableClient
+          students={students as any[]}
+          onStudentDeleted={() => {
+            // Trigger revalidation if needed
+          }}
+        />
       )}
     </div>
   )
