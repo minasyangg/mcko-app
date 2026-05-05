@@ -7,11 +7,26 @@ import Link from 'next/link'
 export default async function StudentsPage() {
   const supabase = await createClient()
 
+  // First get current user to get organization
+  const { data: { user } } = await supabase.auth.getUser()
+  
+  if (!user) {
+    return <div>Unauthorized</div>
+  }
+
+  // Get user profile to find organization
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('organization_id')
+    .eq('id', user.id)
+    .single()
+
   const { data: students } = await supabase
     .from('profiles')
     .select('id, full_name, grade, is_active, created_at, deleted_at')
     .eq('role', 'student')
-    .order('deleted_at', { ascending: false })
+    .eq('organization_id', profile?.organization_id || '')
+    .order('deleted_at', { ascending: false, nullsFirst: true })
     .order('full_name', { ascending: true })
 
   return (
@@ -43,7 +58,7 @@ export default async function StudentsPage() {
         </div>
       ) : (
         <StudentsTableClient
-          students={students as any[]}
+          students={(students || []) as Array<{ id: string; full_name: string; grade: string; is_active: boolean; created_at: string; deleted_at: string | null }>}
           onStudentDeleted={() => {
             // Trigger revalidation if needed
           }}
