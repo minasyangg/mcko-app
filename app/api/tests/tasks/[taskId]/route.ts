@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import type { Database } from '@/types/database'
+import { deleteTaskMediaFiles } from '@/app/api/parsing/trigger/route'
 
 type TaskUpdate = Database['public']['Tables']['test_tasks']['Update']
 
@@ -151,6 +152,9 @@ export async function DELETE(
       await admin.from('task_solutions').delete().in('id', solutionIds)
     }
 
+    // Delete Storage files before DB rows
+    const { data: mediaRows } = await admin.from('task_media').select('storage_path').eq('task_id', taskId)
+    await deleteTaskMediaFiles(admin, (mediaRows ?? []).map(r => r.storage_path).filter(Boolean))
     await admin.from('task_media').delete().eq('task_id', taskId)
     await admin.from('solution_requests').delete().eq('task_id', taskId)
     await admin.from('parsing_warnings').delete().eq('task_id', taskId)

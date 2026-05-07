@@ -60,8 +60,12 @@ function isMdFile(file: File) {
   return file.name.endsWith('.md') || file.type === 'text/markdown'
 }
 
+function isJsonFile(file: File) {
+  return file.name.endsWith('.json') || file.type === 'application/json'
+}
+
 function isValidTaskFile(file: File) {
-  return file.type === 'application/pdf' || isMdFile(file)
+  return file.type === 'application/pdf' || isMdFile(file) || isJsonFile(file)
 }
 
 function DropZone({
@@ -315,6 +319,8 @@ export default function ImportFlow({
   const [solutionsFile, setSolutionsFile] = useState<FileState>({ file: null, dragging: false })
 
   const isMdUpload = tasksFile.file ? isMdFile(tasksFile.file) : false
+  const isJsonUpload = tasksFile.file ? isJsonFile(tasksFile.file) : false
+  const isSelfContained = isMdUpload || isJsonUpload
 
   const handleRetry = () => {
     setPhase('upload')
@@ -338,20 +344,23 @@ export default function ImportFlow({
       const supabase = createClient()
 
       const isMd = isMdFile(tasksFile.file)
+      const isJson = isJsonFile(tasksFile.file)
+      const selfContained = isMd || isJson
 
       const filesToUpload: Array<{ file: File; docType: DocType }> = [
         { file: tasksFile.file, docType: 'tasks' },
-        // MD files are self-contained — no separate answers/solutions needed
-        ...(!isMd && answersFile.file ? [{ file: answersFile.file, docType: 'answers' as DocType }] : []),
-        ...(!isMd && solutionsFile.file ? [{ file: solutionsFile.file, docType: 'solutions' as DocType }] : []),
+        // MD/JSON are self-contained — no separate answers/solutions needed
+        ...(!selfContained && answersFile.file ? [{ file: answersFile.file, docType: 'answers' as DocType }] : []),
+        ...(!selfContained && solutionsFile.file ? [{ file: solutionsFile.file, docType: 'solutions' as DocType }] : []),
       ]
 
       // Step 1: Upload files to Storage (client-side)
       const uploads: Array<{ docType: DocType; storagePath: string; originalFilename: string }> = []
 
       for (const { file, docType } of filesToUpload) {
-        const ext = isMd && docType === 'tasks' ? 'md' : 'pdf'
-        const contentType = isMd && docType === 'tasks' ? 'text/markdown' : 'application/pdf'
+        const isTasksFile = docType === 'tasks'
+        const ext = isTasksFile && isMd ? 'md' : isTasksFile && isJson ? 'json' : 'pdf'
+        const contentType = isTasksFile && isMd ? 'text/markdown' : isTasksFile && isJson ? 'application/json' : 'application/pdf'
         const storagePath = `test-documents/${testVersionId}/${docType}/original.${ext}`
 
         const { error: uploadError } = await supabase.storage
@@ -402,20 +411,22 @@ export default function ImportFlow({
       {phase === 'upload' && (
         <div className="space-y-6">
           {/* Инструкция */}
-          <div className="rounded-lg border bg-muted/30 p-4 space-y-3">
-            <p className="text-sm font-semibold">Как загружать тесты:</p>
-            <ol className="text-sm text-muted-foreground space-y-1.5 list-decimal list-inside">
-              <li><strong>PDF</strong> — загрузите файл с заданиями (обязательно) и опционально ответы и решения. AI извлечёт структуру.</li>
-              <li><strong>MD (Markdown)</strong> — файл от PaddleOCR с готовыми формулами KaTeX и изображениями. Ответы и решения уже внутри — отдельные файлы не нужны.</li>
-              <li>После обработки проверьте и одобрите задачи в Review, затем опубликуйте тест.</li>
-            </ol>
+          <div className="rounded-lg border bg-muted/30 p-4 space-y-2">
+            <p className="text-sm font-semibold">Форматы загрузки:</p>
+            <div className="text-sm text-muted-foreground space-y-1">
+              <p><strong>JSON (PaddleOCR)</strong> — лучшее качество. Точное сопоставление изображений с заданиями по координатам, KaTeX формулы, таблицы.</p>
+              <p><strong>MD (Markdown)</strong> — OCR с формулами KaTeX. Ответы и решения внутри.</p>
+              <p><strong>PDF</strong> — стандартный: файл с заданиями обязателен, ответы и решения опционально.</p>
+            </div>
           </div>
 
-          {isMdUpload && (
+          {isSelfContained && (
             <div className="rounded-lg border border-blue-200 bg-blue-50 dark:bg-blue-950/20 p-3 flex items-start gap-2">
               <CheckCircle2 className="h-4 w-4 text-blue-500 mt-0.5 shrink-0" />
               <p className="text-sm text-blue-700 dark:text-blue-400">
-                MD-файл содержит задания, ответы и решения — дополнительные файлы не требуются.
+                {isJsonUpload
+                  ? 'JSON-файл PaddleOCR содержит задания, ответы, решения и изображения — дополнительные файлы не нужны.'
+                  : 'MD-файл содержит задания, ответы и решения — дополнительные файлы не нужны.'}
               </p>
             </div>
           )}
@@ -423,38 +434,38 @@ export default function ImportFlow({
           <div>
             <h2 className="text-lg font-semibold mb-1">Загрузите файл(ы)</h2>
             <p className="text-sm text-muted-foreground">
-              Поддерживаются PDF и MD (PaddleOCR). Файл с заданиями обязателен.
+              JSON/MD от PaddleOCR или PDF. Файл с заданиями обязателен.
             </p>
           </div>
 
           <div className="grid gap-4">
             <DropZone
-              label="Задания (PDF или MD)"
+              label="Задания (JSON, MD или PDF)"
               required
-              accept="application/pdf,.md,text/markdown"
+              accept="application/json,.json,application/pdf,.md,text/markdown"
               fileState={tasksFile}
               onFileChange={(f) => {
                 setTasksFile({ file: f, dragging: false })
-                if (f && isMdFile(f)) {
+                if (f && (isMdFile(f) || isJsonFile(f))) {
                   setAnswersFile({ file: null, dragging: false })
                   setSolutionsFile({ file: null, dragging: false })
                 }
               }}
-              hint="PDF или MD-файл от PaddleOCR"
+              hint="JSON/MD от PaddleOCR или обычный PDF"
             />
             <DropZone
               label="Ответы (PDF)"
               fileState={answersFile}
               onFileChange={(f) => setAnswersFile({ file: f, dragging: false })}
-              disabled={isMdUpload}
-              hint={isMdUpload ? 'Не нужно — ответы уже в MD-файле' : undefined}
+              disabled={isSelfContained}
+              hint={isSelfContained ? 'Не нужно — ответы уже в файле' : undefined}
             />
             <DropZone
               label="Решения (PDF)"
               fileState={solutionsFile}
               onFileChange={(f) => setSolutionsFile({ file: f, dragging: false })}
-              disabled={isMdUpload}
-              hint={isMdUpload ? 'Не нужно — решения уже в MD-файле' : undefined}
+              disabled={isSelfContained}
+              hint={isSelfContained ? 'Не нужно — решения уже в файле' : undefined}
             />
           </div>
 

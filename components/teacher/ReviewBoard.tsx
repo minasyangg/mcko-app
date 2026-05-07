@@ -26,6 +26,7 @@ import {
   Save,
 } from 'lucide-react'
 import MarkdownContent from '@/components/shared/MarkdownContent'
+import { ImageGallery } from '@/components/shared/ImageGallery'
 
 export interface TaskWithReview {
   id: string
@@ -327,54 +328,31 @@ function TaskRow({
                   </span>
                 </div>
 
-                <div className="flex flex-wrap gap-3 items-start">
-                  {media
-                    .sort((a, b) => a.sort_order - b.sort_order)
-                    .map((img) => (
-                      <div key={img.id} className="relative group">
-                        <img
-                          src={img.signedUrl}
-                          alt={img.alt_text ?? `Изображение к заданию ${task.task_number}`}
-                          className="h-36 w-auto max-w-xs rounded border object-contain bg-white"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => handleDelete(img.id)}
-                          className="absolute top-1 right-1 hidden group-hover:flex items-center justify-center h-5 w-5 rounded-full bg-destructive text-destructive-foreground shadow"
-                          title="Удалить изображение"
-                        >
-                          <X className="h-3 w-3" />
-                        </button>
-                      </div>
-                    ))}
-
-                  {/* Upload button */}
-                  <button
-                    type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    disabled={isUploading}
-                    className="h-36 w-28 rounded border-2 border-dashed border-muted-foreground/30 flex flex-col items-center justify-center gap-1.5 text-muted-foreground hover:border-primary hover:text-primary transition-colors disabled:opacity-50"
-                    title="Нажмите для выбора файла или Ctrl+V для вставки скриншота"
-                  >
-                    {isUploading ? (
-                      <Loader2 className="h-6 w-6 animate-spin" />
-                    ) : (
-                      <>
-                        <ImagePlus className="h-6 w-6" />
-                        <span className="text-xs text-center leading-tight px-1">
-                          Выбрать<br />или вставить
-                        </span>
-                      </>
-                    )}
-                  </button>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="image/*"
-                    className="hidden"
-                    onChange={handleFileInput}
-                  />
-                </div>
+                <ImageGallery
+                  images={media.map(img => ({ id: img.id, signedUrl: img.signedUrl, alt: img.alt_text, sort_order: img.sort_order }))}
+                  onDelete={handleDelete}
+                  uploadSlot={
+                    <div>
+                      <button
+                        type="button"
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={isUploading}
+                        className="h-24 w-20 rounded border-2 border-dashed border-muted-foreground/30 flex flex-col items-center justify-center gap-1 text-muted-foreground hover:border-primary hover:text-primary transition-colors disabled:opacity-50"
+                        title="Нажмите или Ctrl+V"
+                      >
+                        {isUploading ? (
+                          <Loader2 className="h-5 w-5 animate-spin" />
+                        ) : (
+                          <>
+                            <ImagePlus className="h-5 w-5" />
+                            <span className="text-[10px] text-center leading-tight px-1">Добавить</span>
+                          </>
+                        )}
+                      </button>
+                      <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleFileInput} />
+                    </div>
+                  }
+                />
 
                 {uploadError && (
                   <p className="text-xs text-destructive mt-1">{uploadError}</p>

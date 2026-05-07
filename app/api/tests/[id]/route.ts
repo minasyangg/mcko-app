@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { deleteVersionStorage } from '@/app/api/parsing/trigger/route'
 
 // PATCH /api/tests/[id] — update test metadata
 export async function PATCH(
@@ -123,7 +124,10 @@ export async function DELETE(
           await admin.from('task_solutions').delete().in('id', solutionIds)
         }
 
-        // Delete task_media
+        // Delete task_media storage files, then DB rows
+        const { data: mediaRows } = await admin.from('task_media').select('storage_path').in('task_id', taskIds)
+        const mediaPaths = (mediaRows ?? []).map(r => r.storage_path).filter(Boolean)
+        if (mediaPaths.length) await admin.storage.from('task-media').remove(mediaPaths)
         await admin.from('task_media').delete().in('task_id', taskIds)
 
         // Delete solution_requests
@@ -176,6 +180,11 @@ export async function DELETE(
         }
 
         await admin.from('assignments').delete().in('id', assignmentIds)
+      }
+
+      // Delete any remaining Storage files for each version (e.g. unmatched images with task_id=null)
+      for (const vId of versionIds) {
+        await deleteVersionStorage(admin, vId)
       }
 
       // Delete test_versions

@@ -225,7 +225,7 @@ async function uploadImages(
         .webp({ quality: 85 })
         .toBuffer()
 
-      const storagePath = `task-media/raw/${testVersionId}/img_${img.index}.webp`
+      const storagePath = `task-media/${testVersionId}/pdf_${img.index}.webp`
 
       const { error: upErr } = await client.storage
         .from('task-media')
@@ -280,7 +280,7 @@ async function matchImagesToTasks(
     .from('task_media')
     .select('id, sort_order')
     .is('task_id', null)
-    .like('storage_path', `task-media/raw/${testVersionId}/%`)
+    .like('storage_path', `task-media/${testVersionId}/%`)
     .order('sort_order', { ascending: true })
 
   if (!unmatchedImages?.length) return 0
@@ -502,7 +502,7 @@ async function downloadAndUploadMdImages(
         .webp({ quality: 85 })
         .toBuffer()
 
-      const storagePath = `task-media/raw/${testVersionId}/md_img_${i}.webp`
+      const storagePath = `task-media/${testVersionId}/md_${i}.webp`
       const { error: upErr } = await client.storage
         .from('task-media')
         .upload(storagePath, webpBuf, { contentType: 'image/webp', upsert: true })
@@ -532,6 +532,264 @@ async function downloadAndUploadMdImages(
   return urlMap
 }
 
+// ─── PaddleOCR JSON parser ────────────────────────────────────────────────────
+
+interface PaddleBlock {
+  block_label: string
+  block_content: string
+  block_bbox: [number, number, number, number]
+  block_id: number
+  block_order?: number
+}
+
+interface PaddlePage {
+  prunedResult: { parsing_res_list: PaddleBlock[] }
+  inputImage: Record<string, string>
+}
+
+interface JsonImageRef {
+  pageImgUrl: string
+  bbox: [number, number, number, number]
+  blockId: number
+  sortOrder: number
+}
+
+interface JsonTaskRaw {
+  number: number
+  conditionParts: string[]
+  solutionParts: string[]
+  answer: string | null
+  imageRefs: JsonImageRef[]
+}
+
+function parseJsonPaddleOCR(pages: PaddlePage[]): {
+  meta: Record<string, string>
+  tasks: any[]
+  answers: any[]
+  solutions: any[]
+  warnings: any[]
+  rawTasks: JsonTaskRaw[]
+} {
+  const SKIP = new Set(['header', 'footer', 'number', 'header_image', 'footer_image'])
+  const rawTasks: JsonTaskRaw[] = []
+  let cur: JsonTaskRaw | null = null
+  let inSolution = false
+  let imgSortOrder = 0
+
+  for (let pageIdx = 0; pageIdx < pages.length; pageIdx++) {
+    const page = pages[pageIdx]
+    const pageImgUrl = Object.values(page.inputImage).join('')
+    const blocks = page.prunedResult.parsing_res_list
+
+    for (const block of blocks) {
+      if (SKIP.has(block.block_label)) continue
+
+      // New task boundary
+      if (block.block_label === 'paragraph_title') {
+        const m = block.block_content.match(/^#+\s+(\d+)\./)
+        if (m) {
+          if (cur) rawTasks.push(cur)
+          cur = { number: parseInt(m[1]), conditionParts: [], solutionParts: [], answer: null, imageRefs: [] }
+          inSolution = false
+          continue
+        }
+        // Примечание / notes — attach to current solution
+        if (cur && block.block_content.includes('Примечание')) {
+          cur.solutionParts.push('> ' + block.block_content.replace(/^#+\s*/, ''))
+        }
+        continue
+      }
+
+      if (!cur) continue
+
+      if (block.block_label === 'text') {
+        const c = block.block_content.trim()
+        if (!c) continue
+
+        // Answer line
+        const answerMatch = c.match(/^Ответ[:\s]*(.+)/)
+        if (answerMatch && !inSolution) {
+          // It's in the solution block but label is "text" (Ответ comes after Решение)
+        }
+        if (c.match(/^Ответ[:\s]/)) {
+          cur.answer = c.replace(/^Ответ[:\s]+/, '').replace(/<[^>]+>/g, '').trim()
+          inSolution = true // answer is always after solution
+          continue
+        }
+
+        // Solution marker
+        if (c.startsWith('Решение.') || c === 'Решение') {
+          inSolution = true
+          const afterSol = c.replace(/^Решение\.?\s*/, '').trim()
+          if (afterSol) cur.solutionParts.push(afterSol)
+          continue
+        }
+
+        if (inSolution) cur.solutionParts.push(c)
+        else cur.conditionParts.push(c)
+
+      } else if (block.block_label === 'display_formula') {
+        const f = block.block_content.trim()
+        if (inSolution) cur.solutionParts.push(f)
+        else cur.conditionParts.push(f)
+
+      } else if (block.block_label === 'image' || block.block_label === 'chart') {
+        // Only attach images to condition (not solution) — usually figures are in the problem
+        cur.imageRefs.push({ pageImgUrl, bbox: block.block_bbox, blockId: block.block_id, sortOrder: imgSortOrder++ })
+
+      } else if (block.block_label === 'table') {
+        // HTML table — keep as-is
+        if (inSolution) cur.solutionParts.push(block.block_content)
+        else cur.conditionParts.push(block.block_content)
+
+      } else if (block.block_label === 'figure_title') {
+        const caption = `*${block.block_content.replace(/^#+\s*/, '').trim()}*`
+        if (inSolution) cur.solutionParts.push(caption)
+        else cur.conditionParts.push(caption)
+      }
+    }
+  }
+  if (cur) rawTasks.push(cur)
+
+  // Build standard parsed format (without images — handled separately in pipeline)
+  const tasks = rawTasks.map(t => ({
+    number: t.number,
+    prompt_text: t.conditionParts
+      .join('\n\n')
+      .replace(/\$\$[\s\S]*?\$\$/g, '[формула]')
+      .replace(/\$[^$\n]+\$/g, '[формула]')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim() || `Задание ${t.number}`,
+    prompt_html: t.conditionParts.join('\n\n'),
+    task_type_guess: (() => {
+      const ans = t.answer ?? ''
+      if (/^-?\d+([.,]\d+)?$/.test(ans)) return 'numeric'
+      if (t.conditionParts.join(' ').toLowerCase().includes('выберит') || t.conditionParts.join(' ').toLowerCase().includes('из предложен')) return 'single_choice'
+      return 'short_text'
+    })(),
+    options: [],
+    answer_parts: [],
+    answer_format_hint: null,
+    image_refs: t.imageRefs.map(r => JSON.stringify(r)),
+    images_placement: 'above_text',
+    has_unmatched_images: t.imageRefs.length > 0,
+    source_pages: [1],
+    confidence: 0.98,
+  }))
+
+  const answers = rawTasks
+    .filter(t => t.answer)
+    .map(t => ({
+      task_number: t.number,
+      correct_answer: t.answer!,
+      grading_method_guess: /^-?\d+([.,]\d+)?$/.test(t.answer!) ? 'numeric_tolerance' : 'normalized',
+      confidence: 0.98,
+    }))
+
+  const solutions = rawTasks
+    .filter(t => t.solutionParts.length > 0)
+    .map(t => ({ task_number: t.number, solution_text: t.solutionParts.join('\n\n') }))
+
+  return { meta: { title: '', subject: '', exam_type: '', grade: '' }, tasks, answers, solutions, warnings: [], rawTasks }
+}
+
+// Download and crop a region from a full page image
+const _pageImgCache = new Map<string, Buffer>()
+
+async function cropPageImage(
+  pageImgUrl: string,
+  bbox: [number, number, number, number],
+  sharpLib: typeof import('sharp')
+): Promise<Buffer | null> {
+  try {
+    let pageBuf = _pageImgCache.get(pageImgUrl)
+    if (!pageBuf) {
+      const res = await fetch(pageImgUrl, { signal: AbortSignal.timeout(30000) })
+      if (!res.ok) return null
+      pageBuf = Buffer.from(await res.arrayBuffer())
+      _pageImgCache.set(pageImgUrl, pageBuf)
+    }
+    const [x1, y1, x2, y2] = bbox
+    const w = Math.max(1, x2 - x1)
+    const h = Math.max(1, y2 - y1)
+    return await sharpLib(pageBuf)
+      .extract({ left: x1, top: y1, width: w, height: h })
+      .resize({ width: 900, withoutEnlargement: true })
+      .webp({ quality: 88 })
+      .toBuffer()
+  } catch (e) {
+    console.error('[json-img] crop error:', (e as Error).message)
+    return null
+  }
+}
+
+// Upload JSON-sourced images for a task (exact matching by block structure)
+async function uploadJsonTaskImages(
+  imageRefs: JsonImageRef[],
+  taskId: string,
+  taskNumber: number,
+  testVersionId: string,
+  client: SupabaseClient<Database>
+): Promise<number> {
+  if (!imageRefs.length) return 0
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  let sharpLib: typeof import('sharp') | null = null
+  try { sharpLib = require('sharp') } catch { return 0 }
+
+  let uploaded = 0
+  for (const ref of imageRefs) {
+    const cropped = await cropPageImage(ref.pageImgUrl, ref.bbox, sharpLib!)
+    if (!cropped) continue
+
+    const storagePath = `task-media/${testVersionId}/t${taskNumber}_b${ref.blockId}.webp`
+    const { error: upErr } = await client.storage
+      .from('task-media')
+      .upload(storagePath, cropped, { contentType: 'image/webp', upsert: true })
+    if (upErr) { console.error('[json-img] upload:', upErr.message); continue }
+
+    const meta = await sharpLib!(cropped).metadata()
+    await client.from('task_media').insert({
+      task_id: taskId,
+      storage_path: storagePath,
+      media_type: 'image',
+      format: 'webp',
+      width_px: meta.width ?? null,
+      height_px: meta.height ?? null,
+      file_size_bytes: cropped.length,
+      is_manually_uploaded: false,
+      placement: 'above_text',
+      sort_order: ref.sortOrder,
+    })
+    uploaded++
+  }
+  _pageImgCache.clear() // free memory after a test version is processed
+  return uploaded
+}
+
+// ─── Storage helpers ──────────────────────────────────────────────────────────
+
+// Delete all Storage files for a version folder (task-media/{versionId}/*)
+export async function deleteVersionStorage(
+  client: SupabaseClient<Database>,
+  testVersionId: string
+): Promise<void> {
+  const { data: files } = await client.storage.from('task-media').list(testVersionId)
+  if (files?.length) {
+    const paths = files.map(f => `${testVersionId}/${f.name}`)
+    await client.storage.from('task-media').remove(paths)
+  }
+}
+
+// Delete Storage files for specific task_media rows
+export async function deleteTaskMediaFiles(
+  client: SupabaseClient<Database>,
+  storagePaths: string[]
+): Promise<void> {
+  if (!storagePaths.length) return
+  await client.storage.from('task-media').remove(storagePaths)
+}
+
 // ─── Main pipeline ────────────────────────────────────────────────────────────
 
 async function runParsing(jobId: string, testVersionId: string, docIds: string[]): Promise<void> {
@@ -543,15 +801,101 @@ async function runParsing(jobId: string, testVersionId: string, docIds: string[]
       .update({ status: 'processing', started_at: new Date().toISOString() })
       .eq('id', jobId)
 
-    // Detect MD upload (single file with tasks + answers + solutions)
+    // Detect file type: JSON > MD > PDF
     const { data: docInfos } = await client.from('test_documents')
       .select('id,storage_path,doc_type')
       .in('id', docIds)
-    const mdDoc = docInfos?.find(d => d.storage_path.endsWith('.md') && d.doc_type === 'tasks')
+    const jsonDoc = docInfos?.find(d => d.storage_path.endsWith('.json') && d.doc_type === 'tasks')
+    const mdDoc = !jsonDoc ? docInfos?.find(d => d.storage_path.endsWith('.md') && d.doc_type === 'tasks') : null
 
     let tasks: any[], answers: any[], solutions: any[], imagesExtracted = 0, imagesAttached = 0
 
-    if (mdDoc) {
+    if (jsonDoc) {
+      // ── PaddleOCR JSON pipeline ───────────────────────────────────────────────
+      await mark('Downloading JSON file')
+      const { data: blob, error: dlErr } = await client.storage.from('test-documents').download(jsonDoc.storage_path)
+      if (dlErr || !blob) throw new Error(`Failed to download JSON file: ${dlErr?.message}`)
+
+      await client.from('test_documents').update({ parse_status: 'text_extracted' }).eq('id', jsonDoc.id)
+
+      const jsonText = await blob.text()
+      await mark('Parsing PaddleOCR JSON')
+      const pages: PaddlePage[] = JSON.parse(jsonText)
+      const { tasks: parsedTasks, answers: parsedAnswers, solutions: parsedSolutions, rawTasks } = parseJsonPaddleOCR(pages)
+      tasks = parsedTasks
+      answers = parsedAnswers
+      solutions = parsedSolutions
+
+      // Insert tasks FIRST to get task_ids, then upload images directly attached
+      await mark(`Saving ${tasks.length} tasks with images`)
+
+      const ansMap = new Map(answers.map((a: any) => [a.task_number, a]))
+      const solMap = new Map(solutions.map((s: any) => [s.task_number, s]))
+      const rawMap = new Map(rawTasks.map(t => [t.number, t]))
+      let inserted = 0, matchedAns = 0, matchedSol = 0, totalImgs = 0
+
+      for (const t of tasks) {
+        const { data: task, error: te } = await client.from('test_tasks').insert({
+          test_version_id: testVersionId,
+          task_number: t.number,
+          sort_order: t.number,
+          prompt_text: t.prompt_text,
+          prompt_html: t.prompt_html ?? null,
+          task_type: t.task_type_guess ?? 'short_text',
+          options: null,
+          answer_format_hint: null,
+          parse_confidence: t.confidence ?? 0.98,
+          has_images: t.has_unmatched_images ?? false,
+          source_pages: [1],
+          review_status: 'pending',
+          max_score: 1,
+        }).select('id').single()
+        if (te || !task) { console.warn('task insert error:', te?.message); continue }
+        inserted++
+
+        const ans = ansMap.get(t.number) as any
+        if (ans?.correct_answer != null) {
+          const { error: ae } = await client.from('task_answer_keys').insert({
+            task_id: task.id,
+            correct_answer: ans.correct_answer,
+            grading_method: ans.grading_method_guess ?? 'normalized',
+            parse_confidence: ans.confidence ?? 0.98,
+          })
+          if (!ae) matchedAns++
+        }
+
+        const sol = solMap.get(t.number) as any
+        if (sol?.solution_text) {
+          const { error: se } = await client.from('task_solutions').insert({ task_id: task.id, solution_text: sol.solution_text })
+          if (!se) matchedSol++
+        }
+
+        // Upload cropped images directly with task_id
+        const raw = rawMap.get(t.number)
+        if (raw?.imageRefs.length) {
+          const imgCount = await uploadJsonTaskImages(raw.imageRefs, task.id, t.number, testVersionId, client)
+          if (imgCount > 0) {
+            await client.from('test_tasks').update({ has_images: true }).eq('id', task.id)
+            totalImgs += imgCount
+          }
+        }
+      }
+
+      imagesExtracted = totalImgs
+      imagesAttached = totalImgs // All images are directly attached — no matching needed
+
+      await client.from('parsing_jobs').update({
+        status: 'done',
+        error_message: null,
+        completed_at: new Date().toISOString(),
+        result_summary: { tasks_found: inserted, answers_matched: matchedAns, solutions_matched: matchedSol, images_extracted: totalImgs, images_attached: totalImgs, warnings_count: 0 },
+      }).eq('id', jobId)
+
+      if (inserted > 0) await client.from('test_versions').update({ status: 'in_review' }).eq('id', testVersionId)
+      console.log(`[parsing/json] done: ${inserted} tasks, ${totalImgs} images`)
+      return
+
+    } else if (mdDoc) {
       // ── MD pipeline ──────────────────────────────────────────────────────────
       await mark('Downloading MD file')
       const { data: blob, error: dlErr } = await client.storage.from('test-documents').download(mdDoc.storage_path)
