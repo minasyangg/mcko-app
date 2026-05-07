@@ -38,6 +38,8 @@ import {
   Upload,
   BarChart2,
   UserPlus,
+  EyeOff,
+  Eye,
 } from 'lucide-react'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -66,6 +68,7 @@ export interface TestDetailClientProps {
     exam_type: string | null
     description: string | null
     status: string
+    is_active: boolean
   }
   versionId: string | null
   versionStatus: string | null
@@ -564,8 +567,22 @@ export function TestDetailClient({
   const [tasks, setTasks] = useState<TestTask[]>(initialTasks)
   const [showAddForm, setShowAddForm] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [togglingActive, setTogglingActive] = useState(false)
   const [editingMeta, setEditingMeta] = useState(false)
   const [test, setTest] = useState(initialTest)
+
+  async function handleToggleActive() {
+    setTogglingActive(true)
+    try {
+      const res = await fetch(`/api/tests/${testId}/toggle-active`, { method: 'PATCH' })
+      if (res.ok) {
+        const data = await res.json()
+        setTest((prev) => ({ ...prev, is_active: data.is_active }))
+      }
+    } finally {
+      setTogglingActive(false)
+    }
+  }
   const [metaForm, setMetaForm] = useState({
     title: initialTest.title,
     subject: initialTest.subject ?? '',
@@ -767,6 +784,20 @@ export function TestDetailClient({
               Аналитика
             </Link>
           </Button>
+          {test.status === 'published' && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={handleToggleActive}
+              disabled={togglingActive}
+              className={test.is_active ? 'text-orange-600 border-orange-300 hover:bg-orange-50' : 'text-green-600 border-green-300 hover:bg-green-50'}
+            >
+              {test.is_active
+                ? <><EyeOff className="h-4 w-4 mr-1.5" />{togglingActive ? '...' : 'Снять с публикации'}</>
+                : <><Eye className="h-4 w-4 mr-1.5" />{togglingActive ? '...' : 'Возобновить'}</>
+              }
+            </Button>
+          )}
           <AlertDialog>
             <AlertDialogTrigger asChild>
               <Button

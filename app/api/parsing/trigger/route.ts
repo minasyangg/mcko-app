@@ -353,6 +353,185 @@ async function callDeepSeek(text: string): Promise<any> {
   return JSON.parse(content)
 }
 
+// ─── MD file parser ──────────────────────────────────────────────────────────
+
+interface MdParsedTask {
+  number: number
+  prompt_text: string
+  prompt_html: string
+  task_type_guess: string
+  options: unknown[]
+  answer_parts: unknown[]
+  answer_format_hint: null
+  image_refs: string[]
+  images_placement: string
+  has_unmatched_images: boolean
+  source_pages: number[]
+  confidence: number
+}
+
+function parseMdContent(mdText: string): {
+  meta: Record<string, string>
+  tasks: MdParsedTask[]
+  answers: { task_number: number; correct_answer: string; grading_method_guess: string; confidence: number }[]
+  solutions: { task_number: number; solution_text: string }[]
+  warnings: unknown[]
+} {
+  // Find all ## N. headings and their positions
+  const headingRegex = /^(## (\d+)\..+)$/gm
+  const headings: { index: number; header: string; number: number }[] = []
+  let m
+  while ((m = headingRegex.exec(mdText)) !== null) {
+    const num = parseInt(m[2])
+    if (num > 0) headings.push({ index: m.index, header: m[1], number: num })
+  }
+
+  // Extract meta from preamble
+  const preamble = mdText.slice(0, headings[0]?.index ?? 0)
+  const titleMatch = preamble.match(/^#\s+(.+)$/m)
+  const meta = { title: titleMatch?.[1]?.trim() ?? '', subject: '', exam_type: '', grade: '' }
+
+  const tasks: MdParsedTask[] = []
+  const answers: { task_number: number; correct_answer: string; grading_method_guess: string; confidence: number }[] = []
+  const solutions: { task_number: number; solution_text: string }[] = []
+
+  for (let i = 0; i < headings.length; i++) {
+    const h = headings[i]
+    const blockStart = h.index + h.header.length
+    const blockEnd = i + 1 < headings.length ? headings[i + 1].index : mdText.length
+    const content = mdText.slice(blockStart, blockEnd).trim()
+
+    // Split at "Решение." (marks start of solution)
+    const solSplit = content.search(/\nРешение\./)
+    let promptBlock = content
+    let afterSolution = ''
+
+    if (solSplit !== -1) {
+      promptBlock = content.slice(0, solSplit).trim()
+      afterSolution = content.slice(solSplit + '\nРешение.'.length)
+
+      // Extract answer after "Ответ:"
+      const ansMatch = afterSolution.match(/\nОтвет:\s*([\s\S]+?)(?=\n\n|\n##|\n#####|$)/)
+      if (ansMatch) {
+        const rawAnswer = ansMatch[1].trim()
+        // Strip HTML tags from answer (may contain table markup)
+        const cleanAnswer = rawAnswer.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
+        if (cleanAnswer) {
+          const isNumeric = /^-?\d+([.,]\d+)?$/.test(cleanAnswer)
+          answers.push({
+            task_number: h.number,
+            correct_answer: cleanAnswer,
+            grading_method_guess: isNumeric ? 'numeric_tolerance' : 'normalized',
+            confidence: 0.95,
+          })
+        }
+        // Solution is text between "Решение." and "Ответ:"
+        const solText = afterSolution.slice(0, afterSolution.indexOf('\nОтвет:')).trim()
+        if (solText) solutions.push({ task_number: h.number, solution_text: solText })
+      } else {
+        const solText = afterSolution.trim()
+        if (solText) solutions.push({ task_number: h.number, solution_text: solText })
+      }
+    }
+
+    // Collect image URLs from prompt block only (images will go to task_media)
+    const imgUrls: string[] = []
+    const imgRe = /<img[^>]+src="([^"]+)"/g
+    let imgM
+    while ((imgM = imgRe.exec(promptBlock)) !== null) imgUrls.push(imgM[1])
+
+    // prompt_html: strip <img> tags (images handled by task_media gallery), keep KaTeX and text
+    const promptHtml = promptBlock.replace(/<div[^>]*>\s*<img[^>]+>\s*<\/div>/g, '').replace(/<img[^>]+>/g, '').trim()
+
+    // prompt_text: plain text fallback (strip all tags and formula delimiters)
+    const promptText = promptHtml
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\$\$[\s\S]+?\$\$/g, '[формула]')
+      .replace(/\$[^$\n]+\$/g, '[формула]')
+      .replace(/\s+/g, ' ')
+      .trim() || h.header
+
+    const hasAnswer = answers.some(a => a.task_number === h.number)
+    const isNumericAnswer = hasAnswer && answers.find(a => a.task_number === h.number)?.grading_method_guess === 'numeric_tolerance'
+
+    tasks.push({
+      number: h.number,
+      prompt_text: promptText,
+      prompt_html: promptHtml,
+      task_type_guess: isNumericAnswer ? 'numeric' : 'short_text',
+      options: [],
+      answer_parts: [],
+      answer_format_hint: null,
+      image_refs: imgUrls,
+      images_placement: 'above_text',
+      has_unmatched_images: imgUrls.length > 0,
+      source_pages: [1],
+      confidence: 0.95,
+    })
+  }
+
+  return { meta, tasks, answers, solutions, warnings: [] }
+}
+
+// ─── Download and upload MD external images ───────────────────────────────────
+
+async function downloadAndUploadMdImages(
+  imgUrls: string[],
+  testVersionId: string,
+  client: SupabaseClient<Database>
+): Promise<Map<string, string>> {
+  const urlMap = new Map<string, string>()
+  const uniqueUrls = [...new Set(imgUrls)]
+  if (!uniqueUrls.length) return urlMap
+
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  let sharpLib: typeof import('sharp') | null = null
+  try { sharpLib = require('sharp') } catch { console.warn('[md-images] sharp not available'); return urlMap }
+
+  for (let i = 0; i < uniqueUrls.length; i++) {
+    const url = uniqueUrls[i]
+    try {
+      const res = await fetch(url, { signal: AbortSignal.timeout(15000) })
+      if (!res.ok) { console.warn(`[md-images] ${res.status} for ${url}`); continue }
+
+      const buf = Buffer.from(await res.arrayBuffer())
+      const origMeta = await sharpLib!(buf).metadata()
+
+      const webpBuf = await sharpLib!(buf)
+        .resize({ width: 1200, withoutEnlargement: true })
+        .webp({ quality: 85 })
+        .toBuffer()
+
+      const storagePath = `task-media/raw/${testVersionId}/md_img_${i}.webp`
+      const { error: upErr } = await client.storage
+        .from('task-media')
+        .upload(storagePath, webpBuf, { contentType: 'image/webp', upsert: true })
+
+      if (upErr) { console.error(`[md-images] upload error:`, upErr.message); continue }
+
+      await client.from('task_media').insert({
+        task_id: null,
+        storage_path: storagePath,
+        media_type: 'image',
+        format: 'webp',
+        width_px: origMeta.width ?? null,
+        height_px: origMeta.height ?? null,
+        file_size_bytes: webpBuf.length,
+        is_manually_uploaded: false,
+        placement: 'above_text',
+        sort_order: i,
+      })
+
+      urlMap.set(url, storagePath)
+    } catch (e) {
+      console.error(`[md-images] error for ${url}:`, (e as Error).message)
+    }
+  }
+
+  console.log(`[md-images] uploaded ${urlMap.size}/${uniqueUrls.length}`)
+  return urlMap
+}
+
 // ─── Main pipeline ────────────────────────────────────────────────────────────
 
 async function runParsing(jobId: string, testVersionId: string, docIds: string[]): Promise<void> {
@@ -364,49 +543,85 @@ async function runParsing(jobId: string, testVersionId: string, docIds: string[]
       .update({ status: 'processing', started_at: new Date().toISOString() })
       .eq('id', jobId)
 
-    let combinedText = ''
-    let tasksPdfBuffer: Buffer | null = null
+    // Detect MD upload (single file with tasks + answers + solutions)
+    const { data: docInfos } = await client.from('test_documents')
+      .select('id,storage_path,doc_type')
+      .in('id', docIds)
+    const mdDoc = docInfos?.find(d => d.storage_path.endsWith('.md') && d.doc_type === 'tasks')
 
-    for (const docId of docIds) {
-      await mark(`Downloading ${docId}`)
-      const { data: doc } = await client.from('test_documents').select('id,storage_path,doc_type').eq('id', docId).single()
-      if (!doc) continue
+    let tasks: any[], answers: any[], solutions: any[], imagesExtracted = 0, imagesAttached = 0
 
-      const { data: blob, error: dlErr } = await client.storage.from('test-documents').download(doc.storage_path)
-      if (dlErr || !blob) {
-        await client.from('test_documents').update({ parse_status: 'failed' }).eq('id', docId)
-        continue
+    if (mdDoc) {
+      // ── MD pipeline ──────────────────────────────────────────────────────────
+      await mark('Downloading MD file')
+      const { data: blob, error: dlErr } = await client.storage.from('test-documents').download(mdDoc.storage_path)
+      if (dlErr || !blob) throw new Error(`Failed to download MD file: ${dlErr?.message}`)
+
+      await client.from('test_documents').update({ parse_status: 'text_extracted' }).eq('id', mdDoc.id)
+
+      const mdContent = await blob.text()
+      await mark(`Parsing MD (${mdContent.length} chars)`)
+      const parsed = parseMdContent(mdContent)
+      tasks = parsed.tasks
+      answers = parsed.answers
+      solutions = parsed.solutions
+
+      // Collect all unique image URLs across all tasks
+      const allImgUrls = [...new Set(tasks.flatMap((t: any) => t.image_refs as string[]))]
+      if (allImgUrls.length > 0) {
+        await mark(`Downloading ${allImgUrls.length} images from MD`)
+        await downloadAndUploadMdImages(allImgUrls, testVersionId, client)
+        imagesExtracted = allImgUrls.length
+      }
+    } else {
+      // ── PDF pipeline (original) ───────────────────────────────────────────────
+      let combinedText = ''
+      let tasksPdfBuffer: Buffer | null = null
+
+      for (const docId of docIds) {
+        await mark(`Downloading ${docId}`)
+        const { data: doc } = await client.from('test_documents').select('id,storage_path,doc_type').eq('id', docId).single()
+        if (!doc) continue
+
+        const { data: blob, error: dlErr } = await client.storage.from('test-documents').download(doc.storage_path)
+        if (dlErr || !blob) {
+          await client.from('test_documents').update({ parse_status: 'failed' }).eq('id', docId)
+          continue
+        }
+
+        const buffer = Buffer.from(await blob.arrayBuffer())
+        if (doc.doc_type === 'tasks') tasksPdfBuffer = buffer
+
+        await mark(`Extracting text (${doc.doc_type})`)
+        const text = await extractPdfText(buffer)
+
+        if (text.length > 20) {
+          await client.from('test_documents').update({
+            extracted_text: [{ page: 1, text }],
+            page_count: 1,
+            parse_status: 'text_extracted',
+          }).eq('id', docId)
+          combinedText += `[${doc.doc_type}]\n${text}\n\n`
+        } else {
+          await client.from('test_documents').update({ parse_status: 'text_failed' }).eq('id', docId)
+        }
       }
 
-      const buffer = Buffer.from(await blob.arrayBuffer())
+      if (!combinedText.trim()) {
+        throw new Error('Не удалось извлечь текст из PDF. Используйте PDF с выделяемым текстом (не сканированное изображение).')
+      }
 
-      // Keep the tasks PDF buffer for image extraction
-      if (doc.doc_type === 'tasks') tasksPdfBuffer = buffer
+      await mark(`AI parsing (${combinedText.length} chars)`)
+      const parsed = await callDeepSeek(combinedText)
+      tasks = Array.isArray(parsed.tasks) ? parsed.tasks : []
+      answers = Array.isArray(parsed.answers) ? parsed.answers : []
+      solutions = Array.isArray(parsed.solutions) ? parsed.solutions : []
 
-      await mark(`Extracting text (${doc.doc_type})`)
-      const text = await extractPdfText(buffer)
-
-      if (text.length > 20) {
-        await client.from('test_documents').update({
-          extracted_text: [{ page: 1, text }],
-          page_count: 1,
-          parse_status: 'text_extracted',
-        }).eq('id', docId)
-        combinedText += `[${doc.doc_type}]\n${text}\n\n`
-      } else {
-        await client.from('test_documents').update({ parse_status: 'text_failed' }).eq('id', docId)
+      if (tasksPdfBuffer) {
+        await mark(`Extracting images`)
+        imagesExtracted = await uploadImages(client, tasksPdfBuffer, testVersionId)
       }
     }
-
-    if (!combinedText.trim()) {
-      throw new Error('Не удалось извлечь текст из PDF. Используйте PDF с выделяемым текстом (не сканированное изображение).')
-    }
-
-    await mark(`AI parsing (${combinedText.length} chars)`)
-    const parsed = await callDeepSeek(combinedText)
-    const tasks: any[] = Array.isArray(parsed.tasks) ? parsed.tasks : []
-    const answers: any[] = Array.isArray(parsed.answers) ? parsed.answers : []
-    const solutions: any[] = Array.isArray(parsed.solutions) ? parsed.solutions : []
 
     await mark(`Saving ${tasks.length} tasks`)
 
@@ -420,6 +635,7 @@ async function runParsing(jobId: string, testVersionId: string, docIds: string[]
         task_number: t.number,
         sort_order: t.number,
         prompt_text: t.prompt_text,
+        prompt_html: t.prompt_html ?? null,
         task_type: t.task_type_guess ?? 'short_text',
         options: Array.isArray(t.options) && t.options.length ? t.options : null,
         answer_format_hint: t.answer_format_hint ?? null,
@@ -451,18 +667,10 @@ async function runParsing(jobId: string, testVersionId: string, docIds: string[]
       }
     }
 
-    // ── Image extraction ──────────────────────────────────────────────────────
-    let imagesExtracted = 0
-    let imagesAttached = 0
-
-    if (tasksPdfBuffer) {
-      await mark(`Extracting images`)
-      imagesExtracted = await uploadImages(client, tasksPdfBuffer, testVersionId)
-
-      if (imagesExtracted > 0) {
-        await mark(`Matching ${imagesExtracted} images to tasks`)
-        imagesAttached = await matchImagesToTasks(client, testVersionId)
-      }
+    // Match uploaded images to tasks
+    if (imagesExtracted > 0) {
+      await mark(`Matching ${imagesExtracted} images to tasks`)
+      imagesAttached = await matchImagesToTasks(client, testVersionId)
     }
 
     const summary = {
@@ -471,7 +679,7 @@ async function runParsing(jobId: string, testVersionId: string, docIds: string[]
       solutions_matched: matchedSol,
       images_extracted: imagesExtracted,
       images_attached: imagesAttached,
-      warnings_count: Array.isArray(parsed.warnings) ? parsed.warnings.length : 0,
+      warnings_count: 0,
     }
 
     await client.from('parsing_jobs').update({

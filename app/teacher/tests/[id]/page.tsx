@@ -13,7 +13,7 @@ export default async function TestDetailPage({ params }: PageProps) {
 
   const { data: test, error } = await supabase
     .from('tests')
-    .select('id, title, subject, grade, exam_type, description, status')
+    .select('id, title, subject, grade, exam_type, description, status, is_active')
     .eq('id', id)
     .single()
 
@@ -84,6 +84,7 @@ export default async function TestDetailPage({ params }: PageProps) {
         exam_type: test.exam_type,
         description: test.description,
         status: test.status,
+        is_active: test.is_active,
       }}
       versionId={workingVersion?.id ?? null}
       versionStatus={workingVersion?.status ?? null}

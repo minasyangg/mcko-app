@@ -8,6 +8,7 @@ import { ShortText } from './AnswerInput/ShortText'
 import { Numeric } from './AnswerInput/Numeric'
 import { Composite } from './AnswerInput/Composite'
 import { TaskImageGallery } from './TaskImageGallery'
+import MarkdownContent from '@/components/shared/MarkdownContent'
 
 interface TaskViewProps {
   task: TestTask
@@ -175,7 +176,10 @@ export function TaskView({ task, answer, onChange, images = [], disabled }: Task
         <TaskImageGallery images={images} placement="above_text" />
       )}
 
-      <div className="text-base leading-relaxed whitespace-pre-wrap">{task.prompt_text}</div>
+      {task.prompt_html
+        ? <MarkdownContent content={task.prompt_html} />
+        : <div className="text-base leading-relaxed whitespace-pre-wrap">{task.prompt_text}</div>
+      }
 
       {images.length > 0 && (
         <TaskImageGallery images={images} placement="below_text" />

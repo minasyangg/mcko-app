@@ -25,12 +25,14 @@ import {
   Clipboard,
   Save,
 } from 'lucide-react'
+import MarkdownContent from '@/components/shared/MarkdownContent'
 
 export interface TaskWithReview {
   id: string
   task_number: number
   title: string | null
   prompt_text: string
+  prompt_html?: string | null
   task_type: string
   review_status: string
   parse_confidence: number | null
@@ -307,7 +309,10 @@ function TaskRow({
               {/* Task text */}
               <div>
                 <p className="text-xs font-medium text-muted-foreground mb-1">Полный текст задания</p>
-                <p className="text-sm whitespace-pre-wrap">{task.prompt_text}</p>
+                {task.prompt_html
+                  ? <MarkdownContent content={task.prompt_html} />
+                  : <p className="text-sm whitespace-pre-wrap">{task.prompt_text}</p>
+                }
               </div>
 
               {/* Images */}
@@ -518,11 +523,22 @@ export default function ReviewBoard({
   const [tasks, setTasks] = useState<TaskWithReview[]>(initialTasks)
   const [isPublishing, startPublishing] = useTransition()
   const [publishError, setPublishError] = useState<string | null>(null)
+  const [isApprovingAll, startApprovingAll] = useTransition()
 
   const approvedCount = tasks.filter((t) => t.review_status === 'approved').length
   const canPublish =
     tasks.length > 0 &&
     tasks.every((t) => t.review_status === 'approved' || t.review_status === 'rejected')
+  const hasPending = tasks.some((t) => t.review_status === 'pending')
+
+  const handleApproveAll = () => {
+    startApprovingAll(async () => {
+      const res = await fetch(`/api/tests/versions/${testVersionId}/approve-all`, { method: 'POST' })
+      if (res.ok) {
+        setTasks((prev) => prev.map((t) => t.review_status === 'pending' ? { ...t, review_status: 'approved' } : t))
+      }
+    })
+  }
 
   const handleStatusChange = (taskId: string, newStatus: string) => {
     setTasks((prev) =>
@@ -563,6 +579,16 @@ export default function ReviewBoard({
         <div className="flex items-center gap-2">
           {publishError && (
             <span className="text-xs text-destructive">{publishError}</span>
+          )}
+          {hasPending && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleApproveAll}
+              disabled={isApprovingAll}
+            >
+              {isApprovingAll ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Одобрить все'}
+            </Button>
           )}
           <Button
             onClick={handlePublish}

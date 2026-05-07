@@ -518,6 +518,7 @@ export type Database = {
       profiles: {
         Row: {
           created_at: string | null
+          deleted_at: string | null
           full_name: string
           grade: string | null
           id: string
@@ -527,6 +528,7 @@ export type Database = {
         }
         Insert: {
           created_at?: string | null
+          deleted_at?: string | null
           full_name: string
           grade?: string | null
           id: string
@@ -536,6 +538,7 @@ export type Database = {
         }
         Update: {
           created_at?: string | null
+          deleted_at?: string | null
           full_name?: string
           grade?: string | null
           id?: string
@@ -549,6 +552,60 @@ export type Database = {
             columns: ["organization_id"]
             isOneToOne: false
             referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      student_final_results: {
+        Row: {
+          attempt_count: number | null
+          created_at: string | null
+          final_score: number | null
+          id: string
+          last_completed_at: string | null
+          max_score: number | null
+          status: string | null
+          student_id: string
+          test_version_id: string
+          updated_at: string | null
+        }
+        Insert: {
+          attempt_count?: number | null
+          created_at?: string | null
+          final_score?: number | null
+          id?: string
+          last_completed_at?: string | null
+          max_score?: number | null
+          status?: string | null
+          student_id: string
+          test_version_id: string
+          updated_at?: string | null
+        }
+        Update: {
+          attempt_count?: number | null
+          created_at?: string | null
+          final_score?: number | null
+          id?: string
+          last_completed_at?: string | null
+          max_score?: number | null
+          status?: string | null
+          student_id?: string
+          test_version_id?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "student_final_results_student_id_fkey"
+            columns: ["student_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "student_final_results_test_version_id_fkey"
+            columns: ["test_version_id"]
+            isOneToOne: false
+            referencedRelation: "test_versions"
             referencedColumns: ["id"]
           },
         ]
@@ -1021,6 +1078,7 @@ export type Database = {
           exam_type: string | null
           grade: string | null
           id: string
+          is_active: boolean
           organization_id: string
           status: string
           subject: string | null
@@ -1035,6 +1093,7 @@ export type Database = {
           exam_type?: string | null
           grade?: string | null
           id?: string
+          is_active?: boolean
           organization_id: string
           status?: string
           subject?: string | null
@@ -1049,6 +1108,7 @@ export type Database = {
           exam_type?: string | null
           grade?: string | null
           id?: string
+          is_active?: boolean
           organization_id?: string
           status?: string
           subject?: string | null
@@ -1086,6 +1146,21 @@ export type Database = {
     Functions: {
       auth_org: { Args: never; Returns: string }
       auth_role: { Args: never; Returns: string }
+      delete_student_cascade: {
+        Args: { target_student_id: string }
+        Returns: Json
+      }
+      get_active_students: {
+        Args: { org_id: string }
+        Returns: Array<{
+          id: string
+          full_name: string
+          grade: string | null
+          is_active: boolean | null
+          created_at: string | null
+          deleted_at: string | null
+        }>
+      }
     }
     Enums: {
       [_ in never]: never
