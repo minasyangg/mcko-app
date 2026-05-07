@@ -9,7 +9,7 @@ values (
   'test-documents',
   false,
   52428800, -- 50MB
-  array['application/pdf']
+  array['application/pdf', 'text/markdown', 'text/plain', 'application/octet-stream']
 )
 on conflict (id) do nothing;
 
