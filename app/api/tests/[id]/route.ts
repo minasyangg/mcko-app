@@ -2,6 +2,50 @@ import { NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 
+// PATCH /api/tests/[id] — update test metadata
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const { id: testId } = await params
+  const supabase = await createClient()
+
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const { data: profile } = await supabase
+    .from('profiles').select('role, organization_id').eq('id', user.id).single()
+  if (!profile || !['teacher', 'admin'].includes(profile.role)) {
+    return Response.json({ error: 'Forbidden' }, { status: 403 })
+  }
+
+  const { data: test } = await supabase
+    .from('tests').select('id, organization_id').eq('id', testId).single()
+  if (!test || test.organization_id !== profile.organization_id) {
+    return Response.json({ error: 'Test not found' }, { status: 404 })
+  }
+
+  const body = await request.json().catch(() => ({}))
+  const allowed = ['title', 'subject', 'grade', 'exam_type', 'description'] as const
+  const update: { title?: string; subject?: string | null; grade?: string | null; exam_type?: string | null; description?: string | null } = {}
+  for (const key of allowed) {
+    if (!(key in body)) continue
+    if (key === 'title') {
+      if (body[key]) update.title = String(body[key])
+    } else {
+      (update as Record<string, string | null>)[key] = body[key] ? String(body[key]) : null
+    }
+  }
+  if (Object.keys(update).length === 0) {
+    return Response.json({ error: 'No fields to update' }, { status: 400 })
+  }
+
+  const admin = createAdminClient()
+  const { error } = await admin.from('tests').update(update).eq('id', testId)
+  if (error) return Response.json({ error: error.message }, { status: 500 })
+  return Response.json({ ok: true })
+}
+
 export async function DELETE(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }

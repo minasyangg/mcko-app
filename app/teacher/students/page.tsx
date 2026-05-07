@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
-import { StudentsTableClient } from '@/components/teacher/StudentsTableClient'
+import { StudentsClient as StudentsTableClient } from '@/components/teacher/StudentsClient'
 import { Button } from '@/components/ui/button'
 import { Users, Plus } from 'lucide-react'
 import Link from 'next/link'
@@ -23,10 +23,10 @@ export default async function StudentsPage() {
 
   const { data: students } = await supabase
     .from('profiles')
-    .select('id, full_name, grade, is_active, created_at, deleted_at')
+    .select('id, full_name, grade, is_active, created_at')
     .eq('role', 'student')
     .eq('organization_id', profile?.organization_id || '')
-    .order('deleted_at', { ascending: false, nullsFirst: true })
+    .order('is_active', { ascending: false, nullsFirst: false })
     .order('full_name', { ascending: true })
 
   return (
@@ -57,12 +57,7 @@ export default async function StudentsPage() {
           <p>Нет зарегистрированных учеников.</p>
         </div>
       ) : (
-        <StudentsTableClient
-          students={(students || []) as Array<{ id: string; full_name: string; grade: string; is_active: boolean; created_at: string; deleted_at: string | null }>}
-          onStudentDeleted={() => {
-            // Trigger revalidation if needed
-          }}
-        />
+        <StudentsTableClient students={students ?? []} />
       )}
     </div>
   )
