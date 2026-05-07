@@ -559,7 +559,8 @@ interface JsonTaskRaw {
   conditionParts: string[]
   solutionParts: string[]
   answer: string | null
-  imageRefs: JsonImageRef[]
+  conditionImageRefs: JsonImageRef[]  // shown in task (condition)
+  solutionImageRefs: JsonImageRef[]   // shown only in solution (on student request)
 }
 
 function parseJsonPaddleOCR(pages: PaddlePage[]): {
@@ -589,7 +590,7 @@ function parseJsonPaddleOCR(pages: PaddlePage[]): {
         const m = block.block_content.match(/^#+\s+(\d+)\./)
         if (m) {
           if (cur) rawTasks.push(cur)
-          cur = { number: parseInt(m[1]), conditionParts: [], solutionParts: [], answer: null, imageRefs: [] }
+          cur = { number: parseInt(m[1]), conditionParts: [], solutionParts: [], answer: null, conditionImageRefs: [], solutionImageRefs: [] }
           inSolution = false
           continue
         }
@@ -634,8 +635,9 @@ function parseJsonPaddleOCR(pages: PaddlePage[]): {
         else cur.conditionParts.push(f)
 
       } else if (block.block_label === 'image' || block.block_label === 'chart') {
-        // Only attach images to condition (not solution) — usually figures are in the problem
-        cur.imageRefs.push({ pageImgUrl, bbox: block.block_bbox, blockId: block.block_id, sortOrder: imgSortOrder++ })
+        const ref = { pageImgUrl, bbox: block.block_bbox, blockId: block.block_id, sortOrder: imgSortOrder++ }
+        if (inSolution) cur.solutionImageRefs.push(ref)
+        else cur.conditionImageRefs.push(ref)
 
       } else if (block.block_label === 'table') {
         // HTML table — keep as-is
@@ -671,9 +673,9 @@ function parseJsonPaddleOCR(pages: PaddlePage[]): {
     options: [],
     answer_parts: [],
     answer_format_hint: null,
-    image_refs: t.imageRefs.map(r => JSON.stringify(r)),
+    image_refs: t.conditionImageRefs.map(r => JSON.stringify(r)),
     images_placement: 'above_text',
-    has_unmatched_images: t.imageRefs.length > 0,
+    has_unmatched_images: t.conditionImageRefs.length > 0,
     source_pages: [1],
     confidence: 0.98,
   }))
@@ -765,6 +767,43 @@ async function uploadJsonTaskImages(
   }
   _pageImgCache.clear() // free memory after a test version is processed
   return uploaded
+}
+
+// Upload solution images to solution_media (not visible to students without approval)
+async function uploadJsonSolutionImages(
+  imageRefs: JsonImageRef[],
+  solutionId: string,
+  taskNumber: number,
+  testVersionId: string,
+  client: SupabaseClient<Database>
+): Promise<void> {
+  if (!imageRefs.length) return
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  let sharpLib: typeof import('sharp') | null = null
+  try { sharpLib = require('sharp') } catch { return }
+
+  for (const ref of imageRefs) {
+    const cropped = await cropPageImage(ref.pageImgUrl, ref.bbox, sharpLib!)
+    if (!cropped) continue
+
+    const storagePath = `task-media/${testVersionId}/sol_t${taskNumber}_b${ref.blockId}.webp`
+    const { error: upErr } = await client.storage
+      .from('task-media')
+      .upload(storagePath, cropped, { contentType: 'image/webp', upsert: true })
+    if (upErr) { console.error('[json-sol-img] upload:', upErr.message); continue }
+
+    const meta = await sharpLib!(cropped).metadata()
+    await client.from('solution_media').insert({
+      solution_id: solutionId,
+      storage_path: storagePath,
+      media_type: 'image',
+      format: 'webp',
+      width_px: meta.width ?? null,
+      height_px: meta.height ?? null,
+      file_size_bytes: cropped.length,
+      sort_order: ref.sortOrder,
+    })
+  }
 }
 
 // ─── Storage helpers ──────────────────────────────────────────────────────────
@@ -870,13 +909,23 @@ async function runParsing(jobId: string, testVersionId: string, docIds: string[]
           if (!se) matchedSol++
         }
 
-        // Upload cropped images directly with task_id
+        // Upload condition images directly with task_id
         const raw = rawMap.get(t.number)
-        if (raw?.imageRefs.length) {
-          const imgCount = await uploadJsonTaskImages(raw.imageRefs, task.id, t.number, testVersionId, client)
+        if (raw?.conditionImageRefs.length) {
+          const imgCount = await uploadJsonTaskImages(raw.conditionImageRefs, task.id, t.number, testVersionId, client)
           if (imgCount > 0) {
             await client.from('test_tasks').update({ has_images: true }).eq('id', task.id)
             totalImgs += imgCount
+          }
+        }
+
+        // Upload solution images to solution_media (only visible when student requests solution)
+        if (sol?.solution_text && raw?.solutionImageRefs.length) {
+          // Get the solution_id just inserted
+          const { data: solRow } = await client
+            .from('task_solutions').select('id').eq('task_id', task.id).single()
+          if (solRow) {
+            await uploadJsonSolutionImages(raw.solutionImageRefs, solRow.id, t.number, testVersionId, client)
           }
         }
       }

@@ -34,23 +34,21 @@ export async function DELETE(
     return NextResponse.json({ error: 'Not found' }, { status: 404 })
   }
 
-  // Delete attempts first (cascade manually for safety)
-  await admin.from('attempt_task_answers')
-    .delete()
-    .in('attempt_id',
-      admin.from('attempts').select('id').eq('assignment_id', id) as any
-    )
-  await admin.from('presence_events')
-    .delete()
-    .in('attempt_id',
-      admin.from('attempts').select('id').eq('assignment_id', id) as any
-    )
-  await admin.from('solution_requests')
-    .delete()
-    .in('attempt_id',
-      admin.from('attempts').select('id').eq('assignment_id', id) as any
-    )
-  await admin.from('attempts').delete().eq('assignment_id', id)
+  // Get attempt IDs first, then delete related records
+  const { data: attempts } = await admin
+    .from('attempts')
+    .select('id')
+    .eq('assignment_id', id)
+
+  const attemptIds = (attempts ?? []).map(a => a.id)
+
+  if (attemptIds.length > 0) {
+    await admin.from('attempt_task_answers').delete().in('attempt_id', attemptIds)
+    await admin.from('presence_events').delete().in('attempt_id', attemptIds)
+    await admin.from('solution_requests').delete().in('attempt_id', attemptIds)
+    await admin.from('attempts').delete().in('id', attemptIds)
+  }
+
   await admin.from('assignments').delete().eq('id', id)
 
   return NextResponse.json({ ok: true })
