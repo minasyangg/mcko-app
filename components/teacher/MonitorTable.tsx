@@ -20,6 +20,7 @@ export interface AttemptRow {
   full_name: string
   grade: string | null
   test_title: string
+  attempt_number?: number
 }
 
 interface Props {
@@ -35,7 +36,7 @@ const STATUS_LABELS: Record<string, string> = {
   expired: 'Истекла',
 }
 
-function StatusChip({ status }: { status: string }) {
+function StatusChip({ status, attemptNumber }: { status: string; attemptNumber?: number }) {
   const base = 'inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium'
   const colors: Record<string, string> = {
     in_progress: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300',
@@ -45,12 +46,15 @@ function StatusChip({ status }: { status: string }) {
     checked: 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300',
     expired: 'bg-red-100 text-red-600 dark:bg-red-900/40 dark:text-red-400',
   }
+  const label = ['submitted', 'under_review'].includes(status) && attemptNumber && attemptNumber > 1
+    ? `Ожидает проверки, попытка ${attemptNumber}`
+    : STATUS_LABELS[status] ?? status
   return (
     <span className={cn(base, colors[status] ?? 'bg-muted text-muted-foreground')}>
       {status === 'in_progress' && (
         <span className="mr-1.5 h-1.5 w-1.5 rounded-full bg-blue-500 animate-pulse inline-block" />
       )}
-      {STATUS_LABELS[status] ?? status}
+      {label}
     </span>
   )
 }
@@ -106,7 +110,7 @@ function TableView({ rows, onSelect }: { rows: AttemptRow[]; onSelect: (id: stri
               <td className="px-4 py-3 max-w-50 truncate text-muted-foreground" title={a.test_title}>
                 {a.test_title}
               </td>
-              <td className="px-4 py-3"><StatusChip status={a.status} /></td>
+              <td className="px-4 py-3"><StatusChip status={a.status} attemptNumber={a.attempt_number} /></td>
               <td className="px-4 py-3 text-center text-muted-foreground">
                 {a.current_task_number ?? '—'}
               </td>

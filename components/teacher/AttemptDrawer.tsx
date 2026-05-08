@@ -125,6 +125,8 @@ export function AttemptDrawer({ attemptId, onClose, onGraded }: Props) {
   const [attempt, setAttempt] = useState<AttemptDetail | null>(null)
   const [answers, setAnswers] = useState<AnswerRow[]>([])
   const [mediaByTask, setMediaByTask] = useState<Record<string, MediaRow[]>>({})
+  const [correctAnswerMap, setCorrectAnswerMap] = useState<Record<string, string>>({})
+  const [changedTaskIds, setChangedTaskIds] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(false)
   const [grades, setGrades] = useState<Record<string, GradeState>>({})
   const [teacherComment, setTeacherComment] = useState('')
@@ -134,7 +136,7 @@ export function AttemptDrawer({ attemptId, onClose, onGraded }: Props) {
   const supabase = createClient()
 
   useEffect(() => {
-    if (!attemptId) { setAttempt(null); setAnswers([]); setMediaByTask({}); setGrades({}); return }
+    if (!attemptId) { setAttempt(null); setAnswers([]); setMediaByTask({}); setGrades({}); setCorrectAnswerMap({}); setChangedTaskIds(new Set()); return }
     let cancelled = false
     setLoading(true); setSaveError(null)
 
@@ -177,8 +179,61 @@ export function AttemptDrawer({ attemptId, onClose, onGraded }: Props) {
         }
         setGrades(init)
 
-        // Load task media for all tasks
+        // Load correct answers and previous attempt answers
         const taskIds = sorted.map((a) => a.task_id).filter(Boolean) as string[]
+        if (taskIds.length > 0) {
+          // Load correct answers for teacher hint
+          const { data: ansKeys } = await supabase
+            .from('task_answer_keys')
+            .select('task_id, correct_answer')
+            .in('task_id', taskIds)
+          if (ansKeys && !cancelled) {
+            const m: Record<string, string> = {}
+            for (const k of ansKeys) {
+              if (!k.task_id) continue
+              const ca = k.correct_answer
+              m[k.task_id] = typeof ca === 'string' ? ca
+                : typeof ca === 'number' ? String(ca)
+                : JSON.stringify(ca)
+            }
+            setCorrectAnswerMap(m)
+          }
+
+          // Find previous attempt to detect changed answers
+          const attemptData = (await supabase.from('attempts')
+            .select('assignment_id, student_id')
+            .eq('id', attemptId!).single()).data
+          if (attemptData && !cancelled) {
+            const { data: prevAttempts } = await supabase
+              .from('attempts')
+              .select('id, started_at')
+              .eq('assignment_id', attemptData.assignment_id)
+              .eq('student_id', attemptData.student_id)
+              .in('status', ['submitted', 'checked'])
+              .order('started_at', { ascending: false })
+              .limit(5)
+
+            // Find the attempt just before current one
+            const prevAttemptId = prevAttempts?.find(p => p.id !== attemptId)?.id
+            if (prevAttemptId) {
+              const { data: prevAnswers } = await supabase
+                .from('attempt_task_answers')
+                .select('task_id, answer_json')
+                .eq('attempt_id', prevAttemptId)
+              if (prevAnswers && !cancelled) {
+                const prevMap = new Map(prevAnswers.map(p => [p.task_id, JSON.stringify(p.answer_json)]))
+                const changed = new Set<string>()
+                for (const ans of sorted) {
+                  const tid = ans.task_id ?? ''
+                  const curr = JSON.stringify(ans.answer_json)
+                  if (!prevMap.has(tid) || prevMap.get(tid) !== curr) changed.add(tid)
+                }
+                setChangedTaskIds(changed)
+              }
+            }
+          }
+        }
+
         if (taskIds.length > 0) {
           const { data: rawMedia } = await supabase
             .from('task_media')
@@ -252,7 +307,7 @@ export function AttemptDrawer({ attemptId, onClose, onGraded }: Props) {
 
   return (
     <Sheet open={!!attemptId} onOpenChange={(v) => { if (!v) onClose() }}>
-      <SheetContent side="right" className="w-full sm:max-w-2xl overflow-y-auto">
+      <SheetContent side="right" className="w-full sm:max-w-3xl overflow-y-auto">
         <SheetHeader className="pb-4 border-b">
           <SheetTitle>Попытка студента</SheetTitle>
         </SheetHeader>
@@ -361,12 +416,25 @@ export function AttemptDrawer({ attemptId, onClose, onGraded }: Props) {
                         </div>
                       )}
 
-                      {/* Student answer */}
-                      <div className="text-sm bg-muted/50 rounded px-2 py-1.5">
-                        <span className="text-xs text-muted-foreground mr-1">Ответ:</span>
-                        <span className="font-medium wrap-break-word">
-                          {answerToString(ans.answer_json)}
-                        </span>
+                      {/* Student answer + correct answer side by side */}
+                      <div className="grid grid-cols-2 gap-2 text-sm">
+                        <div className="bg-muted/50 rounded px-2 py-1.5">
+                          <p className="text-xs text-muted-foreground mb-0.5">
+                            Ответ студента
+                            {changedTaskIds.has(ans.task_id ?? '') && (
+                              <span className="ml-1.5 text-[10px] bg-blue-100 text-blue-700 rounded px-1">изменён</span>
+                            )}
+                          </p>
+                          <span className="font-medium wrap-break-word">{answerToString(ans.answer_json)}</span>
+                        </div>
+                        {correctAnswerMap[ans.task_id ?? ''] && (
+                          <div className="bg-green-50/60 dark:bg-green-950/20 border border-green-200 dark:border-green-800 rounded px-2 py-1.5">
+                            <p className="text-xs text-green-700 dark:text-green-400 mb-0.5">Правильный ответ</p>
+                            <span className="font-medium wrap-break-word text-green-800 dark:text-green-300">
+                              {correctAnswerMap[ans.task_id ?? '']}
+                            </span>
+                          </div>
+                        )}
                       </div>
 
                       {/* Existing teacher comment (read-only when checked) */}

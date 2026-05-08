@@ -176,7 +176,7 @@ export async function getAttemptRows(
 
   const { data } = await query
 
-  return (data ?? []).map(a => {
+  const allRows = (data ?? []).map(a => {
     const profile = a.profiles as any
     const assignment = a.assignments as any
     const group = assignment?.groups as any
@@ -198,4 +198,20 @@ export async function getAttemptRows(
       submittedAt: a.submitted_at,
     }
   })
+
+  // Keep only the final (latest) attempt per student per test
+  // Prefer 'checked' over 'submitted'; within same status take latest by submittedAt
+  const seen = new Map<string, AttemptRow>()
+  for (const row of allRows) {
+    const key = `${row.studentId}_${row.testTitle}`
+    const existing = seen.get(key)
+    if (!existing) { seen.set(key, row); continue }
+    // Prefer checked over submitted
+    if (row.status === 'checked' && existing.status !== 'checked') { seen.set(key, row); continue }
+    // Same status: keep latest submission
+    if (row.status === existing.status && (row.submittedAt ?? '') > (existing.submittedAt ?? '')) {
+      seen.set(key, row)
+    }
+  }
+  return [...seen.values()]
 }
