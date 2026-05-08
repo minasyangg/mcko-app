@@ -61,6 +61,7 @@ export default async function ReviewPage({ params }: PageProps) {
       task_number,
       title,
       prompt_text,
+      prompt_html,
       task_type,
       review_status,
       parse_confidence,
@@ -98,12 +99,39 @@ export default async function ReviewPage({ params }: PageProps) {
     })
   }
 
-  // Load unmatched images (task_id is null)
+  // Load solution images from solution_media (for teacher review)
+  const { data: solutionRows } = taskIds.length
+    ? await supabase
+        .from('task_solutions')
+        .select('id, task_id')
+        .in('task_id', taskIds)
+    : { data: [] }
+
+  const solutionIds = (solutionRows ?? []).map(s => s.id)
+  const solTaskMap = new Map((solutionRows ?? []).map(s => [s.id, s.task_id]))
+
+  const { data: solMediaRows } = solutionIds.length
+    ? await supabase
+        .from('solution_media')
+        .select('id, solution_id, storage_path, sort_order')
+        .in('solution_id', solutionIds)
+    : { data: [] }
+
+  const solMediaPaths = (solMediaRows ?? []).map(m => m.storage_path)
+  const solUrlMap: Record<string, string> = {}
+  if (solMediaPaths.length > 0) {
+    const { data: signed } = await supabase.storage
+      .from('task-media')
+      .createSignedUrls(solMediaPaths, 3600)
+    signed?.forEach(item => { if (item.signedUrl && item.path) solUrlMap[item.path] = item.signedUrl })
+  }
+
+  // Load unmatched images (task_id is null) — check both old and new path patterns
   const { data: unmatchedRaw } = await supabase
     .from('task_media')
     .select('id, storage_path, source_page')
     .is('task_id', null)
-    .like('storage_path', `task-media/raw/${testVersion.id}/%`)
+    .like('storage_path', `task-media/${testVersion.id}/%`)
 
   const unmatchedPaths = unmatchedRaw?.map((m) => m.storage_path) ?? []
   const unmatchedUrlMap: Record<string, string> = {}
@@ -151,11 +179,26 @@ export default async function ReviewPage({ params }: PageProps) {
         : JSON.stringify(answerKey.correct_answer)
       : null
 
+    // Solution media for this task (for teacher review in board)
+    const solId = (solutionRows ?? []).find(s => s.task_id === t.id)?.id
+    const solutionMedia = solId
+      ? (solMediaRows ?? [])
+          .filter(m => m.solution_id === solId)
+          .map(m => ({
+            id: m.id,
+            signedUrl: solUrlMap[m.storage_path] ?? '',
+            placement: 'above_text' as const,
+            sort_order: m.sort_order ?? 0,
+            alt_text: null,
+          }))
+      : []
+
     return {
       id: t.id,
       task_number: t.task_number,
       title: t.title,
       prompt_text: t.prompt_text,
+      prompt_html: (t as any).prompt_html ?? null,
       task_type: t.task_type,
       review_status: t.review_status ?? 'pending',
       parse_confidence: t.parse_confidence,
@@ -163,6 +206,7 @@ export default async function ReviewPage({ params }: PageProps) {
       answer_format_hint: t.answer_format_hint,
       correct_answer: correctAnswer,
       media: taskMedia,
+      solutionMedia,
     }
   })
 

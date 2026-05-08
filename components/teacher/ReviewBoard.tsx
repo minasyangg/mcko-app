@@ -35,12 +35,20 @@ export interface TaskWithReview {
   prompt_text: string
   prompt_html?: string | null
   task_type: string
+
   review_status: string
   parse_confidence: number | null
   max_score: number
   answer_format_hint: string | null
   correct_answer: string | null
   media: Array<{
+    id: string
+    signedUrl: string
+    placement: string
+    sort_order: number
+    alt_text: string | null
+  }>
+  solutionMedia?: Array<{
     id: string
     signedUrl: string
     placement: string
@@ -432,6 +440,18 @@ function TaskRow({
                   <p className="text-xs text-destructive mt-1">{uploadError}</p>
                 )}
               </div>
+
+              {/* Solution images (from solution_media — visible to teacher only) */}
+              {task.solutionMedia && task.solutionMedia.length > 0 && (
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground mb-2">
+                    Изображения решения ({task.solutionMedia.length}) — только для учителя
+                  </p>
+                  <ImageGallery
+                    images={task.solutionMedia.map(img => ({ id: img.id, signedUrl: img.signedUrl, alt: img.alt_text, sort_order: img.sort_order }))}
+                  />
+                </div>
+              )}
 
               {/* Editable correct answer */}
               <div>
