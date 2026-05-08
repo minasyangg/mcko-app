@@ -81,8 +81,29 @@ export default async function ResultPage({ params }: PageProps) {
   const attempt = attempts?.[0]
   if (!attempt) redirect(`/student/attempt/${assignmentId}`)
 
-  const score = attempt.score ?? 0
-  const maxScore = attempt.max_score ?? 0
+  // Load cumulative score from student_final_results
+  const { data: finalResult } = await supabase
+    .from('student_final_results')
+    .select('final_score, max_score, attempt_count, status')
+    .eq('student_id', user.id)
+    .eq('test_version_id', assignment.test_version_id)
+    .single()
+
+  // Also load assignment max_attempts to show remaining attempts
+  const { data: asgn } = await supabase
+    .from('assignments')
+    .select('max_attempts')
+    .eq('id', assignmentId)
+    .single()
+
+  const completedAttempts = finalResult?.attempt_count ?? 1
+  const maxAttempts = asgn?.max_attempts ?? 1
+  const attemptsLeft = Math.max(0, maxAttempts - completedAttempts)
+  const isCompleted = finalResult?.status === 'completed' || attemptsLeft <= 0
+
+  // Use cumulative score if available, otherwise fall back to attempt score
+  const score = finalResult?.final_score ?? attempt.score ?? 0
+  const maxScore = finalResult?.max_score ?? attempt.max_score ?? 0
   const percentage = maxScore > 0 ? Math.round((score / maxScore) * 100) : 0
   const isChecked = attempt.status === 'checked'
 
@@ -213,11 +234,16 @@ export default async function ResultPage({ params }: PageProps) {
         </div>
 
         {/* Score */}
-        <Card className={!isChecked ? 'border-orange-200' : ''}>
+        <Card className={isCompleted ? 'border-emerald-300' : !isChecked ? 'border-orange-200' : ''}>
           <CardHeader>
             <CardTitle className="text-lg flex items-center gap-2">
-              {isChecked ? 'Итоговый результат' : 'Предварительный результат'}
-              {!isChecked && (
+              {isCompleted ? 'Итоговый результат' : attemptsLeft > 0 ? 'Текущий результат' : 'Результат'}
+              {isCompleted && (
+                <Badge className="bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300">
+                  Тест завершён
+                </Badge>
+              )}
+              {!isCompleted && !isChecked && (
                 <Badge variant="secondary" className="text-orange-600 bg-orange-100 dark:bg-orange-950/40">
                   Ожидает проверки учителем
                 </Badge>
@@ -238,9 +264,14 @@ export default async function ResultPage({ params }: PageProps) {
                 style={{ width: `${percentage}%` }}
               />
             </div>
-            {!isChecked && (
-              <p className="text-sm text-orange-700 dark:text-orange-400">
-                Показан предварительный балл за автоматически проверенные задания. Учитель может скорректировать оценку.
+            {!isCompleted && attemptsLeft > 0 && (
+              <p className="text-sm text-muted-foreground">
+                Накопленный балл за {completedAttempts} попыт{completedAttempts === 1 ? 'ку' : completedAttempts < 5 ? 'ки' : 'ок'}. Осталось попыток: <strong>{attemptsLeft}</strong>.
+              </p>
+            )}
+            {!isChecked && !isCompleted && (
+              <p className="text-xs text-orange-700 dark:text-orange-400">
+                Задания на ручную проверку ожидают учителя — балл может вырасти.
               </p>
             )}
             {attempt.submitted_at && (

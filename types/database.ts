@@ -104,6 +104,8 @@ export type Database = {
           awarded_score: number | null
           id: string
           is_correct: boolean | null
+          is_locked: boolean
+          locked_in_attempt_id: string | null
           normalized_answer_json: Json | null
           task_id: string | null
           teacher_checked_at: string | null
@@ -118,6 +120,8 @@ export type Database = {
           awarded_score?: number | null
           id?: string
           is_correct?: boolean | null
+          is_locked?: boolean
+          locked_in_attempt_id?: string | null
           normalized_answer_json?: Json | null
           task_id?: string | null
           teacher_checked_at?: string | null
@@ -132,6 +136,8 @@ export type Database = {
           awarded_score?: number | null
           id?: string
           is_correct?: boolean | null
+          is_locked?: boolean
+          locked_in_attempt_id?: string | null
           normalized_answer_json?: Json | null
           task_id?: string | null
           teacher_checked_at?: string | null
@@ -142,6 +148,13 @@ export type Database = {
           {
             foreignKeyName: "attempt_task_answers_attempt_id_fkey"
             columns: ["attempt_id"]
+            isOneToOne: false
+            referencedRelation: "attempts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attempt_task_answers_locked_in_attempt_id_fkey"
+            columns: ["locked_in_attempt_id"]
             isOneToOne: false
             referencedRelation: "attempts"
             referencedColumns: ["id"]
