@@ -13,7 +13,8 @@ export default async function AssignmentsPage() {
       id, starts_at, ends_at, max_attempts, created_at,
       group_id, student_id,
       test_versions!test_version_id ( tests!test_id ( title ) ),
-      groups ( name )
+      groups ( name ),
+      profiles!student_id ( full_name )
     `)
     .order('created_at', { ascending: false })
     .limit(100)
@@ -60,10 +61,13 @@ export default async function AssignmentsPage() {
                 const tv = a.test_versions as any
                 const test = tv?.tests as any
                 const group = a.groups as any
+                const profile = (a as any).profiles as any
                 const target = group?.name
                   ? `Группа: ${group.name}`
+                  : profile?.full_name
+                  ? profile.full_name
                   : a.student_id
-                  ? `Ученик`
+                  ? 'Ученик'
                   : '—'
                 return (
                   <tr key={a.id} className="hover:bg-muted/30 transition-colors">
