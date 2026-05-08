@@ -27,6 +27,7 @@ export default async function AttemptPage({ params }: PageProps) {
       student_id,
       group_id,
       test_version_id,
+      max_attempts,
       time_limit_override_sec,
       starts_at,
       ends_at,
@@ -83,11 +84,18 @@ export default async function AttemptPage({ params }: PageProps) {
     .in('status', ['in_progress', 'not_started', 'submitted', 'checked'])
     .order('created_at', { ascending: false })
 
-  // If already submitted or checked, redirect to results
-  const doneAttempt = existingAttempts?.find(
+  // Count completed attempts to check if more are available
+  const completedAttempts = (existingAttempts ?? []).filter(
     (a) => a.status === 'submitted' || a.status === 'checked'
   )
-  if (doneAttempt) {
+  const maxAttempts = (assignment as any).max_attempts ?? 1
+  const attemptsLeft = maxAttempts - completedAttempts.length
+
+  // Only redirect to results if no more attempts are available AND student has no active attempt
+  const activeAttempt = existingAttempts?.find(
+    (a) => a.status === 'in_progress' || a.status === 'not_started'
+  )
+  if (completedAttempts.length > 0 && attemptsLeft <= 0 && !activeAttempt) {
     redirect(`/student/attempt/${assignmentId}/result`)
   }
 

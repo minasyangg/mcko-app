@@ -213,8 +213,17 @@ export default async function ResultPage({ params }: PageProps) {
         </div>
 
         {/* Score */}
-        <Card>
-          <CardHeader><CardTitle className="text-lg">Результат</CardTitle></CardHeader>
+        <Card className={!isChecked ? 'border-orange-200' : ''}>
+          <CardHeader>
+            <CardTitle className="text-lg flex items-center gap-2">
+              {isChecked ? 'Итоговый результат' : 'Предварительный результат'}
+              {!isChecked && (
+                <Badge variant="secondary" className="text-orange-600 bg-orange-100 dark:bg-orange-950/40">
+                  Ожидает проверки учителем
+                </Badge>
+              )}
+            </CardTitle>
+          </CardHeader>
           <CardContent className="space-y-4">
             <div className="flex items-end gap-3">
               <span className="text-5xl font-bold tabular-nums">{score}</span>
@@ -229,6 +238,11 @@ export default async function ResultPage({ params }: PageProps) {
                 style={{ width: `${percentage}%` }}
               />
             </div>
+            {!isChecked && (
+              <p className="text-sm text-orange-700 dark:text-orange-400">
+                Показан предварительный балл за автоматически проверенные задания. Учитель может скорректировать оценку.
+              </p>
+            )}
             {attempt.submitted_at && (
               <p className="text-xs text-muted-foreground">
                 Отправлено: {new Date(attempt.submitted_at).toLocaleString('ru-RU', { dateStyle: 'medium', timeStyle: 'short' })}
