@@ -121,7 +121,7 @@ export default async function ResultPage({ params }: PageProps) {
 
   const { data: studentAnswers } = await supabase
     .from('attempt_task_answers')
-    .select('task_id, answer_json, is_correct, awarded_score')
+    .select('task_id, answer_json, is_correct, awarded_score, teacher_comment')
     .eq('attempt_id', attempt.id)
 
   const answerKeyMap = new Map<string, Json>()
@@ -343,6 +343,12 @@ export default async function ResultPage({ params }: PageProps) {
                             <span className="text-muted-foreground">Ваш ответ: </span>
                             <span className="font-medium">{formatAnswer(ans?.answer_json ?? null)}</span>
                           </p>
+                          {isChecked && ans?.teacher_comment && (
+                            <div className="rounded bg-yellow-50 dark:bg-yellow-950/30 border border-yellow-200 dark:border-yellow-800 px-3 py-2 text-sm">
+                              <span className="font-medium text-yellow-800 dark:text-yellow-300 mr-1">Комментарий учителя:</span>
+                              <span className="text-yellow-900 dark:text-yellow-200">{ans.teacher_comment}</span>
+                            </div>
+                          )}
                         </div>
                       </div>
 

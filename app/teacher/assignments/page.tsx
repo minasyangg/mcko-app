@@ -14,7 +14,8 @@ export default async function AssignmentsPage() {
       group_id, student_id,
       test_versions!test_version_id ( tests!test_id ( title ) ),
       groups ( name ),
-      profiles!student_id ( full_name )
+      profiles!student_id ( full_name ),
+      attempts ( id, status, student_id )
     `)
     .order('created_at', { ascending: false })
     .limit(100)
@@ -62,6 +63,10 @@ export default async function AssignmentsPage() {
                 const test = tv?.tests as any
                 const group = a.groups as any
                 const profile = (a as any).profiles as any
+                const allAttempts = ((a as any).attempts ?? []) as { id: string; status: string; student_id: string }[]
+                const completedCount = allAttempts.filter(at => ['submitted', 'checked'].includes(at.status)).length
+                const maxAttempts = a.max_attempts ?? 1
+                const isCompleted = completedCount >= maxAttempts && completedCount > 0
                 const target = group?.name
                   ? `Группа: ${group.name}`
                   : profile?.full_name
@@ -83,7 +88,12 @@ export default async function AssignmentsPage() {
                         ? new Date(a.ends_at).toLocaleDateString('ru-RU')
                         : '—'}
                     </td>
-                    <td className="px-4 py-3 text-muted-foreground">{a.max_attempts ?? 1}</td>
+                    <td className="px-4 py-3">
+                      {isCompleted
+                        ? <span className="text-xs font-medium text-emerald-700 dark:text-emerald-400">✓ Завершён ({completedCount}/{maxAttempts})</span>
+                        : <span className="text-muted-foreground">{completedCount}/{maxAttempts}</span>
+                      }
+                    </td>
                     <td className="px-4 py-3 text-muted-foreground">
                       {a.created_at
                         ? new Date(a.created_at).toLocaleDateString('ru-RU')

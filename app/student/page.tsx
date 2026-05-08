@@ -127,7 +127,11 @@ export default async function StudentHomePage() {
                     {a.ends_at && (
                       <p>До: {new Date(a.ends_at).toLocaleDateString('ru-RU')}</p>
                     )}
-                    <p>Попыток: {attemptsUsed}/{a.max_attempts ?? 1}</p>
+                    {(a.max_attempts ?? 1) > 1 && (
+                      attemptsLeft <= 0 && isDone
+                        ? <p className="font-medium text-emerald-700 dark:text-emerald-400">✓ Тест завершён ({attemptsUsed}/{a.max_attempts ?? 1} попыток)</p>
+                        : <p>Попыток использовано: {attemptsUsed}/{a.max_attempts ?? 1}</p>
+                    )}
                   </div>
 
                   <div className="pt-2 space-y-2">

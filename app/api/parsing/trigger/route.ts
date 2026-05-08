@@ -806,6 +806,78 @@ async function uploadJsonSolutionImages(
   }
 }
 
+// ─── Apply scoring rules ──────────────────────────────────────────────────────
+
+async function applyMatchingScoringRules(
+  client: SupabaseClient<Database>,
+  testVersionId: string
+): Promise<number> {
+  const { data: version } = await client
+    .from('test_versions')
+    .select('test_id')
+    .eq('id', testVersionId)
+    .single()
+  if (!version?.test_id) return 0
+
+  const { data: test } = await client
+    .from('tests')
+    .select('organization_id, exam_type, grade, subject')
+    .eq('id', version.test_id)
+    .single()
+  if (!test?.organization_id) return 0
+
+  const { data: rules } = await client
+    .from('scoring_rules')
+    .select('id, exam_type, grade, subject, scoring_rule_items ( task_number, max_score )')
+    .eq('organization_id', test.organization_id)
+  if (!rules?.length) return 0
+
+  // Pick the most specific matching rule (null field = wildcard, non-null must match exactly)
+  let bestRule: typeof rules[0] | null = null
+  let bestScore = -1
+
+  for (const rule of rules) {
+    let score = 0
+    let mismatch = false
+
+    if (rule.exam_type !== null) {
+      if (rule.exam_type === test.exam_type) score++
+      else { mismatch = true }
+    }
+    if (rule.grade !== null) {
+      if (rule.grade === test.grade) score++
+      else { mismatch = true }
+    }
+    if (rule.subject !== null) {
+      if (rule.subject === test.subject) score++
+      else { mismatch = true }
+    }
+
+    if (!mismatch && score > bestScore) {
+      bestScore = score
+      bestRule = rule
+    }
+  }
+
+  if (!bestRule) { console.log('[scoring-rules] no matching rule found'); return 0 }
+
+  const items = (bestRule as any).scoring_rule_items as { task_number: number; max_score: number }[]
+  if (!items?.length) return 0
+
+  let updated = 0
+  for (const item of items) {
+    const { error } = await client
+      .from('test_tasks')
+      .update({ max_score: item.max_score })
+      .eq('test_version_id', testVersionId)
+      .eq('task_number', item.task_number)
+    if (!error) updated++
+  }
+
+  console.log(`[scoring-rules] rule matched (score=${bestScore}), ${updated}/${items.length} tasks updated`)
+  return updated
+}
+
 // ─── Storage helpers ──────────────────────────────────────────────────────────
 
 // Delete all Storage files for a version folder (task-media/{versionId}/*)
@@ -932,6 +1004,8 @@ async function runParsing(jobId: string, testVersionId: string, docIds: string[]
 
       imagesExtracted = totalImgs
       imagesAttached = totalImgs // All images are directly attached — no matching needed
+
+      await applyMatchingScoringRules(client, testVersionId)
 
       await client.from('parsing_jobs').update({
         status: 'done',
@@ -1065,6 +1139,8 @@ async function runParsing(jobId: string, testVersionId: string, docIds: string[]
       await mark(`Matching ${imagesExtracted} images to tasks`)
       imagesAttached = await matchImagesToTasks(client, testVersionId)
     }
+
+    await applyMatchingScoringRules(client, testVersionId)
 
     const summary = {
       tasks_found: inserted,

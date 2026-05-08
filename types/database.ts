@@ -569,56 +569,85 @@ export type Database = {
           },
         ]
       }
-      student_final_results: {
+      scoring_rule_items: {
         Row: {
-          attempt_count: number | null
-          created_at: string | null
-          final_score: number | null
           id: string
-          last_completed_at: string | null
-          max_score: number | null
-          status: string | null
-          student_id: string
-          test_version_id: string
+          max_score: number
+          note: string | null
+          rule_id: string
+          task_number: number
+        }
+        Insert: {
+          id?: string
+          max_score?: number
+          note?: string | null
+          rule_id: string
+          task_number: number
+        }
+        Update: {
+          id?: string
+          max_score?: number
+          note?: string | null
+          rule_id?: string
+          task_number?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "scoring_rule_items_rule_id_fkey"
+            columns: ["rule_id"]
+            isOneToOne: false
+            referencedRelation: "scoring_rules"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      scoring_rules: {
+        Row: {
+          created_at: string | null
+          created_by: string | null
+          exam_type: string | null
+          grade: string | null
+          id: string
+          name: string
+          organization_id: string
+          subject: string | null
           updated_at: string | null
         }
         Insert: {
-          attempt_count?: number | null
           created_at?: string | null
-          final_score?: number | null
+          created_by?: string | null
+          exam_type?: string | null
+          grade?: string | null
           id?: string
-          last_completed_at?: string | null
-          max_score?: number | null
-          status?: string | null
-          student_id: string
-          test_version_id: string
+          name: string
+          organization_id: string
+          subject?: string | null
           updated_at?: string | null
         }
         Update: {
-          attempt_count?: number | null
           created_at?: string | null
-          final_score?: number | null
+          created_by?: string | null
+          exam_type?: string | null
+          grade?: string | null
           id?: string
-          last_completed_at?: string | null
-          max_score?: number | null
-          status?: string | null
-          student_id?: string
-          test_version_id?: string
+          name?: string
+          organization_id?: string
+          subject?: string | null
           updated_at?: string | null
         }
         Relationships: [
           {
-            foreignKeyName: "student_final_results_student_id_fkey"
-            columns: ["student_id"]
+            foreignKeyName: "scoring_rules_created_by_fkey"
+            columns: ["created_by"]
             isOneToOne: false
             referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "student_final_results_test_version_id_fkey"
-            columns: ["test_version_id"]
+            foreignKeyName: "scoring_rules_organization_id_fkey"
+            columns: ["organization_id"]
             isOneToOne: false
-            referencedRelation: "test_versions"
+            referencedRelation: "organizations"
             referencedColumns: ["id"]
           },
         ]
@@ -746,6 +775,60 @@ export type Database = {
             columns: ["task_id"]
             isOneToOne: false
             referencedRelation: "test_tasks"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      student_final_results: {
+        Row: {
+          attempt_count: number | null
+          created_at: string | null
+          final_score: number | null
+          id: string
+          last_completed_at: string | null
+          max_score: number | null
+          status: string | null
+          student_id: string
+          test_version_id: string
+          updated_at: string | null
+        }
+        Insert: {
+          attempt_count?: number | null
+          created_at?: string | null
+          final_score?: number | null
+          id?: string
+          last_completed_at?: string | null
+          max_score?: number | null
+          status?: string | null
+          student_id: string
+          test_version_id: string
+          updated_at?: string | null
+        }
+        Update: {
+          attempt_count?: number | null
+          created_at?: string | null
+          final_score?: number | null
+          id?: string
+          last_completed_at?: string | null
+          max_score?: number | null
+          status?: string | null
+          student_id?: string
+          test_version_id?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "student_final_results_student_id_fkey"
+            columns: ["student_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "student_final_results_test_version_id_fkey"
+            columns: ["test_version_id"]
+            isOneToOne: false
+            referencedRelation: "test_versions"
             referencedColumns: ["id"]
           },
         ]
@@ -1159,20 +1242,33 @@ export type Database = {
     Functions: {
       auth_org: { Args: never; Returns: string }
       auth_role: { Args: never; Returns: string }
+      check_test_in_auth_org: { Args: { p_test_id: string }; Returns: boolean }
       delete_student_cascade: {
         Args: { target_student_id: string }
         Returns: Json
       }
       get_active_students: {
         Args: { org_id: string }
-        Returns: Array<{
-          id: string
+        Returns: {
+          created_at: string
+          deleted_at: string
           full_name: string
-          grade: string | null
-          is_active: boolean | null
-          created_at: string | null
-          deleted_at: string | null
-        }>
+          grade: string
+          id: string
+          is_active: boolean
+        }[]
+      }
+      student_has_task_assignment: {
+        Args: { p_version_id: string }
+        Returns: boolean
+      }
+      student_has_test_assignment: {
+        Args: { p_test_id: string }
+        Returns: boolean
+      }
+      student_has_version_assignment: {
+        Args: { p_version_id: string }
+        Returns: boolean
       }
     }
     Enums: {

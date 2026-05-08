@@ -13,6 +13,7 @@ export default async function RootPage() {
     .eq('id', user.id)
     .single()
 
-  if (profile?.role === 'student') redirect('/student')
+  if (!profile) redirect('/no-profile')
+  if (profile.role === 'student') redirect('/student')
   redirect('/teacher')
 }

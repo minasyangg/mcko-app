@@ -4,7 +4,7 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { LogoutButton } from '@/components/shared/LogoutButton'
-import { BookOpen, Users, Monitor, FileText, ClipboardList, BarChart2, TrendingUp, Menu, X } from 'lucide-react'
+import { BookOpen, Users, Monitor, FileText, ClipboardList, BarChart2, TrendingUp, Menu, X, ListChecks } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 const navItems = [
@@ -16,6 +16,7 @@ const navItems = [
   { href: '/teacher/groups', label: 'Группы', icon: Users },
   { href: '/teacher/students', label: 'Ученики', icon: Users },
   { href: '/teacher/solution-requests', label: 'Запросы', icon: FileText },
+  { href: '/teacher/scoring-rules', label: 'Правила', icon: ListChecks },
 ]
 
 interface Props {
