@@ -129,6 +129,37 @@ function TaskRow({
   const [isSavingAnswer, setIsSavingAnswer] = useState(false)
   const [answerSaved, setAnswerSaved] = useState(false)
 
+  // Text editing state
+  const [editingText, setEditingText] = useState(false)
+  const [editedContent, setEditedContent] = useState(task.prompt_html ?? task.prompt_text)
+  const [isSavingText, setIsSavingText] = useState(false)
+  const [localPromptHtml, setLocalPromptHtml] = useState(task.prompt_html ?? null)
+  const [localPromptText, setLocalPromptText] = useState(task.prompt_text)
+
+  const handleSaveText = async () => {
+    setIsSavingText(true)
+    try {
+      const stripped = editedContent
+        .replace(/\$\$[\s\S]*?\$\$/g, '[формула]')
+        .replace(/\$[^$\n]+\$/g, '[формула]')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+      const res = await fetch(`/api/tests/tasks/${task.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt_html: editedContent, prompt_text: stripped || editedContent }),
+      })
+      if (res.ok) {
+        setLocalPromptHtml(editedContent)
+        setLocalPromptText(stripped || editedContent)
+        setEditingText(false)
+      }
+    } finally {
+      setIsSavingText(false)
+    }
+  }
+
   const handleSaveAnswer = async () => {
     setIsSavingAnswer(true)
     setAnswerSaved(false)
@@ -241,9 +272,9 @@ function TaskRow({
           </span>
         </td>
         <td className="px-4 py-3 max-w-xs">
-          <p className="text-sm truncate" title={task.prompt_text}>
-            {task.prompt_text.slice(0, 120)}
-            {task.prompt_text.length > 120 && '...'}
+          <p className="text-sm truncate" title={localPromptText}>
+            {localPromptText.replace(/\[формула\]/g, '⟨f⟩').slice(0, 120)}
+            {localPromptText.length > 120 && '...'}
           </p>
         </td>
         <td className="px-4 py-3">
@@ -309,11 +340,54 @@ function TaskRow({
             >
               {/* Task text */}
               <div>
-                <p className="text-xs font-medium text-muted-foreground mb-1">Полный текст задания</p>
-                {task.prompt_html
-                  ? <MarkdownContent content={task.prompt_html} />
-                  : <p className="text-sm whitespace-pre-wrap">{task.prompt_text}</p>
-                }
+                <div className="flex items-center justify-between mb-1">
+                  <p className="text-xs font-medium text-muted-foreground">Текст задания</p>
+                  {!editingText && (
+                    <button
+                      type="button"
+                      onClick={() => { setEditedContent(localPromptHtml ?? localPromptText); setEditingText(true) }}
+                      className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1 transition-colors"
+                    >
+                      <Wrench className="h-3 w-3" />
+                      Редактировать
+                    </button>
+                  )}
+                </div>
+
+                {editingText ? (
+                  <div className="space-y-2">
+                    <Textarea
+                      value={editedContent}
+                      onChange={e => setEditedContent(e.target.value)}
+                      rows={8}
+                      className="text-sm font-mono"
+                      placeholder="Markdown с KaTeX формулами ($...$, $$...$$)"
+                    />
+                    <p className="text-xs text-muted-foreground">Поддерживаются Markdown и KaTeX: <code>$\frac{1}{2}$</code>, <code>$$x^2$$</code></p>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={handleSaveText}
+                        disabled={isSavingText}
+                        className="flex items-center gap-1 text-xs px-2.5 py-1.5 bg-primary text-primary-foreground rounded hover:bg-primary/90 disabled:opacity-50 transition-colors"
+                      >
+                        <Save className="h-3 w-3" />
+                        {isSavingText ? 'Сохранение...' : 'Сохранить'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setEditingText(false)}
+                        className="text-xs px-2.5 py-1.5 border rounded hover:bg-muted transition-colors"
+                      >
+                        Отмена
+                      </button>
+                    </div>
+                  </div>
+                ) : localPromptHtml ? (
+                  <MarkdownContent content={localPromptHtml} />
+                ) : (
+                  <p className="text-sm whitespace-pre-wrap">{localPromptText}</p>
+                )}
               </div>
 
               {/* Images */}

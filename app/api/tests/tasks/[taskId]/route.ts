@@ -57,10 +57,11 @@ export async function PATCH(
     }
 
     const body = await request.json()
-    const { prompt_text, task_type, options, answer_format_hint, max_score, review_status } = body
+    const { prompt_text, prompt_html, task_type, options, answer_format_hint, max_score, review_status } = body
 
     const updateData: TaskUpdate = {}
     if (prompt_text !== undefined) updateData.prompt_text = prompt_text
+    if (prompt_html !== undefined) updateData.prompt_html = prompt_html
     if (task_type !== undefined) updateData.task_type = task_type
     if (options !== undefined) updateData.options = options
     if (answer_format_hint !== undefined) updateData.answer_format_hint = answer_format_hint
