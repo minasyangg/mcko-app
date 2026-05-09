@@ -31,6 +31,7 @@ const schema = z.object({
 type FormValues = z.infer<typeof schema>
 
 const EXAM_TYPES = ['ВПР', 'ОГЭ', 'ЕГЭ', 'Контрольная', 'Другое'] as const
+const SUBJECTS = ['Математика', 'Физика', 'ТВИС', 'Русский язык'] as const
 
 export default function NewTestPage() {
   const router = useRouter()
@@ -55,6 +56,7 @@ export default function NewTestPage() {
   })
 
   const examTypeValue = watch('exam_type')
+  const subjectValue = watch('subject')
 
   const onSubmit = async (values: FormValues) => {
     setIsSubmitting(true)
@@ -153,11 +155,20 @@ export default function NewTestPage() {
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="subject">Предмет</Label>
-                <Input
-                  id="subject"
-                  placeholder="Математика, Физика..."
-                  {...register('subject')}
-                />
+                <Select
+                  value={subjectValue || '_none'}
+                  onValueChange={(val) => setValue('subject', val === '_none' ? '' : val)}
+                >
+                  <SelectTrigger id="subject">
+                    <SelectValue placeholder="Выберите предмет..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="_none">— Не указан —</SelectItem>
+                    {SUBJECTS.map((s) => (
+                      <SelectItem key={s} value={s}>{s}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="grade">Класс</Label>
