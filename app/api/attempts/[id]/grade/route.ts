@@ -29,9 +29,22 @@ export async function PATCH(
   const admin = createAdminClient()
   const now = new Date().toISOString()
 
+  // Find locked answers so we don't overwrite scores that were finalized in a previous attempt
+  const answerIds = (body.answers ?? []).map(a => a.answer_id)
+  const lockedSet = new Set<string>()
+  if (answerIds.length > 0) {
+    const { data: locked } = await admin
+      .from('attempt_task_answers')
+      .select('id')
+      .in('id', answerIds)
+      .eq('is_locked', true)
+    for (const l of locked ?? []) lockedSet.add(l.id)
+  }
+
   // Update individual answer grades
   // If is_correct = true → lock the answer forever (student can't rewrite in future attempts)
   for (const a of body.answers ?? []) {
+    if (lockedSet.has(a.answer_id)) continue  // already locked in a previous attempt
     await admin.from('attempt_task_answers').update({
       awarded_score: a.awarded_score,
       is_correct: a.is_correct,

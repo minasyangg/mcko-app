@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Skeleton } from '@/components/ui/skeleton'
-import { CheckCircle2, XCircle, MinusCircle, Loader2, ZoomIn, X } from 'lucide-react'
+import { CheckCircle2, XCircle, MinusCircle, Loader2, ZoomIn, X, Lock } from 'lucide-react'
 import { MathText } from '@/components/shared/MathText'
 import { cn } from '@/lib/utils'
 
@@ -34,6 +34,7 @@ interface AnswerRow {
   answer_json: unknown
   awarded_score: number | null
   is_correct: boolean | null
+  is_locked: boolean
   teacher_comment: string | null
   test_tasks: {
     task_number: number
@@ -151,7 +152,7 @@ export function AttemptDrawer({ attemptId, onClose, onGraded }: Props) {
           ))
         `).eq('id', attemptId!).single(),
         supabase.from('attempt_task_answers').select(`
-          id, task_id, answer_json, awarded_score, is_correct, teacher_comment,
+          id, task_id, answer_json, awarded_score, is_correct, is_locked, teacher_comment,
           test_tasks ( task_number, task_type, prompt_text, max_score )
         `).eq('attempt_id', attemptId!),
       ])
@@ -377,9 +378,10 @@ export function AttemptDrawer({ attemptId, onClose, onGraded }: Props) {
                       key={ans.id}
                       className={cn(
                         'rounded-md border p-3 space-y-2',
-                        ans.is_correct === true && 'border-green-200 bg-green-50/30 dark:border-green-800',
-                        ans.is_correct === false && 'border-red-100 bg-red-50/20',
-                        (ans.is_correct === null && needsGrading) && 'border-orange-200 bg-orange-50/20',
+                        ans.is_locked && 'border-green-300 bg-green-50/40 dark:border-green-700',
+                        !ans.is_locked && ans.is_correct === true && 'border-green-200 bg-green-50/30 dark:border-green-800',
+                        !ans.is_locked && ans.is_correct === false && 'border-red-100 bg-red-50/20',
+                        !ans.is_locked && (ans.is_correct === null && needsGrading) && 'border-orange-200 bg-orange-50/20',
                       )}
                     >
                       {/* Header */}
@@ -391,6 +393,11 @@ export function AttemptDrawer({ attemptId, onClose, onGraded }: Props) {
                           <span className="text-xs text-muted-foreground">
                             {taskTypeLabel(ans.test_tasks?.task_type ?? '')}
                           </span>
+                          {ans.is_locked && (
+                            <span className="flex items-center gap-0.5 text-[10px] text-green-700 bg-green-100 dark:bg-green-900/40 dark:text-green-400 rounded px-1.5 py-0.5">
+                              <Lock className="h-2.5 w-2.5" />Засчитано
+                            </span>
+                          )}
                         </div>
                         <div className="flex items-center gap-2 shrink-0">
                           {ans.is_correct === true && <CheckCircle2 className="h-4 w-4 text-green-500" />}
@@ -447,7 +454,12 @@ export function AttemptDrawer({ attemptId, onClose, onGraded }: Props) {
 
                       {/* Teacher grading inputs for ALL task types when reviewing */}
                       {needsGrading && g && (
-                        <div className="space-y-2 pt-1 border-t">
+                        <div className={cn('space-y-2 pt-1 border-t', ans.is_locked && 'opacity-50 pointer-events-none')}>
+                          {ans.is_locked && (
+                            <p className="text-xs text-green-700 dark:text-green-400">
+                              Балл засчитан в предыдущей попытке — редактирование заблокировано.
+                            </p>
+                          )}
                           <div className="flex items-center gap-2">
                             <Input
                               type="number"
@@ -459,6 +471,7 @@ export function AttemptDrawer({ attemptId, onClose, onGraded }: Props) {
                               }))}
                               className="w-20 h-7 text-sm"
                               placeholder="Балл"
+                              disabled={ans.is_locked}
                             />
                             <span className="text-xs text-muted-foreground">
                               из {ans.test_tasks?.max_score ?? '?'} б.
@@ -472,6 +485,7 @@ export function AttemptDrawer({ attemptId, onClose, onGraded }: Props) {
                             placeholder="Комментарий (поддерживается LaTeX: $x^2$, $$\frac{a}{b}$$)"
                             rows={2}
                             className="text-xs resize-none"
+                            disabled={ans.is_locked}
                           />
                           {/* LaTeX preview */}
                           {g.comment.trim() && (

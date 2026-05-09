@@ -808,7 +808,7 @@ async function uploadJsonSolutionImages(
 
 // ─── Apply scoring rules ──────────────────────────────────────────────────────
 
-async function applyMatchingScoringRules(
+export async function applyMatchingScoringRules(
   client: SupabaseClient<Database>,
   testVersionId: string
 ): Promise<number> {
@@ -832,6 +832,9 @@ async function applyMatchingScoringRules(
     .eq('organization_id', test.organization_id)
   if (!rules?.length) return 0
 
+  // Normalize for case-insensitive, trim-insensitive comparison
+  const norm = (s: string | null) => s?.trim().toLowerCase() ?? null
+
   // Pick the most specific matching rule (null field = wildcard, non-null must match exactly)
   let bestRule: typeof rules[0] | null = null
   let bestScore = -1
@@ -841,15 +844,15 @@ async function applyMatchingScoringRules(
     let mismatch = false
 
     if (rule.exam_type !== null) {
-      if (rule.exam_type === test.exam_type) score++
+      if (norm(rule.exam_type) === norm(test.exam_type)) score++
       else { mismatch = true }
     }
     if (rule.grade !== null) {
-      if (rule.grade === test.grade) score++
+      if (norm(rule.grade) === norm(test.grade)) score++
       else { mismatch = true }
     }
     if (rule.subject !== null) {
-      if (rule.subject === test.subject) score++
+      if (norm(rule.subject) === norm(test.subject)) score++
       else { mismatch = true }
     }
 

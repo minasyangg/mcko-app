@@ -1,5 +1,7 @@
 import { NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
+import { applyMatchingScoringRules } from '@/app/api/parsing/trigger/route'
 
 export async function POST(
   _req: NextRequest,
@@ -25,5 +27,9 @@ export async function POST(
 
   if (error) return Response.json({ error: error.message }, { status: 500 })
 
-  return Response.json({ updated: data?.length ?? 0 })
+  // Apply matching scoring rule max_scores after approval
+  const admin = createAdminClient()
+  const rulesApplied = await applyMatchingScoringRules(admin, versionId)
+
+  return Response.json({ updated: data?.length ?? 0, rules_applied: rulesApplied })
 }
