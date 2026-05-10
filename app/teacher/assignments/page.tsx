@@ -64,9 +64,14 @@ export default async function AssignmentsPage() {
                 const group = a.groups as any
                 const profile = (a as any).profiles as any
                 const allAttempts = ((a as any).attempts ?? []) as { id: string; status: string; student_id: string }[]
-                const completedCount = allAttempts.filter(at => ['submitted', 'checked'].includes(at.status)).length
                 const maxAttempts = a.max_attempts ?? 1
-                const isCompleted = completedCount >= maxAttempts && completedCount > 0
+                const isGroupAssignment = !!a.group_id
+                // For individual: track completion by per-student attempt count
+                // For group: show max_attempts per student (not total across all students)
+                const completedCount = isGroupAssignment
+                  ? 0  // groups: completion tracked per-student, not shown in aggregate
+                  : allAttempts.filter(at => ['submitted', 'checked'].includes(at.status)).length
+                const isCompleted = !isGroupAssignment && completedCount >= maxAttempts && completedCount > 0
                 const target = group?.name
                   ? `Группа: ${group.name}`
                   : profile?.full_name
@@ -89,9 +94,11 @@ export default async function AssignmentsPage() {
                         : '—'}
                     </td>
                     <td className="px-4 py-3">
-                      {isCompleted
-                        ? <span className="text-xs font-medium text-emerald-700 dark:text-emerald-400">✓ Завершён ({completedCount}/{maxAttempts})</span>
-                        : <span className="text-muted-foreground">{completedCount}/{maxAttempts}</span>
+                      {isGroupAssignment
+                        ? <span className="text-muted-foreground">{maxAttempts} / уч.</span>
+                        : isCompleted
+                          ? <span className="text-xs font-medium text-emerald-700 dark:text-emerald-400">✓ Завершён ({completedCount}/{maxAttempts})</span>
+                          : <span className="text-muted-foreground">{completedCount}/{maxAttempts}</span>
                       }
                     </td>
                     <td className="px-4 py-3 text-muted-foreground">

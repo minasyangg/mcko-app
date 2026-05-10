@@ -308,7 +308,7 @@ export function AttemptDrawer({ attemptId, onClose, onGraded }: Props) {
 
   return (
     <Sheet open={!!attemptId} onOpenChange={(v) => { if (!v) onClose() }}>
-      <SheetContent side="right" className="w-full sm:max-w-3xl overflow-y-auto">
+      <SheetContent side="right" className="w-full sm:max-w-205 overflow-y-auto">
         <SheetHeader className="pb-4 border-b">
           <SheetTitle>Попытка студента</SheetTitle>
         </SheetHeader>
@@ -437,9 +437,10 @@ export function AttemptDrawer({ attemptId, onClose, onGraded }: Props) {
                         {correctAnswerMap[ans.task_id ?? ''] && (
                           <div className="bg-green-50/60 dark:bg-green-950/20 border border-green-200 dark:border-green-800 rounded px-2 py-1.5">
                             <p className="text-xs text-green-700 dark:text-green-400 mb-0.5">Правильный ответ</p>
-                            <span className="font-medium wrap-break-word text-green-800 dark:text-green-300">
-                              {correctAnswerMap[ans.task_id ?? '']}
-                            </span>
+                            <MathText
+                              text={correctAnswerMap[ans.task_id ?? '']}
+                              className="font-medium text-green-800 dark:text-green-300 text-sm"
+                            />
                           </div>
                         )}
                       </div>

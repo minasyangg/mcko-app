@@ -23,6 +23,7 @@ export interface StudentRow {
   grade: string | null
   is_active: boolean | null
   created_at: string | null
+  email?: string
 }
 
 interface Props {
@@ -110,9 +111,10 @@ export function StudentsClient({ students: initial }: Props) {
           <thead className="bg-muted/50">
             <tr>
               <th className="text-left px-4 py-3 font-medium">ФИО</th>
+              <th className="text-left px-4 py-3 font-medium">Email</th>
               <th className="text-left px-4 py-3 font-medium">Класс</th>
               <th className="text-left px-4 py-3 font-medium">Статус</th>
-              <th className="text-left px-4 py-3 font-medium">Дата регистрации</th>
+              <th className="text-left px-4 py-3 font-medium">Дата</th>
               <th className="px-4 py-3 w-24" />
             </tr>
           </thead>
@@ -131,6 +133,7 @@ export function StudentsClient({ students: initial }: Props) {
                       </span>
                     )}
                   </td>
+                  <td className="px-4 py-3 text-muted-foreground text-xs">{s.email || '—'}</td>
                   <td className="px-4 py-3 text-muted-foreground">{s.grade ?? '—'}</td>
                   <td className="px-4 py-3">
                     <Badge variant={isActive ? 'default' : 'secondary'}>
@@ -256,6 +259,12 @@ export function StudentsClient({ students: initial }: Props) {
                 placeholder="10А, 9Б..."
               />
             </div>
+            {editTarget?.email && (
+              <div className="space-y-1">
+                <Label className="text-muted-foreground">Текущий email</Label>
+                <p className="text-sm px-3 py-2 rounded-md bg-muted text-muted-foreground font-mono">{editTarget.email}</p>
+              </div>
+            )}
             <div className="space-y-1">
               <Label htmlFor="edit-email">Новый email <span className="text-muted-foreground text-xs">(необязательно)</span></Label>
               <Input

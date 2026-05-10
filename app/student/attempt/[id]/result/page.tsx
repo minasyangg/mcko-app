@@ -10,6 +10,7 @@ import type { Json } from '@/types/database'
 import { enrichTaskMediaWithUrls } from '@/lib/media/signed-urls'
 import { SolutionRequestButton } from '@/components/student/SolutionRequestButton'
 import { SolutionView } from '@/components/test-player/SolutionView'
+import { MathText } from '@/components/shared/MathText'
 
 interface PageProps {
   params: Promise<{ id: string }>
@@ -73,7 +74,7 @@ export default async function ResultPage({ params }: PageProps) {
 
   const { data: attempts } = await supabase
     .from('attempts')
-    .select('id, status, score, max_score, submitted_at, checked_at')
+    .select('id, status, score, max_score, submitted_at, checked_at, teacher_comment')
     .eq('assignment_id', assignmentId).eq('student_id', user.id)
     .in('status', ['submitted', 'checked'])
     .order('submitted_at', { ascending: false }).limit(1)
@@ -278,6 +279,12 @@ export default async function ResultPage({ params }: PageProps) {
               <p className="text-xs text-muted-foreground">
                 Отправлено: {new Date(attempt.submitted_at).toLocaleString('ru-RU', { dateStyle: 'medium', timeStyle: 'short' })}
               </p>
+            )}
+            {isChecked && (attempt as any).teacher_comment && (
+              <div className="rounded-md bg-yellow-50 dark:bg-yellow-950/30 border border-yellow-200 dark:border-yellow-800 px-4 py-3 text-sm">
+                <p className="font-medium text-yellow-800 dark:text-yellow-300 mb-1">Комментарий учителя к работе:</p>
+                <MathText text={(attempt as any).teacher_comment} className="text-yellow-900 dark:text-yellow-200" />
+              </div>
             )}
           </CardContent>
         </Card>
