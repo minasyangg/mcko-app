@@ -15,7 +15,7 @@ import {
   AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
   AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from '@/components/ui/alert-dialog'
-import { Pencil, Trash2, UserX, Eye, EyeOff } from 'lucide-react'
+import { Pencil, Trash2, UserX, Eye, EyeOff, UserMinus } from 'lucide-react'
 
 export interface StudentRow {
   id: string
@@ -79,11 +79,24 @@ export function StudentsClient({ students: initial }: Props) {
   }
 
   async function handleDeactivate(student: StudentRow) {
+    const res = await fetch(`/api/admin/students/${student.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'deactivate' }),
+    })
+    const json = await res.json()
+    if (!res.ok) { toast.error(json.error ?? 'Ошибка деактивации'); return }
+    setStudents((prev) => prev.map((s) => s.id === student.id ? { ...s, is_active: false } : s))
+    toast.success(`${student.full_name} деактивирован`)
+    router.refresh()
+  }
+
+  async function handleHardDelete(student: StudentRow) {
     const res = await fetch(`/api/admin/students/${student.id}`, { method: 'DELETE' })
     const json = await res.json()
     if (!res.ok) { toast.error(json.error ?? 'Ошибка удаления'); return }
-    setStudents((prev) => prev.map((s) => s.id === student.id ? { ...s, is_active: false } : s))
-    toast.success(`${student.full_name} отмечен как выбывший`)
+    setStudents((prev) => prev.filter((s) => s.id !== student.id))
+    toast.success(`${student.full_name} удалён`)
     router.refresh()
   }
 
@@ -134,38 +147,79 @@ export function StudentsClient({ students: initial }: Props) {
                       >
                         <Pencil className="h-3.5 w-3.5" />
                       </Button>
+
+                      {/* Деактивировать (soft) */}
                       {isActive && (
                         <AlertDialog>
                           <AlertDialogTrigger asChild>
                             <Button
                               size="sm" variant="ghost"
-                              className="h-7 w-7 p-0 text-destructive hover:text-destructive hover:bg-destructive/10"
-                              title="Отчислить"
+                              className="h-7 w-7 p-0 text-amber-600 hover:text-amber-700 hover:bg-amber-50"
+                              title="Деактивировать"
                             >
-                              <Trash2 className="h-3.5 w-3.5" />
+                              <UserMinus className="h-3.5 w-3.5" />
                             </Button>
                           </AlertDialogTrigger>
                           <AlertDialogContent>
                             <AlertDialogHeader>
-                              <AlertDialogTitle>Отчислить ученика?</AlertDialogTitle>
+                              <AlertDialogTitle>Деактивировать ученика?</AlertDialogTitle>
                               <AlertDialogDescription>
-                                <strong>{s.full_name}</strong> будет помечен как выбывший.
-                                Все его назначения и членство в группах будут удалены.
-                                Результаты тестов сохранятся.
+                                <strong>{s.full_name}</strong> будет помечен как неактивный.
+                                Назначения и членство в группах будут удалены.
+                                История попыток и результаты тестов сохранятся.
                               </AlertDialogDescription>
                             </AlertDialogHeader>
                             <AlertDialogFooter>
                               <AlertDialogCancel>Отмена</AlertDialogCancel>
                               <AlertDialogAction
                                 onClick={() => handleDeactivate(s)}
-                                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                className="bg-amber-600 text-white hover:bg-amber-700"
                               >
-                                Отчислить
+                                Деактивировать
                               </AlertDialogAction>
                             </AlertDialogFooter>
                           </AlertDialogContent>
                         </AlertDialog>
                       )}
+
+                      {/* Удалить навсегда (hard) */}
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button
+                            size="sm" variant="ghost"
+                            className="h-7 w-7 p-0 text-destructive hover:text-destructive hover:bg-destructive/10"
+                            title="Удалить навсегда"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Удалить ученика навсегда?</AlertDialogTitle>
+                            <AlertDialogDescription className="space-y-2">
+                              <span className="block">
+                                Это действие <strong>необратимо</strong>. Будут удалены:
+                              </span>
+                              <ul className="list-disc list-inside text-sm space-y-0.5">
+                                <li>Аккаунт и профиль <strong>{s.full_name}</strong></li>
+                                <li>Все его попытки и ответы</li>
+                                <li>Все назначения</li>
+                                <li>Членство в группах</li>
+                                <li>Результаты тестов</li>
+                              </ul>
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Отмена</AlertDialogCancel>
+                            <AlertDialogAction
+                              onClick={() => handleHardDelete(s)}
+                              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                            >
+                              Удалить навсегда
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
                     </div>
                   </td>
                 </tr>

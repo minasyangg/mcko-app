@@ -13,11 +13,12 @@ async function verifyTeacher() {
   return profile
 }
 
-// PATCH /api/admin/students/[id]  — update student info
+// PATCH /api/admin/students/[id]  — update student info OR deactivate
 const patchSchema = z.object({
+  action: z.literal('deactivate').optional(),
   full_name: z.string().min(2).optional(),
   grade: z.string().nullable().optional(),
-  email: z.string().email().optional(),
+  email: z.string().includes('@').optional(),
   password: z.string().min(6).optional(),
 })
 
@@ -37,7 +38,6 @@ export async function PATCH(
 
   const admin = createAdminClient()
 
-  // Verify the student belongs to same org
   const { data: student } = await admin
     .from('profiles').select('id, organization_id, role').eq('id', id).single()
 
@@ -45,9 +45,17 @@ export async function PATCH(
     return NextResponse.json({ error: 'Student not found' }, { status: 404 })
   }
 
+  // Deactivate action: soft-delete (keep auth user + results, remove memberships/assignments)
+  if (parsed.data.action === 'deactivate') {
+    await admin.from('group_members').delete().eq('user_id', id)
+    await admin.from('assignments').delete().eq('student_id', id)
+    const { error } = await admin.from('profiles').update({ is_active: false, deleted_at: new Date().toISOString() }).eq('id', id)
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ ok: true })
+  }
+
   const { full_name, grade, email, password } = parsed.data
 
-  // Update profile fields
   if (full_name !== undefined || grade !== undefined) {
     const update: { full_name?: string; grade?: string | null } = {}
     if (full_name !== undefined) update.full_name = full_name
@@ -56,7 +64,6 @@ export async function PATCH(
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   }
 
-  // Update email / password via Auth admin
   if (email || password) {
     const authUpdate: Record<string, string> = {}
     if (email) authUpdate.email = email
@@ -69,8 +76,7 @@ export async function PATCH(
 }
 
 // DELETE /api/admin/students/[id]
-// Soft-delete: sets is_active=false, removes assignments & group memberships
-// Preserves attempts/results for analytics
+// Hard delete: removes all student data including auth user
 export async function DELETE(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -88,15 +94,21 @@ export async function DELETE(
     return NextResponse.json({ error: 'Student not found' }, { status: 404 })
   }
 
-  // 1. Delete group memberships
-  await admin.from('group_members').delete().eq('user_id', id)
+  // 1. RPC handles: attempts, assignments, group_members, soft-deletes profile
+  const { error: rpcError } = await admin.rpc('delete_student_cascade', { target_student_id: id })
+  if (rpcError) return NextResponse.json({ error: rpcError.message }, { status: 500 })
 
-  // 2. Delete assignments for this student (soft-delete approach: remove future assignments only)
-  await admin.from('assignments').delete().eq('student_id', id)
+  // 2. Delete remaining rows that reference profiles.id
+  await admin.from('solution_requests').delete().eq('student_id', id)
+  await admin.from('student_final_results').delete().eq('student_id', id)
 
-  // 3. Soft-delete the profile (keeps auth user + historical results)
-  const { error } = await admin.from('profiles').update({ is_active: false }).eq('id', id)
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  // 3. Hard-delete the profile row itself
+  const { error: profileError } = await admin.from('profiles').delete().eq('id', id)
+  if (profileError) return NextResponse.json({ error: profileError.message }, { status: 500 })
+
+  // 4. Delete the auth user (must be last)
+  const { error: authError } = await admin.auth.admin.deleteUser(id)
+  if (authError) return NextResponse.json({ error: authError.message }, { status: 500 })
 
   return NextResponse.json({ ok: true })
 }
