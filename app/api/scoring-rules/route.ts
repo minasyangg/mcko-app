@@ -7,9 +7,13 @@ export async function GET() {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 })
 
+  const { data: profile } = await supabase.from('profiles').select('role, organization_id').eq('id', user.id).single()
+  if (!profile || !['teacher', 'admin'].includes(profile.role)) return Response.json({ error: 'Forbidden' }, { status: 403 })
+
   const { data, error } = await supabase
     .from('scoring_rules')
     .select('*, scoring_rule_items ( * )')
+    .eq('organization_id', profile.organization_id!)
     .order('name')
 
   if (error) return Response.json({ error: error.message }, { status: 500 })

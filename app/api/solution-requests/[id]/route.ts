@@ -27,6 +27,18 @@ export async function PATCH(
     return Response.json({ error: 'status must be approved or rejected' }, { status: 400 })
   }
 
+  // Verify the solution request belongs to this teacher's organization
+  const { data: reqCheck } = await supabase
+    .from('solution_requests')
+    .select('id, attempts!attempt_id ( assignments!assignment_id ( organization_id ) )')
+    .eq('id', id)
+    .single()
+
+  const orgId = (reqCheck?.attempts as any)?.assignments?.organization_id
+  if (!reqCheck || orgId !== profile.organization_id) {
+    return Response.json({ error: 'Not found' }, { status: 404 })
+  }
+
   const { data, error } = await supabase
     .from('solution_requests')
     .update({

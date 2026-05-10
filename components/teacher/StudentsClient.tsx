@@ -93,8 +93,11 @@ export function StudentsClient({ students: initial }: Props) {
 
   async function handleHardDelete(student: StudentRow) {
     const res = await fetch(`/api/admin/students/${student.id}`, { method: 'DELETE' })
-    const json = await res.json()
-    if (!res.ok) { toast.error(json.error ?? 'Ошибка удаления'); return }
+    if (!res.ok) {
+      const json = await res.json().catch(() => ({}))
+      toast.error(json.error ?? 'Ошибка удаления')
+      return
+    }
     setStudents((prev) => prev.filter((s) => s.id !== student.id))
     toast.success(`${student.full_name} удалён`)
     router.refresh()
