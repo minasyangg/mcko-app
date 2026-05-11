@@ -93,6 +93,7 @@ export default function MarkdownContent({ content }: { content: string }) {
           rehypeRaw,
           [rehypeSanitize, sanitizeSchema],
         ]}
+        remarkRehypeOptions={{ allowDangerousHtml: true }}
       >
         {processed}
       </ReactMarkdown>
