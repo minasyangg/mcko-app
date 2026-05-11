@@ -28,7 +28,7 @@ interface Props {
   initialRules: Rule[]
 }
 
-const EXAM_TYPES = ['ВПР', 'ОГЭ', 'ЕГЭ', 'КР', 'СР', 'Другое']
+const EXAM_TYPES = ['ВПР', 'ОГЭ', 'ЕГЭ', 'МЦКО', 'КР', 'СР', 'Другое']
 
 function RuleForm({
   initial,
