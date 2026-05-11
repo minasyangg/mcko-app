@@ -577,7 +577,8 @@ export function TestDetailClient({
       const res = await fetch(`/api/tests/${testId}/toggle-active`, { method: 'PATCH' })
       if (res.ok) {
         const data = await res.json()
-        setTest((prev) => ({ ...prev, is_active: data.is_active }))
+        setTest((prev) => ({ ...prev, is_active: data.is_active, status: data.status }))
+        router.refresh()
       }
     } finally {
       setTogglingActive(false)
@@ -679,9 +680,9 @@ export function TestDetailClient({
                   <Badge variant={statusVariant[test.status] ?? 'secondary'}>
                     {statusLabel[test.status] ?? test.status}
                   </Badge>
-                  {versionStatus && versionStatus !== test.status && (
-                    <Badge variant={statusVariant[versionStatus] ?? 'secondary'} className="text-xs">
-                      Версия: {statusLabel[versionStatus] ?? versionStatus}
+                  {test.status === 'published' && !test.is_active && (
+                    <Badge variant="outline" className="text-orange-600 border-orange-400">
+                      Снят с публикации
                     </Badge>
                   )}
                 </div>
@@ -784,7 +785,7 @@ export function TestDetailClient({
               Аналитика
             </Link>
           </Button>
-          {test.status === 'published' && (
+          {(test.status === 'published' || !test.is_active) && versionStatus !== null && (
             <Button
               size="sm"
               variant="outline"
@@ -794,7 +795,7 @@ export function TestDetailClient({
             >
               {test.is_active
                 ? <><EyeOff className="h-4 w-4 mr-1.5" />{togglingActive ? '...' : 'Снять с публикации'}</>
-                : <><Eye className="h-4 w-4 mr-1.5" />{togglingActive ? '...' : 'Возобновить'}</>
+                : <><Eye className="h-4 w-4 mr-1.5" />{togglingActive ? '...' : 'Возобновить публикацию'}</>
               }
             </Button>
           )}

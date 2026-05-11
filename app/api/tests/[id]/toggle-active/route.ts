@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 
 export async function PATCH(
   _req: NextRequest,
@@ -16,24 +17,35 @@ export async function PATCH(
     return Response.json({ error: 'Forbidden' }, { status: 403 })
   }
 
-  // Fetch current value and verify ownership
   const { data: test } = await supabase
     .from('tests')
-    .select('id, is_active, organization_id')
+    .select('id, is_active, organization_id, current_published_version_id')
     .eq('id', id)
     .eq('organization_id', profile.organization_id ?? '')
     .single()
 
   if (!test) return Response.json({ error: 'Test not found' }, { status: 404 })
 
-  const { data, error } = await supabase
+  const admin = createAdminClient()
+  const newActive = !test.is_active
+  // When unpublishing: revert to in_review so teacher can edit tasks
+  // When republishing: restore published status
+  const newStatus = newActive ? 'published' : 'in_review'
+
+  const { error } = await admin
     .from('tests')
-    .update({ is_active: !test.is_active })
+    .update({ is_active: newActive, status: newStatus })
     .eq('id', id)
-    .select('id, is_active')
-    .single()
 
   if (error) return Response.json({ error: error.message }, { status: 500 })
 
-  return Response.json(data)
+  // Also update the version status so task editing is allowed/blocked correctly
+  if (test.current_published_version_id) {
+    await admin
+      .from('test_versions')
+      .update({ status: newStatus })
+      .eq('id', test.current_published_version_id)
+  }
+
+  return Response.json({ is_active: newActive, status: newStatus })
 }
