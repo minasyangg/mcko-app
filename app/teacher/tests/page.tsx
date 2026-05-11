@@ -24,7 +24,7 @@ export default async function TestsPage() {
 
   const { data: tests } = await supabase
     .from('tests')
-    .select('id, title, subject, grade, exam_type, status, created_at')
+    .select('id, title, subject, grade, exam_type, status, is_active, created_at')
     .order('created_at', { ascending: false })
 
   return (
@@ -72,9 +72,16 @@ export default async function TestsPage() {
                   <td className="px-4 py-3 text-muted-foreground">{test.grade ?? '—'}</td>
                   <td className="px-4 py-3 text-muted-foreground">{test.exam_type ?? '—'}</td>
                   <td className="px-4 py-3">
-                    <Badge variant={statusVariant[test.status] ?? 'secondary'}>
-                      {statusLabel[test.status] ?? test.status}
-                    </Badge>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <Badge variant={statusVariant[test.status] ?? 'secondary'}>
+                        {statusLabel[test.status] ?? test.status}
+                      </Badge>
+                      {test.status === 'published' && !(test as any).is_active && (
+                        <Badge variant="outline" className="text-orange-600 border-orange-400 text-xs">
+                          Снят
+                        </Badge>
+                      )}
+                    </div>
                   </td>
                   <td className="px-4 py-3 text-muted-foreground">
                     {test.created_at

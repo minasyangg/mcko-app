@@ -27,7 +27,40 @@ const sanitizeSchema = {
   },
 }
 
+// Fix common OCR error: /command → \command within LaTeX math delimiters
+const LATEX_CMDS = ['sqrt','frac','cfrac','dfrac','tfrac','cdot','times','div','pm','mp',
+  'leq','geq','neq','approx','sim','equiv','propto','alpha','beta','gamma','delta','epsilon',
+  'varepsilon','zeta','eta','theta','vartheta','iota','kappa','lambda','mu','nu','xi','pi',
+  'varpi','rho','varrho','sigma','varsigma','tau','upsilon','phi','varphi','chi','psi','omega',
+  'Gamma','Delta','Theta','Lambda','Xi','Pi','Sigma','Upsilon','Phi','Psi','Omega',
+  'sin','cos','tan','cot','sec','csc','arcsin','arccos','arctan','sinh','cosh','tanh',
+  'ln','log','exp','lim','max','min','sup','inf','det','sum','prod','int','oint',
+  'infty','partial','nabla','vec','hat','bar','tilde','dot','ddot','widehat','widetilde',
+  'overline','underline','overbrace','underbrace','left','right','middle',
+  'text','mathrm','mathbf','mathit','mathbb','mathcal','mathsf','mathtt',
+  'begin','end','quad','qquad','hline','over','sqrt','binom','choose',
+  'to','gets','Rightarrow','Leftarrow','rightarrow','leftarrow','leftrightarrow',
+  'Leftrightarrow','uparrow','downarrow','ne','le','ge','ll','gg','in','notin',
+  'subset','supset','cup','cap','emptyset','forall','exists','neg','land','lor']
+
+function fixLatexOCRErrors(content: string): string {
+  const fix = (math: string) => {
+    // remark-math v6 follows CommonMark math spec: no space allowed
+    // directly after opening $ or before closing $. Trim to fix.
+    let s = math.trim()
+    for (const cmd of LATEX_CMDS) {
+      s = s.replace(new RegExp(`/${cmd}(?=[^a-zA-Z]|$)`, 'g'), `\\${cmd}`)
+    }
+    return s
+  }
+  // Apply inside $$ ... $$ first (must come before single-$ pass)
+  return content
+    .replace(/\$\$([\s\S]*?)\$\$/g, (_, m) => `$$${fix(m)}$$`)
+    .replace(/\$([^$\n]+?)\$/g, (_, m) => `$${fix(m)}$`)
+}
+
 export default function MarkdownContent({ content }: { content: string }) {
+  const normalized = fixLatexOCRErrors(content)
   return (
     <div className="
       prose prose-sm dark:prose-invert max-w-none
@@ -46,7 +79,7 @@ export default function MarkdownContent({ content }: { content: string }) {
           [rehypeSanitize, sanitizeSchema],
         ]}
       >
-        {content}
+        {normalized}
       </ReactMarkdown>
     </div>
   )

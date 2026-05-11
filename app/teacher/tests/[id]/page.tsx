@@ -2,6 +2,8 @@ import { createClient } from '@/lib/supabase/server'
 import { notFound } from 'next/navigation'
 import { TestDetailClient } from '@/components/teacher/TestDetailClient'
 import type { TestTask } from '@/components/teacher/TestDetailClient'
+import { enrichTaskMediaWithUrls } from '@/lib/media/signed-urls'
+import type { TaskMedia } from '@/types/domain'
 
 interface PageProps {
   params: Promise<{ id: string }>
@@ -54,6 +56,24 @@ export default async function TestDetailPage({ params }: PageProps) {
       .order('task_number', { ascending: true })
 
     if (rawTasks) {
+      // Load signed URLs for task images
+      const taskIds = rawTasks.map(t => t.id)
+      const { data: mediaRows } = taskIds.length > 0
+        ? await supabase
+            .from('task_media')
+            .select('id, task_id, storage_path, media_type, original_filename, width_px, height_px, file_size_bytes, format, placement, sort_order, alt_text, source_page, source_bbox, is_manually_uploaded, created_at')
+            .in('task_id', taskIds)
+            .order('sort_order', { ascending: true })
+        : { data: [] }
+
+      const enriched = await enrichTaskMediaWithUrls(supabase, (mediaRows ?? []) as TaskMedia[])
+      const mediaByTask: Record<string, typeof enriched> = {}
+      for (const m of enriched) {
+        if (!m.task_id) continue
+        if (!mediaByTask[m.task_id]) mediaByTask[m.task_id] = []
+        mediaByTask[m.task_id].push(m)
+      }
+
       tasks = rawTasks.map((t) => {
         const key = (t as any).task_answer_keys
         return {
@@ -61,6 +81,7 @@ export default async function TestDetailPage({ params }: PageProps) {
           task_number: t.task_number,
           sort_order: t.sort_order,
           prompt_text: t.prompt_text,
+          prompt_html: t.prompt_html ?? null,
           task_type: t.task_type,
           options: t.options,
           answer_format_hint: t.answer_format_hint,
@@ -69,6 +90,7 @@ export default async function TestDetailPage({ params }: PageProps) {
           parse_confidence: t.parse_confidence,
           correct_answer: key ? String(key.correct_answer ?? '') || null : null,
           grading_method: key?.grading_method ?? null,
+          images: mediaByTask[t.id] ?? [],
         } satisfies TestTask
       })
     }

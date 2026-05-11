@@ -41,6 +41,8 @@ import {
   EyeOff,
   Eye,
 } from 'lucide-react'
+import MarkdownContent from '@/components/shared/MarkdownContent'
+import type { TaskMediaWithUrl } from '@/types/domain'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -49,6 +51,7 @@ export interface TestTask {
   task_number: number
   sort_order: number
   prompt_text: string
+  prompt_html?: string | null
   task_type: string
   options: unknown
   answer_format_hint: string | null
@@ -57,6 +60,7 @@ export interface TestTask {
   parse_confidence: number | null
   correct_answer?: string | null
   grading_method?: string | null
+  images?: TaskMediaWithUrl[]
 }
 
 export interface TestDetailClientProps {
@@ -117,7 +121,9 @@ interface EditTaskFormProps {
 }
 
 function EditTaskForm({ task, onSave, onCancel }: EditTaskFormProps) {
-  const [promptText, setPromptText] = useState(task.prompt_text)
+  // Edit prompt_html (preserves formulas); fall back to prompt_text if no html
+  const [promptHtml, setPromptHtml] = useState(task.prompt_html ?? task.prompt_text)
+  const [showPreview, setShowPreview] = useState(false)
   const [taskType, setTaskType] = useState(task.task_type)
   const [maxScore, setMaxScore] = useState(String(task.max_score ?? 1))
   const [answerFormatHint, setAnswerFormatHint] = useState(task.answer_format_hint ?? '')
@@ -126,16 +132,26 @@ function EditTaskForm({ task, onSave, onCancel }: EditTaskFormProps) {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  // Derive plain prompt_text from prompt_html for storage
+  function derivePromptText(html: string): string {
+    return html
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\$\$[\s\S]+?\$\$/g, '[формула]')
+      .replace(/\$[^$\n]+\$/g, '[формула]')
+      .replace(/\s+/g, ' ')
+      .trim() || html.slice(0, 200)
+  }
+
   async function handleSave() {
     setSaving(true)
     setError(null)
     try {
-      // Update the task
       const patchRes = await fetch(`/api/tests/tasks/${task.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          prompt_text: promptText,
+          prompt_html: promptHtml,
+          prompt_text: derivePromptText(promptHtml),
           task_type: taskType,
           max_score: Number(maxScore) || 1,
           answer_format_hint: answerFormatHint || null,
@@ -147,7 +163,6 @@ function EditTaskForm({ task, onSave, onCancel }: EditTaskFormProps) {
         return
       }
 
-      // Update or create answer key if correct_answer provided
       if (correctAnswer !== '') {
         const answerRes = await fetch(`/api/tests/tasks/${task.id}/answer`, {
           method: 'PUT',
@@ -163,7 +178,8 @@ function EditTaskForm({ task, onSave, onCancel }: EditTaskFormProps) {
 
       onSave({
         ...task,
-        prompt_text: promptText,
+        prompt_html: promptHtml,
+        prompt_text: derivePromptText(promptHtml),
         task_type: taskType,
         max_score: Number(maxScore) || 1,
         answer_format_hint: answerFormatHint || null,
@@ -178,13 +194,29 @@ function EditTaskForm({ task, onSave, onCancel }: EditTaskFormProps) {
   return (
     <div className="space-y-3 pt-3 border-t mt-2">
       <div className="space-y-1">
-        <Label className="text-xs">Текст задачи</Label>
-        <Textarea
-          value={promptText}
-          onChange={(e) => setPromptText(e.target.value)}
-          rows={4}
-          className="text-sm"
-        />
+        <div className="flex items-center justify-between">
+          <Label className="text-xs">Текст задачи (поддерживает LaTeX: $формула$)</Label>
+          <button
+            type="button"
+            onClick={() => setShowPreview(v => !v)}
+            className="text-xs text-muted-foreground hover:text-foreground underline"
+          >
+            {showPreview ? 'Редактировать' : 'Предпросмотр'}
+          </button>
+        </div>
+        {showPreview ? (
+          <div className="min-h-24 rounded-md border bg-muted/20 px-3 py-2">
+            <MarkdownContent content={promptHtml} />
+          </div>
+        ) : (
+          <Textarea
+            value={promptHtml}
+            onChange={(e) => setPromptHtml(e.target.value)}
+            rows={5}
+            className="text-sm font-mono"
+            placeholder="Введите текст задачи. Формулы: $\sqrt{x}$ или $$\frac{a}{b}$$"
+          />
+        )}
       </div>
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-1">
@@ -372,9 +404,26 @@ function TaskCard({ task, canEdit, onUpdate, onDelete }: TaskCardProps) {
         </div>
 
         {/* Task text preview */}
-        <p className={`mt-2 text-sm ${expanded ? '' : 'line-clamp-2'}`}>
-          {task.prompt_text}
-        </p>
+        <div className={`mt-2 text-sm ${expanded ? '' : 'line-clamp-3 overflow-hidden'}`}>
+          {task.prompt_html
+            ? <MarkdownContent content={task.prompt_html} />
+            : <p>{task.prompt_text}</p>
+          }
+        </div>
+
+        {/* Task images */}
+        {task.images && task.images.length > 0 && expanded && (
+          <div className="mt-2 flex flex-wrap gap-2">
+            {task.images.map((img) => (
+              <img
+                key={img.id}
+                src={img.signedUrl}
+                alt={img.alt_text ?? `Изображение к заданию ${task.task_number}`}
+                className="max-h-48 rounded border object-contain bg-muted"
+              />
+            ))}
+          </div>
+        )}
 
         {/* Answer / score row */}
         <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
@@ -577,7 +626,8 @@ export function TestDetailClient({
       const res = await fetch(`/api/tests/${testId}/toggle-active`, { method: 'PATCH' })
       if (res.ok) {
         const data = await res.json()
-        setTest((prev) => ({ ...prev, is_active: data.is_active }))
+        setTest((prev) => ({ ...prev, is_active: data.is_active, status: data.status }))
+        router.refresh()
       }
     } finally {
       setTogglingActive(false)
@@ -679,9 +729,9 @@ export function TestDetailClient({
                   <Badge variant={statusVariant[test.status] ?? 'secondary'}>
                     {statusLabel[test.status] ?? test.status}
                   </Badge>
-                  {versionStatus && versionStatus !== test.status && (
-                    <Badge variant={statusVariant[versionStatus] ?? 'secondary'} className="text-xs">
-                      Версия: {statusLabel[versionStatus] ?? versionStatus}
+                  {test.status === 'published' && !test.is_active && (
+                    <Badge variant="outline" className="text-orange-600 border-orange-400">
+                      Снят с публикации
                     </Badge>
                   )}
                 </div>
@@ -784,7 +834,7 @@ export function TestDetailClient({
               Аналитика
             </Link>
           </Button>
-          {test.status === 'published' && (
+          {(test.status === 'published' || !test.is_active) && versionStatus !== null && (
             <Button
               size="sm"
               variant="outline"
@@ -794,7 +844,7 @@ export function TestDetailClient({
             >
               {test.is_active
                 ? <><EyeOff className="h-4 w-4 mr-1.5" />{togglingActive ? '...' : 'Снять с публикации'}</>
-                : <><Eye className="h-4 w-4 mr-1.5" />{togglingActive ? '...' : 'Возобновить'}</>
+                : <><Eye className="h-4 w-4 mr-1.5" />{togglingActive ? '...' : 'Возобновить публикацию'}</>
               }
             </Button>
           )}
