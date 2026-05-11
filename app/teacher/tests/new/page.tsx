@@ -30,7 +30,7 @@ const schema = z.object({
 
 type FormValues = z.infer<typeof schema>
 
-const EXAM_TYPES = ['ВПР', 'ОГЭ', 'ЕГЭ', 'Контрольная', 'Другое'] as const
+const EXAM_TYPES = ['ВПР', 'ОГЭ', 'ЕГЭ', 'МЦКО', 'Контрольная', 'Другое'] as const
 const SUBJECTS = ['Математика', 'Физика', 'ТВИС', 'Русский язык'] as const
 
 export default function NewTestPage() {
