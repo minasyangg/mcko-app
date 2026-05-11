@@ -45,13 +45,15 @@ const LATEX_CMDS = ['sqrt','frac','cfrac','dfrac','tfrac','cdot','times','div','
 
 function fixLatexOCRErrors(content: string): string {
   const fix = (math: string) => {
-    let s = math
+    // remark-math v6 follows CommonMark math spec: no space allowed
+    // directly after opening $ or before closing $. Trim to fix.
+    let s = math.trim()
     for (const cmd of LATEX_CMDS) {
       s = s.replace(new RegExp(`/${cmd}(?=[^a-zA-Z]|$)`, 'g'), `\\${cmd}`)
     }
     return s
   }
-  // Apply only inside $$ ... $$ and $ ... $
+  // Apply inside $$ ... $$ first (must come before single-$ pass)
   return content
     .replace(/\$\$([\s\S]*?)\$\$/g, (_, m) => `$$${fix(m)}$$`)
     .replace(/\$([^$\n]+?)\$/g, (_, m) => `$${fix(m)}$`)
