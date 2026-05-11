@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { ArrowLeft, Users } from 'lucide-react'
 import { GroupMembersEditor } from '@/components/teacher/GroupMembersEditor'
+import { DeleteGroupButton } from '@/components/teacher/DeleteGroupButton'
 
 interface Props {
   params: Promise<{ id: string }>
@@ -52,19 +53,22 @@ export default async function GroupDetailPage({ params }: Props) {
 
   return (
     <div className="space-y-6 max-w-2xl">
-      <div className="flex items-center gap-3">
-        <Button asChild variant="ghost" size="sm">
-          <Link href="/teacher/groups">
-            <ArrowLeft className="h-4 w-4 mr-1" />
-            Назад
-          </Link>
-        </Button>
-        <div>
-          <h1 className="text-2xl font-semibold">{group.name}</h1>
-          {group.description && (
-            <p className="text-sm text-muted-foreground">{group.description}</p>
-          )}
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <Button asChild variant="ghost" size="sm">
+            <Link href="/teacher/groups">
+              <ArrowLeft className="h-4 w-4 mr-1" />
+              Назад
+            </Link>
+          </Button>
+          <div>
+            <h1 className="text-2xl font-semibold">{group.name}</h1>
+            {group.description && (
+              <p className="text-sm text-muted-foreground">{group.description}</p>
+            )}
+          </div>
         </div>
+        <DeleteGroupButton groupId={groupId} groupName={group.name} redirectAfterDelete />
       </div>
 
       <div className="flex items-center gap-2">

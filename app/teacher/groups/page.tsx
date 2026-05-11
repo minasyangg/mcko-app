@@ -3,6 +3,7 @@ import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Plus, Users } from 'lucide-react'
+import { DeleteGroupButton } from '@/components/teacher/DeleteGroupButton'
 
 export default async function GroupsPage() {
   const supabase = await createClient()
@@ -66,9 +67,12 @@ export default async function GroupsPage() {
                   <Users className="h-3.5 w-3.5" />
                   {countMap[group.id] ?? 0} учеников
                 </span>
-                <Button asChild size="sm" variant="outline">
-                  <Link href={`/teacher/groups/${group.id}`}>Открыть</Link>
-                </Button>
+                <div className="flex items-center gap-1">
+                  <Button asChild size="sm" variant="outline">
+                    <Link href={`/teacher/groups/${group.id}`}>Открыть</Link>
+                  </Button>
+                  <DeleteGroupButton groupId={group.id} groupName={group.name} />
+                </div>
               </CardContent>
             </Card>
           ))}
