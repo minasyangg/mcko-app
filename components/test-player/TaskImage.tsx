@@ -27,7 +27,7 @@ export function TaskImage({ src, alt, width, height }: TaskImageProps) {
     <>
       <div
         className="relative max-w-full overflow-hidden rounded-md border bg-muted"
-        style={aspectStyle}
+        style={{ ...aspectStyle, maxHeight: '320px' }}
       >
         {status === 'loading' && (
           <Skeleton className="absolute inset-0 w-full h-full rounded-md" />

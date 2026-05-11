@@ -13,7 +13,9 @@ export default async function AssignmentsPage() {
       id, starts_at, ends_at, max_attempts, created_at,
       group_id, student_id,
       test_versions!test_version_id ( tests!test_id ( title ) ),
-      groups ( name )
+      groups ( name ),
+      profiles!student_id ( full_name ),
+      attempts ( id, status, student_id )
     `)
     .order('created_at', { ascending: false })
     .limit(100)
@@ -60,10 +62,22 @@ export default async function AssignmentsPage() {
                 const tv = a.test_versions as any
                 const test = tv?.tests as any
                 const group = a.groups as any
+                const profile = (a as any).profiles as any
+                const allAttempts = ((a as any).attempts ?? []) as { id: string; status: string; student_id: string }[]
+                const maxAttempts = a.max_attempts ?? 1
+                const isGroupAssignment = !!a.group_id
+                // For individual: track completion by per-student attempt count
+                // For group: show max_attempts per student (not total across all students)
+                const completedCount = isGroupAssignment
+                  ? 0  // groups: completion tracked per-student, not shown in aggregate
+                  : allAttempts.filter(at => ['submitted', 'checked'].includes(at.status)).length
+                const isCompleted = !isGroupAssignment && completedCount >= maxAttempts && completedCount > 0
                 const target = group?.name
                   ? `Группа: ${group.name}`
+                  : profile?.full_name
+                  ? profile.full_name
                   : a.student_id
-                  ? `Ученик`
+                  ? 'Ученик'
                   : '—'
                 return (
                   <tr key={a.id} className="hover:bg-muted/30 transition-colors">
@@ -79,7 +93,14 @@ export default async function AssignmentsPage() {
                         ? new Date(a.ends_at).toLocaleDateString('ru-RU')
                         : '—'}
                     </td>
-                    <td className="px-4 py-3 text-muted-foreground">{a.max_attempts ?? 1}</td>
+                    <td className="px-4 py-3">
+                      {isGroupAssignment
+                        ? <span className="text-muted-foreground">{maxAttempts} / уч.</span>
+                        : isCompleted
+                          ? <span className="text-xs font-medium text-emerald-700 dark:text-emerald-400">✓ Завершён ({completedCount}/{maxAttempts})</span>
+                          : <span className="text-muted-foreground">{completedCount}/{maxAttempts}</span>
+                      }
+                    </td>
                     <td className="px-4 py-3 text-muted-foreground">
                       {a.created_at
                         ? new Date(a.created_at).toLocaleDateString('ru-RU')

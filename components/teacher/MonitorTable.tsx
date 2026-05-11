@@ -20,6 +20,9 @@ export interface AttemptRow {
   full_name: string
   grade: string | null
   test_title: string
+  attempt_number?: number
+  total_attempts?: number
+  max_attempts?: number
 }
 
 interface Props {
@@ -29,13 +32,14 @@ interface Props {
 const STATUS_LABELS: Record<string, string> = {
   not_started: 'Не начата',
   in_progress: 'В процессе',
-  submitted: 'На проверке',
-  under_review: 'На проверке',
-  checked: 'Проверена',
+  submitted: 'Ожидает проверки',
+  under_review: 'Ожидает проверки',
+  checked: 'Проверено',
+  completed: 'Тест завершён',
   expired: 'Истекла',
 }
 
-function StatusChip({ status }: { status: string }) {
+function StatusChip({ status, attemptNumber, maxAttempts }: { status: string; attemptNumber?: number; maxAttempts?: number }) {
   const base = 'inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium'
   const colors: Record<string, string> = {
     in_progress: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300',
@@ -43,14 +47,20 @@ function StatusChip({ status }: { status: string }) {
     under_review: 'bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300',
     not_started: 'bg-muted text-muted-foreground',
     checked: 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300',
+    completed: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300',
     expired: 'bg-red-100 text-red-600 dark:bg-red-900/40 dark:text-red-400',
+  }
+  const showAttempt = attemptNumber && maxAttempts && maxAttempts > 1
+  let label = STATUS_LABELS[status] ?? status
+  if (showAttempt && status !== 'completed') {
+    label += ` · попытка ${attemptNumber}`
   }
   return (
     <span className={cn(base, colors[status] ?? 'bg-muted text-muted-foreground')}>
       {status === 'in_progress' && (
         <span className="mr-1.5 h-1.5 w-1.5 rounded-full bg-blue-500 animate-pulse inline-block" />
       )}
-      {STATUS_LABELS[status] ?? status}
+      {label}
     </span>
   )
 }
@@ -106,7 +116,7 @@ function TableView({ rows, onSelect }: { rows: AttemptRow[]; onSelect: (id: stri
               <td className="px-4 py-3 max-w-50 truncate text-muted-foreground" title={a.test_title}>
                 {a.test_title}
               </td>
-              <td className="px-4 py-3"><StatusChip status={a.status} /></td>
+              <td className="px-4 py-3"><StatusChip status={a.status} attemptNumber={a.attempt_number} maxAttempts={a.max_attempts} /></td>
               <td className="px-4 py-3 text-center text-muted-foreground">
                 {a.current_task_number ?? '—'}
               </td>

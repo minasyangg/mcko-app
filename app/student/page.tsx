@@ -39,7 +39,7 @@ export default async function StudentHomePage() {
       id, starts_at, ends_at, max_attempts,
       test_versions!test_version_id (
         id, time_limit_sec,
-        tests!test_id ( id, title, subject, exam_type )
+        tests!test_id ( id, title, subject, exam_type, is_active )
       )
     `)
 
@@ -49,7 +49,13 @@ export default async function StudentHomePage() {
     query = query.eq('student_id', user.id)
   }
 
-  const { data: assignments } = await query.order('created_at', { ascending: false })
+  const { data: rawAssignments } = await query.order('created_at', { ascending: false })
+
+  // Filter out assignments for inactive tests
+  const assignments = (rawAssignments ?? []).filter((a) => {
+    const tv = a.test_versions as any
+    return tv?.tests?.is_active !== false
+  })
 
   // Load all attempts for these assignments in one query
   const assignmentIds = (assignments ?? []).map((a) => a.id)
@@ -121,7 +127,11 @@ export default async function StudentHomePage() {
                     {a.ends_at && (
                       <p>До: {new Date(a.ends_at).toLocaleDateString('ru-RU')}</p>
                     )}
-                    <p>Попыток: {attemptsUsed}/{a.max_attempts ?? 1}</p>
+                    {(a.max_attempts ?? 1) > 1 && (
+                      attemptsLeft <= 0 && isDone
+                        ? <p className="font-medium text-emerald-700 dark:text-emerald-400">✓ Тест завершён ({attemptsUsed}/{a.max_attempts ?? 1} попыток)</p>
+                        : <p>Попыток использовано: {attemptsUsed}/{a.max_attempts ?? 1}</p>
+                    )}
                   </div>
 
                   <div className="pt-2 space-y-2">

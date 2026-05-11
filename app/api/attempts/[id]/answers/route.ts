@@ -46,9 +46,22 @@ export async function PATCH(
     return NextResponse.json({ error: 'Attempt is not in progress' }, { status: 409 })
   }
 
+  // Check if this answer is locked (teacher confirmed correct in a previous attempt)
+  const { data: existing } = await supabase
+    .from('attempt_task_answers')
+    .select('is_locked, answer_json, awarded_score')
+    .eq('attempt_id', attemptId)
+    .eq('task_id', task_id)
+    .single()
+
+  if (existing?.is_locked) {
+    // Locked task — silently accept without overwriting
+    return NextResponse.json({ ok: true, locked: true }, { status: 200 })
+  }
+
   const now = new Date().toISOString()
 
-  // Upsert the answer
+  // Upsert the answer (only non-locked fields; is_locked/awarded_score remain untouched)
   const { error: upsertError } = await supabase
     .from('attempt_task_answers')
     .upsert(
@@ -67,15 +80,7 @@ export async function PATCH(
   }
 
   // Update last_activity_at on the attempt
-  const { error: updateError } = await supabase
-    .from('attempts')
-    .update({ last_activity_at: now })
-    .eq('id', attemptId)
-
-  if (updateError) {
-    console.error('Update attempt error:', updateError)
-    // Non-fatal — answer was saved, just log
-  }
+  await supabase.from('attempts').update({ last_activity_at: now }).eq('id', attemptId)
 
   return NextResponse.json({ ok: true }, { status: 200 })
 }

@@ -56,10 +56,26 @@ export function ResultsClient({ rows, tests, groups }: Props) {
     ? (completed.reduce((s, r) => s + r.score, 0) / completed.length).toFixed(1)
     : '—'
 
-  const handleGraded = (attemptId: string) => {
-    setUpdatedRows((prev) => prev.map((r) =>
-      r.attemptId === attemptId ? { ...r, status: 'checked' } : r
-    ))
+  const handleGraded = async (attemptId: string) => {
+    // Fetch updated score from DB immediately
+    try {
+      const { createClient } = await import('@/lib/supabase/client')
+      const supabase = createClient()
+      const { data: attempt } = await supabase
+        .from('attempts')
+        .select('score, max_score')
+        .eq('id', attemptId)
+        .single()
+      setUpdatedRows((prev) => prev.map((r) =>
+        r.attemptId === attemptId
+          ? { ...r, status: 'checked', score: attempt?.score ?? r.score, maxScore: attempt?.max_score ?? r.maxScore, percentage: attempt?.max_score ? Math.round(((attempt?.score ?? 0) / attempt.max_score) * 100) : r.percentage }
+          : r
+      ))
+    } catch {
+      setUpdatedRows((prev) => prev.map((r) =>
+        r.attemptId === attemptId ? { ...r, status: 'checked' } : r
+      ))
+    }
     setSelectedAttemptId(null)
   }
 
@@ -113,7 +129,7 @@ export function ResultsClient({ rows, tests, groups }: Props) {
           <SelectContent>
             <SelectItem value="all">Все статусы</SelectItem>
             <SelectItem value="submitted">На проверке</SelectItem>
-            <SelectItem value="checked">Проверено</SelectItem>
+            <SelectItem value="checked">Завершён</SelectItem>
           </SelectContent>
         </Select>
         {(search || filterTest !== 'all' || filterGroup !== 'all' || filterStatus !== 'all') && (
@@ -184,7 +200,7 @@ export function ResultsClient({ rows, tests, groups }: Props) {
                       variant={r.status === 'checked' ? 'default' : 'secondary'}
                       className="text-xs"
                     >
-                      {r.status === 'checked' ? 'Проверено' : 'На проверке'}
+                      {r.status === 'checked' ? 'Завершён' : 'На проверке'}
                     </Badge>
                   </td>
                   <td className="px-4 py-3 text-muted-foreground whitespace-nowrap text-xs">

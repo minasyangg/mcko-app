@@ -71,7 +71,7 @@ export default function NewAssignmentPage() {
         const org = profile.organization_id
         const [{ data: testsData }, { data: grps }, { data: studs }] = await Promise.all([
           supabase.from('tests').select('id, title')
-            .eq('organization_id', org).eq('status', 'published')
+            .eq('organization_id', org).eq('status', 'published').eq('is_active', true)
             .not('current_published_version_id', 'is', null).order('title'),
           supabase.from('groups').select('id, name').eq('organization_id', org).order('name'),
           supabase.from('profiles').select('id, full_name, grade')

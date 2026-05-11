@@ -8,6 +8,8 @@ import { ShortText } from './AnswerInput/ShortText'
 import { Numeric } from './AnswerInput/Numeric'
 import { Composite } from './AnswerInput/Composite'
 import { TaskImageGallery } from './TaskImageGallery'
+import MarkdownContent from '@/components/shared/MarkdownContent'
+import { CheckCircle2 } from 'lucide-react'
 
 interface TaskViewProps {
   task: TestTask
@@ -15,6 +17,7 @@ interface TaskViewProps {
   onChange: (answer: Json) => void
   images?: TaskMediaWithUrl[]
   disabled?: boolean
+  isLocked?: boolean
 }
 
 interface TaskOption {
@@ -49,7 +52,7 @@ function toParts(raw: Json): AnswerPart[] {
   }).filter((p) => p.label)
 }
 
-export function TaskView({ task, answer, onChange, images = [], disabled }: TaskViewProps) {
+export function TaskView({ task, answer, onChange, images = [], disabled, isLocked }: TaskViewProps) {
   const answerObj =
     answer !== null && answer !== undefined && typeof answer === 'object' && !Array.isArray(answer)
       ? (answer as Record<string, Json | undefined>)
@@ -175,7 +178,10 @@ export function TaskView({ task, answer, onChange, images = [], disabled }: Task
         <TaskImageGallery images={images} placement="above_text" />
       )}
 
-      <div className="text-base leading-relaxed whitespace-pre-wrap">{task.prompt_text}</div>
+      {task.prompt_html
+        ? <MarkdownContent content={task.prompt_html} />
+        : <div className="text-base leading-relaxed whitespace-pre-wrap">{task.prompt_text}</div>
+      }
 
       {images.length > 0 && (
         <TaskImageGallery images={images} placement="below_text" />
@@ -187,7 +193,17 @@ export function TaskView({ task, answer, onChange, images = [], disabled }: Task
         </p>
       )}
 
-      <div>{renderInput()}</div>
+      {isLocked ? (
+        <div className="rounded-md border border-green-300 bg-green-50 dark:bg-green-950/30 px-4 py-3 flex items-center gap-2.5">
+          <CheckCircle2 className="h-5 w-5 text-green-600 shrink-0" />
+          <div>
+            <p className="text-sm font-medium text-green-800 dark:text-green-300">Задание засчитано</p>
+            <p className="text-xs text-green-700 dark:text-green-400">Учитель подтвердил верный ответ. Изменить нельзя.</p>
+          </div>
+        </div>
+      ) : (
+        <div>{renderInput()}</div>
+      )}
     </div>
   )
 }

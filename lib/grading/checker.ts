@@ -15,21 +15,27 @@ function toObj(j: Json): Record<string, Json | undefined> {
 }
 
 // Extract the scalar answer string from whatever shape the value has.
-// Handles: plain string/number, { text }, { value }, { selected }
+// Handles: plain string/number, array, { text }, { value }, { selected }
 function extractScalar(j: Json | undefined): string {
   if (j === undefined || j === null) return ''
   if (typeof j === 'string') return j
   if (typeof j === 'number') return String(j)
+  if (typeof j === 'boolean') return String(j)
+  if (Array.isArray(j)) return j.map(v => toString(v as Json)).join(', ')
   const o = toObj(j as Json)
   if (o['selected'] !== undefined) return toString(o['selected'])
   if (o['text'] !== undefined) return toString(o['text'])
   if (o['value'] !== undefined) return toString(o['value'])
+  if (o['parts'] !== undefined && typeof o['parts'] === 'object' && !Array.isArray(o['parts'])) {
+    return Object.values(o['parts'] as Record<string, Json>).map(v => toString(v)).join(', ')
+  }
   return ''
 }
 
 function toString(j: Json | undefined): string {
   if (typeof j === 'string') return j
   if (typeof j === 'number') return String(j)
+  if (Array.isArray(j)) return j.map(v => toString(v as Json)).join(', ')
   return ''
 }
 

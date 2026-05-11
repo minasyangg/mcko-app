@@ -27,6 +27,7 @@ export default async function AttemptPage({ params }: PageProps) {
       student_id,
       group_id,
       test_version_id,
+      max_attempts,
       time_limit_override_sec,
       starts_at,
       ends_at,
@@ -83,11 +84,18 @@ export default async function AttemptPage({ params }: PageProps) {
     .in('status', ['in_progress', 'not_started', 'submitted', 'checked'])
     .order('created_at', { ascending: false })
 
-  // If already submitted or checked, redirect to results
-  const doneAttempt = existingAttempts?.find(
+  // Count completed attempts to check if more are available
+  const completedAttempts = (existingAttempts ?? []).filter(
     (a) => a.status === 'submitted' || a.status === 'checked'
   )
-  if (doneAttempt) {
+  const maxAttempts = (assignment as any).max_attempts ?? 1
+  const attemptsLeft = maxAttempts - completedAttempts.length
+
+  // Only redirect to results if no more attempts are available AND student has no active attempt
+  const activeAttempt = existingAttempts?.find(
+    (a) => a.status === 'in_progress' || a.status === 'not_started'
+  )
+  if (completedAttempts.length > 0 && attemptsLeft <= 0 && !activeAttempt) {
     redirect(`/student/attempt/${assignmentId}/result`)
   }
 
@@ -118,17 +126,19 @@ export default async function AttemptPage({ params }: PageProps) {
 
     attempt = newAttempt
 
-    // If preserve_answers is enabled and there's a previous completed attempt,
-    // copy its answers into the new attempt so the student sees them pre-filled
+    // Copy previous attempt answers with scores and lock status (always for multi-attempt tests)
     const asgn = assignment as any
-    if (asgn?.preserve_answers) {
-      const prevAttempt = existingAttempts?.find(
-        (a) => a.status === 'submitted' || a.status === 'checked'
-      )
+    const maxAttempts = asgn?.max_attempts ?? 1
+    if (asgn?.preserve_answers || maxAttempts > 1) {
+      // Find most recent completed attempt
+      const prevAttempt = [...(existingAttempts ?? [])]
+        .sort((a, b) => new Date(b.started_at ?? 0).getTime() - new Date(a.started_at ?? 0).getTime())
+        .find((a) => a.status === 'submitted' || a.status === 'checked')
+
       if (prevAttempt) {
         const { data: prevAnswers } = await supabase
           .from('attempt_task_answers')
-          .select('task_id, answer_json')
+          .select('task_id, answer_json, awarded_score, is_correct, is_locked, locked_in_attempt_id')
           .eq('attempt_id', prevAttempt.id)
 
         if (prevAnswers && prevAnswers.length > 0) {
@@ -137,6 +147,10 @@ export default async function AttemptPage({ params }: PageProps) {
               attempt_id: newAttempt.id,
               task_id: a.task_id,
               answer_json: a.answer_json,
+              awarded_score: a.awarded_score,       // carry forward score
+              is_correct: a.is_correct,              // carry forward correctness
+              is_locked: a.is_locked,                // carry forward lock
+              locked_in_attempt_id: a.locked_in_attempt_id,
             }))
           )
         }
@@ -164,11 +178,11 @@ export default async function AttemptPage({ params }: PageProps) {
 
   const taskIds = tasks.map((t) => t.id)
 
-  // Load saved answers and task media in parallel
+  // Load saved answers (with lock status) and task media in parallel
   const [{ data: savedAnswers }, { data: rawMedia }] = await Promise.all([
     supabase
       .from('attempt_task_answers')
-      .select('task_id, answer_json')
+      .select('task_id, answer_json, is_locked, awarded_score')
       .eq('attempt_id', attempt.id),
     supabase
       .from('task_media')
@@ -178,9 +192,14 @@ export default async function AttemptPage({ params }: PageProps) {
   ])
 
   const initialAnswers: Record<string, Json> = {}
+  const lockedTaskIds: string[] = []
+
   for (const ans of savedAnswers ?? []) {
     if (ans.answer_json !== null && ans.answer_json !== undefined) {
       initialAnswers[ans.task_id!] = ans.answer_json
+    }
+    if (ans.is_locked && ans.task_id) {
+      lockedTaskIds.push(ans.task_id)
     }
   }
 
@@ -201,6 +220,7 @@ export default async function AttemptPage({ params }: PageProps) {
       startedAt={attempt.started_at ?? null}
       tasks={tasks as TestTask[]}
       initialAnswers={initialAnswers}
+      lockedTaskIds={lockedTaskIds}
       taskMediaMap={taskMediaMap}
       timeLimitSec={timeLimitSec}
       testTitle={test?.title ?? 'Тест'}

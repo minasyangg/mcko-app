@@ -23,6 +23,7 @@ interface TestPlayerProps {
   startedAt: string | null
   tasks: TestTask[]
   initialAnswers: Record<string, Json>
+  lockedTaskIds?: string[]
   taskMediaMap: Record<string, TaskMediaWithUrl[]>
   timeLimitSec: number | null
   testTitle: string
@@ -39,12 +40,14 @@ export function TestPlayer({
   startedAt,
   tasks,
   initialAnswers,
+  lockedTaskIds = [],
   taskMediaMap,
   timeLimitSec,
   testTitle,
   subject,
   examType,
 }: TestPlayerProps) {
+  const lockedSet = new Set(lockedTaskIds)
   const router = useRouter()
   const supabase = createClient()
 
@@ -280,7 +283,8 @@ export function TestPlayer({
                 answer={answers[currentTask.id]}
                 onChange={(ans) => handleAnswerChange(currentTask.id, ans)}
                 images={taskMediaMap[currentTask.id] ?? []}
-                disabled={isSubmitting}
+                disabled={isSubmitting || lockedSet.has(currentTask.id)}
+                isLocked={lockedSet.has(currentTask.id)}
               />
             )}
 

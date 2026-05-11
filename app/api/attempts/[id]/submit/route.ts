@@ -98,7 +98,7 @@ export async function POST(
       .in('task_id', taskIds),
     supabase
       .from('attempt_task_answers')
-      .select('task_id, answer_json, answer_version')
+      .select('task_id, answer_json, answer_version, is_locked, awarded_score, is_correct')
       .eq('attempt_id', attemptId),
   ])
 
@@ -119,6 +119,15 @@ export async function POST(
 
     const savedAnswer = savedAnswerMap.get(task.id)
     const answerKey = answerKeyMap.get(task.id)
+
+    // LOCKED task — teacher confirmed correct; carry forward score, skip re-evaluation
+    if (savedAnswer?.is_locked) {
+      const score = savedAnswer.awarded_score ?? 0
+      totalScore += score
+      // Don't add to updates — keep the locked row as-is
+      // But we need to ensure this task doesn't block allAutoChecked
+      continue
+    }
 
     // No answer key at all → needs teacher review
     if (!answerKey) {
@@ -182,7 +191,7 @@ export async function POST(
     updates.push({ taskId: task.id, is_correct: result.is_correct, awarded_score: result.awarded_score, auto_checked: true })
   }
 
-  // Write grading results
+  // Write grading results for non-locked tasks
   for (const u of updates) {
     await supabase
       .from('attempt_task_answers')
@@ -211,6 +220,55 @@ export async function POST(
 
   if (updateErr) {
     return NextResponse.json({ error: 'Failed to finalize attempt' }, { status: 500 })
+  }
+
+  // Compute cumulative score: MAX(awarded_score) per task across ALL attempts for this assignment
+  const { data: allAttemptIds } = await supabase
+    .from('attempts')
+    .select('id')
+    .eq('assignment_id', attempt.assignment_id)
+    .eq('student_id', user.id)
+
+  const ids = (allAttemptIds ?? []).map(a => a.id)
+  if (ids.length > 0) {
+    const { data: allTaskAnswers } = await supabase
+      .from('attempt_task_answers')
+      .select('task_id, awarded_score')
+      .in('attempt_id', ids)
+
+    const taskBest = new Map<string, number>()
+    for (const ans of allTaskAnswers ?? []) {
+      if (!ans.task_id) continue
+      taskBest.set(ans.task_id, Math.max(taskBest.get(ans.task_id) ?? 0, ans.awarded_score ?? 0))
+    }
+    const cumulativeScore = [...taskBest.values()].reduce((s, v) => s + v, 0)
+
+    // Determine if all attempts used
+    const { data: asgn } = await supabase
+      .from('assignments')
+      .select('max_attempts, test_version_id')
+      .eq('id', attempt.assignment_id)
+      .single()
+
+    const completedCount = (await supabase
+      .from('attempts')
+      .select('id', { count: 'exact', head: true })
+      .eq('assignment_id', attempt.assignment_id)
+      .eq('student_id', user.id)
+      .in('status', ['submitted', 'checked'])).count ?? 0
+
+    const allUsed = completedCount >= (asgn?.max_attempts ?? 1)
+
+    await supabase.from('student_final_results').upsert({
+      student_id: user.id,
+      test_version_id: asgn?.test_version_id ?? assignment.test_version_id,
+      final_score: cumulativeScore,
+      max_score: totalMaxScore,
+      attempt_count: completedCount,
+      last_completed_at: now,
+      status: allUsed ? 'completed' : 'in_progress',
+      updated_at: now,
+    }, { onConflict: 'student_id,test_version_id' })
   }
 
   return NextResponse.json({ attempt_id: attemptId, score: totalScore, max_score: totalMaxScore, status: newStatus })

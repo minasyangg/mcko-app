@@ -25,19 +25,30 @@ import {
   Clipboard,
   Save,
 } from 'lucide-react'
+import MarkdownContent from '@/components/shared/MarkdownContent'
+import { ImageGallery } from '@/components/shared/ImageGallery'
 
 export interface TaskWithReview {
   id: string
   task_number: number
   title: string | null
   prompt_text: string
+  prompt_html?: string | null
   task_type: string
+
   review_status: string
   parse_confidence: number | null
   max_score: number
   answer_format_hint: string | null
   correct_answer: string | null
   media: Array<{
+    id: string
+    signedUrl: string
+    placement: string
+    sort_order: number
+    alt_text: string | null
+  }>
+  solutionMedia?: Array<{
     id: string
     signedUrl: string
     placement: string
@@ -125,6 +136,37 @@ function TaskRow({
   const [correctAnswer, setCorrectAnswer] = useState(task.correct_answer ?? '')
   const [isSavingAnswer, setIsSavingAnswer] = useState(false)
   const [answerSaved, setAnswerSaved] = useState(false)
+
+  // Text editing state
+  const [editingText, setEditingText] = useState(false)
+  const [editedContent, setEditedContent] = useState(task.prompt_html ?? task.prompt_text)
+  const [isSavingText, setIsSavingText] = useState(false)
+  const [localPromptHtml, setLocalPromptHtml] = useState(task.prompt_html ?? null)
+  const [localPromptText, setLocalPromptText] = useState(task.prompt_text)
+
+  const handleSaveText = async () => {
+    setIsSavingText(true)
+    try {
+      const stripped = editedContent
+        .replace(/\$\$[\s\S]*?\$\$/g, '[формула]')
+        .replace(/\$[^$\n]+\$/g, '[формула]')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+      const res = await fetch(`/api/tests/tasks/${task.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt_html: editedContent, prompt_text: stripped || editedContent }),
+      })
+      if (res.ok) {
+        setLocalPromptHtml(editedContent)
+        setLocalPromptText(stripped || editedContent)
+        setEditingText(false)
+      }
+    } finally {
+      setIsSavingText(false)
+    }
+  }
 
   const handleSaveAnswer = async () => {
     setIsSavingAnswer(true)
@@ -238,9 +280,9 @@ function TaskRow({
           </span>
         </td>
         <td className="px-4 py-3 max-w-xs">
-          <p className="text-sm truncate" title={task.prompt_text}>
-            {task.prompt_text.slice(0, 120)}
-            {task.prompt_text.length > 120 && '...'}
+          <p className="text-sm truncate" title={localPromptText}>
+            {localPromptText.replace(/\[формула\]/g, '⟨f⟩').slice(0, 120)}
+            {localPromptText.length > 120 && '...'}
           </p>
         </td>
         <td className="px-4 py-3">
@@ -306,8 +348,54 @@ function TaskRow({
             >
               {/* Task text */}
               <div>
-                <p className="text-xs font-medium text-muted-foreground mb-1">Полный текст задания</p>
-                <p className="text-sm whitespace-pre-wrap">{task.prompt_text}</p>
+                <div className="flex items-center justify-between mb-1">
+                  <p className="text-xs font-medium text-muted-foreground">Текст задания</p>
+                  {!editingText && (
+                    <button
+                      type="button"
+                      onClick={() => { setEditedContent(localPromptHtml ?? localPromptText); setEditingText(true) }}
+                      className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1 transition-colors"
+                    >
+                      <Wrench className="h-3 w-3" />
+                      Редактировать
+                    </button>
+                  )}
+                </div>
+
+                {editingText ? (
+                  <div className="space-y-2">
+                    <Textarea
+                      value={editedContent}
+                      onChange={e => setEditedContent(e.target.value)}
+                      rows={8}
+                      className="text-sm font-mono"
+                      placeholder="Markdown с KaTeX формулами ($...$, $$...$$)"
+                    />
+                    <p className="text-xs text-muted-foreground">Поддерживаются Markdown и KaTeX: <code>$\frac{1}{2}$</code>, <code>$$x^2$$</code></p>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={handleSaveText}
+                        disabled={isSavingText}
+                        className="flex items-center gap-1 text-xs px-2.5 py-1.5 bg-primary text-primary-foreground rounded hover:bg-primary/90 disabled:opacity-50 transition-colors"
+                      >
+                        <Save className="h-3 w-3" />
+                        {isSavingText ? 'Сохранение...' : 'Сохранить'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setEditingText(false)}
+                        className="text-xs px-2.5 py-1.5 border rounded hover:bg-muted transition-colors"
+                      >
+                        Отмена
+                      </button>
+                    </div>
+                  </div>
+                ) : localPromptHtml ? (
+                  <MarkdownContent content={localPromptHtml} />
+                ) : (
+                  <p className="text-sm whitespace-pre-wrap">{localPromptText}</p>
+                )}
               </div>
 
               {/* Images */}
@@ -322,59 +410,48 @@ function TaskRow({
                   </span>
                 </div>
 
-                <div className="flex flex-wrap gap-3 items-start">
-                  {media
-                    .sort((a, b) => a.sort_order - b.sort_order)
-                    .map((img) => (
-                      <div key={img.id} className="relative group">
-                        <img
-                          src={img.signedUrl}
-                          alt={img.alt_text ?? `Изображение к заданию ${task.task_number}`}
-                          className="h-36 w-auto max-w-xs rounded border object-contain bg-white"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => handleDelete(img.id)}
-                          className="absolute top-1 right-1 hidden group-hover:flex items-center justify-center h-5 w-5 rounded-full bg-destructive text-destructive-foreground shadow"
-                          title="Удалить изображение"
-                        >
-                          <X className="h-3 w-3" />
-                        </button>
-                      </div>
-                    ))}
-
-                  {/* Upload button */}
-                  <button
-                    type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    disabled={isUploading}
-                    className="h-36 w-28 rounded border-2 border-dashed border-muted-foreground/30 flex flex-col items-center justify-center gap-1.5 text-muted-foreground hover:border-primary hover:text-primary transition-colors disabled:opacity-50"
-                    title="Нажмите для выбора файла или Ctrl+V для вставки скриншота"
-                  >
-                    {isUploading ? (
-                      <Loader2 className="h-6 w-6 animate-spin" />
-                    ) : (
-                      <>
-                        <ImagePlus className="h-6 w-6" />
-                        <span className="text-xs text-center leading-tight px-1">
-                          Выбрать<br />или вставить
-                        </span>
-                      </>
-                    )}
-                  </button>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="image/*"
-                    className="hidden"
-                    onChange={handleFileInput}
-                  />
-                </div>
+                <ImageGallery
+                  images={media.map(img => ({ id: img.id, signedUrl: img.signedUrl, alt: img.alt_text, sort_order: img.sort_order }))}
+                  onDelete={handleDelete}
+                  uploadSlot={
+                    <div>
+                      <button
+                        type="button"
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={isUploading}
+                        className="h-24 w-20 rounded border-2 border-dashed border-muted-foreground/30 flex flex-col items-center justify-center gap-1 text-muted-foreground hover:border-primary hover:text-primary transition-colors disabled:opacity-50"
+                        title="Нажмите или Ctrl+V"
+                      >
+                        {isUploading ? (
+                          <Loader2 className="h-5 w-5 animate-spin" />
+                        ) : (
+                          <>
+                            <ImagePlus className="h-5 w-5" />
+                            <span className="text-[10px] text-center leading-tight px-1">Добавить</span>
+                          </>
+                        )}
+                      </button>
+                      <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleFileInput} />
+                    </div>
+                  }
+                />
 
                 {uploadError && (
                   <p className="text-xs text-destructive mt-1">{uploadError}</p>
                 )}
               </div>
+
+              {/* Solution images (from solution_media — visible to teacher only) */}
+              {task.solutionMedia && task.solutionMedia.length > 0 && (
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground mb-2">
+                    Изображения решения ({task.solutionMedia.length}) — только для учителя
+                  </p>
+                  <ImageGallery
+                    images={task.solutionMedia.map(img => ({ id: img.id, signedUrl: img.signedUrl, alt: img.alt_text, sort_order: img.sort_order }))}
+                  />
+                </div>
+              )}
 
               {/* Editable correct answer */}
               <div>
@@ -518,11 +595,22 @@ export default function ReviewBoard({
   const [tasks, setTasks] = useState<TaskWithReview[]>(initialTasks)
   const [isPublishing, startPublishing] = useTransition()
   const [publishError, setPublishError] = useState<string | null>(null)
+  const [isApprovingAll, startApprovingAll] = useTransition()
 
   const approvedCount = tasks.filter((t) => t.review_status === 'approved').length
   const canPublish =
     tasks.length > 0 &&
     tasks.every((t) => t.review_status === 'approved' || t.review_status === 'rejected')
+  const hasPending = tasks.some((t) => t.review_status === 'pending')
+
+  const handleApproveAll = () => {
+    startApprovingAll(async () => {
+      const res = await fetch(`/api/tests/versions/${testVersionId}/approve-all`, { method: 'POST' })
+      if (res.ok) {
+        setTasks((prev) => prev.map((t) => t.review_status === 'pending' ? { ...t, review_status: 'approved' } : t))
+      }
+    })
+  }
 
   const handleStatusChange = (taskId: string, newStatus: string) => {
     setTasks((prev) =>
@@ -563,6 +651,16 @@ export default function ReviewBoard({
         <div className="flex items-center gap-2">
           {publishError && (
             <span className="text-xs text-destructive">{publishError}</span>
+          )}
+          {hasPending && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleApproveAll}
+              disabled={isApprovingAll}
+            >
+              {isApprovingAll ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Одобрить все'}
+            </Button>
           )}
           <Button
             onClick={handlePublish}

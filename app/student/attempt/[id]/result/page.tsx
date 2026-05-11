@@ -10,6 +10,7 @@ import type { Json } from '@/types/database'
 import { enrichTaskMediaWithUrls } from '@/lib/media/signed-urls'
 import { SolutionRequestButton } from '@/components/student/SolutionRequestButton'
 import { SolutionView } from '@/components/test-player/SolutionView'
+import { MathText } from '@/components/shared/MathText'
 
 interface PageProps {
   params: Promise<{ id: string }>
@@ -73,7 +74,7 @@ export default async function ResultPage({ params }: PageProps) {
 
   const { data: attempts } = await supabase
     .from('attempts')
-    .select('id, status, score, max_score, submitted_at, checked_at')
+    .select('id, status, score, max_score, submitted_at, checked_at, teacher_comment')
     .eq('assignment_id', assignmentId).eq('student_id', user.id)
     .in('status', ['submitted', 'checked'])
     .order('submitted_at', { ascending: false }).limit(1)
@@ -81,8 +82,29 @@ export default async function ResultPage({ params }: PageProps) {
   const attempt = attempts?.[0]
   if (!attempt) redirect(`/student/attempt/${assignmentId}`)
 
-  const score = attempt.score ?? 0
-  const maxScore = attempt.max_score ?? 0
+  // Load cumulative score from student_final_results
+  const { data: finalResult } = await supabase
+    .from('student_final_results')
+    .select('final_score, max_score, attempt_count, status')
+    .eq('student_id', user.id)
+    .eq('test_version_id', assignment.test_version_id)
+    .single()
+
+  // Also load assignment max_attempts to show remaining attempts
+  const { data: asgn } = await supabase
+    .from('assignments')
+    .select('max_attempts')
+    .eq('id', assignmentId)
+    .single()
+
+  const completedAttempts = finalResult?.attempt_count ?? 1
+  const maxAttempts = asgn?.max_attempts ?? 1
+  const attemptsLeft = Math.max(0, maxAttempts - completedAttempts)
+  const isCompleted = finalResult?.status === 'completed' || attemptsLeft <= 0
+
+  // Use cumulative score if available, otherwise fall back to attempt score
+  const score = finalResult?.final_score ?? attempt.score ?? 0
+  const maxScore = finalResult?.max_score ?? attempt.max_score ?? 0
   const percentage = maxScore > 0 ? Math.round((score / maxScore) * 100) : 0
   const isChecked = attempt.status === 'checked'
 
@@ -100,7 +122,7 @@ export default async function ResultPage({ params }: PageProps) {
 
   const { data: studentAnswers } = await supabase
     .from('attempt_task_answers')
-    .select('task_id, answer_json, is_correct, awarded_score')
+    .select('task_id, answer_json, is_correct, awarded_score, teacher_comment')
     .eq('attempt_id', attempt.id)
 
   const answerKeyMap = new Map<string, Json>()
@@ -213,8 +235,22 @@ export default async function ResultPage({ params }: PageProps) {
         </div>
 
         {/* Score */}
-        <Card>
-          <CardHeader><CardTitle className="text-lg">Результат</CardTitle></CardHeader>
+        <Card className={isCompleted ? 'border-emerald-300' : !isChecked ? 'border-orange-200' : ''}>
+          <CardHeader>
+            <CardTitle className="text-lg flex items-center gap-2">
+              {isCompleted ? 'Итоговый результат' : attemptsLeft > 0 ? 'Текущий результат' : 'Результат'}
+              {isCompleted && (
+                <Badge className="bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300">
+                  Тест завершён
+                </Badge>
+              )}
+              {!isCompleted && !isChecked && (
+                <Badge variant="secondary" className="text-orange-600 bg-orange-100 dark:bg-orange-950/40">
+                  Ожидает проверки учителем
+                </Badge>
+              )}
+            </CardTitle>
+          </CardHeader>
           <CardContent className="space-y-4">
             <div className="flex items-end gap-3">
               <span className="text-5xl font-bold tabular-nums">{score}</span>
@@ -229,10 +265,26 @@ export default async function ResultPage({ params }: PageProps) {
                 style={{ width: `${percentage}%` }}
               />
             </div>
+            {!isCompleted && attemptsLeft > 0 && (
+              <p className="text-sm text-muted-foreground">
+                Накопленный балл за {completedAttempts} попыт{completedAttempts === 1 ? 'ку' : completedAttempts < 5 ? 'ки' : 'ок'}. Осталось попыток: <strong>{attemptsLeft}</strong>.
+              </p>
+            )}
+            {!isChecked && !isCompleted && (
+              <p className="text-xs text-orange-700 dark:text-orange-400">
+                Задания на ручную проверку ожидают учителя — балл может вырасти.
+              </p>
+            )}
             {attempt.submitted_at && (
               <p className="text-xs text-muted-foreground">
                 Отправлено: {new Date(attempt.submitted_at).toLocaleString('ru-RU', { dateStyle: 'medium', timeStyle: 'short' })}
               </p>
+            )}
+            {isChecked && (attempt as any).teacher_comment && (
+              <div className="rounded-md bg-yellow-50 dark:bg-yellow-950/30 border border-yellow-200 dark:border-yellow-800 px-4 py-3 text-sm">
+                <p className="font-medium text-yellow-800 dark:text-yellow-300 mb-1">Комментарий учителя к работе:</p>
+                <MathText text={(attempt as any).teacher_comment} className="text-yellow-900 dark:text-yellow-200" />
+              </div>
             )}
           </CardContent>
         </Card>
@@ -298,6 +350,12 @@ export default async function ResultPage({ params }: PageProps) {
                             <span className="text-muted-foreground">Ваш ответ: </span>
                             <span className="font-medium">{formatAnswer(ans?.answer_json ?? null)}</span>
                           </p>
+                          {isChecked && ans?.teacher_comment && (
+                            <div className="rounded bg-yellow-50 dark:bg-yellow-950/30 border border-yellow-200 dark:border-yellow-800 px-3 py-2 text-sm">
+                              <span className="font-medium text-yellow-800 dark:text-yellow-300 mr-1">Комментарий учителя:</span>
+                              <span className="text-yellow-900 dark:text-yellow-200">{ans.teacher_comment}</span>
+                            </div>
+                          )}
                         </div>
                       </div>
 

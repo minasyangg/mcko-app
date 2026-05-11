@@ -38,6 +38,8 @@ import {
   Upload,
   BarChart2,
   UserPlus,
+  EyeOff,
+  Eye,
 } from 'lucide-react'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -66,6 +68,7 @@ export interface TestDetailClientProps {
     exam_type: string | null
     description: string | null
     status: string
+    is_active: boolean
   }
   versionId: string | null
   versionStatus: string | null
@@ -554,7 +557,7 @@ function InlineTaskForm({ versionId, nextTaskNumber, onCreated, onCancel }: Inli
 
 export function TestDetailClient({
   testId,
-  test,
+  test: initialTest,
   versionId,
   versionStatus,
   tasks: initialTasks,
@@ -564,6 +567,66 @@ export function TestDetailClient({
   const [tasks, setTasks] = useState<TestTask[]>(initialTasks)
   const [showAddForm, setShowAddForm] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [togglingActive, setTogglingActive] = useState(false)
+  const [editingMeta, setEditingMeta] = useState(false)
+  const [test, setTest] = useState(initialTest)
+
+  async function handleToggleActive() {
+    setTogglingActive(true)
+    try {
+      const res = await fetch(`/api/tests/${testId}/toggle-active`, { method: 'PATCH' })
+      if (res.ok) {
+        const data = await res.json()
+        setTest((prev) => ({ ...prev, is_active: data.is_active }))
+      }
+    } finally {
+      setTogglingActive(false)
+    }
+  }
+  const [metaForm, setMetaForm] = useState({
+    title: initialTest.title,
+    subject: initialTest.subject ?? '',
+    grade: initialTest.grade ?? '',
+    exam_type: initialTest.exam_type ?? '',
+    description: initialTest.description ?? '',
+  })
+  const [savingMeta, setSavingMeta] = useState(false)
+  const [metaError, setMetaError] = useState<string | null>(null)
+
+  async function handleSaveMeta() {
+    setSavingMeta(true)
+    setMetaError(null)
+    try {
+      const res = await fetch(`/api/tests/${testId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: metaForm.title.trim() || null,
+          subject: metaForm.subject.trim() || null,
+          grade: metaForm.grade.trim() || null,
+          exam_type: metaForm.exam_type.trim() || null,
+          description: metaForm.description.trim() || null,
+        }),
+      })
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}))
+        setMetaError(d.error ?? 'Ошибка сохранения')
+        return
+      }
+      setTest({
+        ...test,
+        title: metaForm.title.trim() || test.title,
+        subject: metaForm.subject.trim() || null,
+        grade: metaForm.grade.trim() || null,
+        exam_type: metaForm.exam_type.trim() || null,
+        description: metaForm.description.trim() || null,
+      })
+      setEditingMeta(false)
+      router.refresh()
+    } finally {
+      setSavingMeta(false)
+    }
+  }
 
   const nextTaskNumber = tasks.length > 0 ? Math.max(...tasks.map((t) => t.task_number)) + 1 : 1
 
@@ -608,27 +671,97 @@ export function TestDetailClient({
       {/* ── Section 1: Header ── */}
       <div className="space-y-4">
         <div className="flex items-start justify-between gap-4">
-          <div className="space-y-1 min-w-0">
-            <div className="flex items-center gap-3 flex-wrap">
-              <h1 className="text-2xl font-semibold">{test.title}</h1>
-              <Badge variant={statusVariant[test.status] ?? 'secondary'}>
-                {statusLabel[test.status] ?? test.status}
-              </Badge>
-              {versionStatus && versionStatus !== test.status && (
-                <Badge variant={statusVariant[versionStatus] ?? 'secondary'} className="text-xs">
-                  Версия: {statusLabel[versionStatus] ?? versionStatus}
-                </Badge>
-              )}
-            </div>
-            <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
-              {test.subject && <span>Предмет: {test.subject}</span>}
-              {test.grade && <span>Класс: {test.grade}</span>}
-              {test.exam_type && <span>Тип: {test.exam_type}</span>}
-            </div>
-            {test.description && (
-              <p className="text-sm text-muted-foreground">{test.description}</p>
+          <div className="space-y-1 min-w-0 flex-1">
+            {!editingMeta ? (
+              <>
+                <div className="flex items-center gap-3 flex-wrap">
+                  <h1 className="text-2xl font-semibold">{test.title}</h1>
+                  <Badge variant={statusVariant[test.status] ?? 'secondary'}>
+                    {statusLabel[test.status] ?? test.status}
+                  </Badge>
+                  {versionStatus && versionStatus !== test.status && (
+                    <Badge variant={statusVariant[versionStatus] ?? 'secondary'} className="text-xs">
+                      Версия: {statusLabel[versionStatus] ?? versionStatus}
+                    </Badge>
+                  )}
+                </div>
+                <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
+                  {test.subject && <span>Предмет: {test.subject}</span>}
+                  {test.grade && <span>Класс: {test.grade}</span>}
+                  {test.exam_type && <span>Тип: {test.exam_type}</span>}
+                </div>
+                {test.description && (
+                  <p className="text-sm text-muted-foreground">{test.description}</p>
+                )}
+              </>
+            ) : (
+              <div className="space-y-3 p-4 rounded-lg border bg-muted/20">
+                <p className="text-sm font-medium">Редактировать тест</p>
+                <div className="space-y-2">
+                  <div className="space-y-1">
+                    <Label className="text-xs">Название *</Label>
+                    <Input
+                      value={metaForm.title}
+                      onChange={(e) => setMetaForm((p) => ({ ...p, title: e.target.value }))}
+                      className="h-8 text-sm"
+                    />
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="space-y-1">
+                      <Label className="text-xs">Предмет</Label>
+                      <Input
+                        value={metaForm.subject}
+                        onChange={(e) => setMetaForm((p) => ({ ...p, subject: e.target.value }))}
+                        className="h-8 text-sm"
+                        placeholder="Физика"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Класс</Label>
+                      <Input
+                        value={metaForm.grade}
+                        onChange={(e) => setMetaForm((p) => ({ ...p, grade: e.target.value }))}
+                        className="h-8 text-sm"
+                        placeholder="8"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Тип</Label>
+                      <Input
+                        value={metaForm.exam_type}
+                        onChange={(e) => setMetaForm((p) => ({ ...p, exam_type: e.target.value }))}
+                        className="h-8 text-sm"
+                        placeholder="ВПР"
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Описание</Label>
+                    <Textarea
+                      value={metaForm.description}
+                      onChange={(e) => setMetaForm((p) => ({ ...p, description: e.target.value }))}
+                      rows={2}
+                      className="text-sm resize-none"
+                    />
+                  </div>
+                </div>
+                {metaError && <p className="text-sm text-destructive">{metaError}</p>}
+                <div className="flex gap-2">
+                  <Button size="sm" onClick={handleSaveMeta} disabled={savingMeta || !metaForm.title.trim()}>
+                    {savingMeta ? 'Сохранение...' : 'Сохранить'}
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => { setEditingMeta(false); setMetaError(null) }} disabled={savingMeta}>
+                    Отмена
+                  </Button>
+                </div>
+              </div>
             )}
           </div>
+          {!editingMeta && (
+            <Button size="sm" variant="ghost" onClick={() => setEditingMeta(true)} title="Редактировать тест">
+              <Pencil className="h-4 w-4" />
+            </Button>
+          )}
         </div>
 
         {/* Action buttons */}
@@ -651,6 +784,20 @@ export function TestDetailClient({
               Аналитика
             </Link>
           </Button>
+          {test.status === 'published' && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={handleToggleActive}
+              disabled={togglingActive}
+              className={test.is_active ? 'text-orange-600 border-orange-300 hover:bg-orange-50' : 'text-green-600 border-green-300 hover:bg-green-50'}
+            >
+              {test.is_active
+                ? <><EyeOff className="h-4 w-4 mr-1.5" />{togglingActive ? '...' : 'Снять с публикации'}</>
+                : <><Eye className="h-4 w-4 mr-1.5" />{togglingActive ? '...' : 'Возобновить'}</>
+              }
+            </Button>
+          )}
           <AlertDialog>
             <AlertDialogTrigger asChild>
               <Button
