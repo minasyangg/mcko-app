@@ -63,6 +63,15 @@ export interface TestTask {
   images?: TaskMediaWithUrl[]
 }
 
+export interface ScoringRuleOption {
+  id: string
+  name: string
+  exam_type: string | null
+  grade: string | null
+  subject: string | null
+  items: { task_number: number; max_score: number }[]
+}
+
 export interface TestDetailClientProps {
   testId: string
   test: {
@@ -78,6 +87,7 @@ export interface TestDetailClientProps {
   versionStatus: string | null
   tasks: TestTask[]
   canEdit: boolean
+  scoringRules?: ScoringRuleOption[]
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -611,6 +621,7 @@ export function TestDetailClient({
   versionStatus,
   tasks: initialTasks,
   canEdit,
+  scoringRules = [],
 }: TestDetailClientProps) {
   const router = useRouter()
   const [tasks, setTasks] = useState<TestTask[]>(initialTasks)
@@ -619,6 +630,8 @@ export function TestDetailClient({
   const [togglingActive, setTogglingActive] = useState(false)
   const [editingMeta, setEditingMeta] = useState(false)
   const [test, setTest] = useState(initialTest)
+  const [selectedRuleId, setSelectedRuleId] = useState('')
+  const [applyingRule, setApplyingRule] = useState(false)
 
   async function handleToggleActive() {
     setTogglingActive(true)
@@ -675,6 +688,31 @@ export function TestDetailClient({
       router.refresh()
     } finally {
       setSavingMeta(false)
+    }
+  }
+
+  async function handleApplyRule() {
+    const rule = scoringRules.find(r => r.id === selectedRuleId)
+    if (!rule || !versionId) return
+    setApplyingRule(true)
+    try {
+      await Promise.all(
+        rule.items.map(item =>
+          fetch(`/api/tests/tasks/${tasks.find(t => t.task_number === item.task_number)?.id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ max_score: item.max_score }),
+          }).then(async (res) => {
+            if (res.ok) {
+              setTasks(prev => prev.map(t =>
+                t.task_number === item.task_number ? { ...t, max_score: item.max_score } : t
+              ))
+            }
+          })
+        )
+      )
+    } finally {
+      setApplyingRule(false)
     }
   }
 
@@ -834,6 +872,32 @@ export function TestDetailClient({
               Аналитика
             </Link>
           </Button>
+          {canEdit && scoringRules.length > 0 && (
+            <div className="flex items-center gap-1.5">
+              <Select value={selectedRuleId || '_none'} onValueChange={v => setSelectedRuleId(v === '_none' ? '' : v)}>
+                <SelectTrigger className="h-8 text-xs w-48">
+                  <SelectValue placeholder="Правило оценки..." />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="_none">— Выбрать правило —</SelectItem>
+                  {scoringRules.map(r => (
+                    <SelectItem key={r.id} value={r.id}>
+                      {r.name}{r.grade ? ` · ${r.grade}кл` : ''}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={!selectedRuleId || applyingRule}
+                onClick={handleApplyRule}
+                className="h-8 text-xs"
+              >
+                {applyingRule ? 'Применяется...' : 'Применить баллы'}
+              </Button>
+            </div>
+          )}
           {(test.status === 'published' || !test.is_active) && versionStatus !== null && (
             <Button
               size="sm"

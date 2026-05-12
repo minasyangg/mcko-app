@@ -8,8 +8,9 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Skeleton } from '@/components/ui/skeleton'
-import { CheckCircle2, XCircle, MinusCircle, Loader2, ZoomIn, X, Lock } from 'lucide-react'
+import { CheckCircle2, XCircle, MinusCircle, Loader2, ZoomIn, X, Lock, ChevronDown, ChevronUp } from 'lucide-react'
 import { MathText } from '@/components/shared/MathText'
+import MarkdownContent from '@/components/shared/MarkdownContent'
 import { cn } from '@/lib/utils'
 
 interface AttemptDetail {
@@ -40,6 +41,7 @@ interface AnswerRow {
     task_number: number
     task_type: string
     prompt_text: string
+    prompt_html: string | null
     max_score: number | null
   } | null
 }
@@ -128,6 +130,7 @@ export function AttemptDrawer({ attemptId, onClose, onGraded }: Props) {
   const [mediaByTask, setMediaByTask] = useState<Record<string, MediaRow[]>>({})
   const [correctAnswerMap, setCorrectAnswerMap] = useState<Record<string, string>>({})
   const [changedTaskIds, setChangedTaskIds] = useState<Set<string>>(new Set())
+  const [expandedTaskIds, setExpandedTaskIds] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(false)
   const [grades, setGrades] = useState<Record<string, GradeState>>({})
   const [teacherComment, setTeacherComment] = useState('')
@@ -153,7 +156,7 @@ export function AttemptDrawer({ attemptId, onClose, onGraded }: Props) {
         `).eq('id', attemptId!).single(),
         supabase.from('attempt_task_answers').select(`
           id, task_id, answer_json, awarded_score, is_correct, is_locked, teacher_comment,
-          test_tasks ( task_number, task_type, prompt_text, max_score )
+          test_tasks ( task_number, task_type, prompt_text, prompt_html, max_score )
         `).eq('attempt_id', attemptId!),
       ])
       if (cancelled) return
@@ -409,10 +412,36 @@ export function AttemptDrawer({ attemptId, onClose, onGraded }: Props) {
                         </div>
                       </div>
 
-                      {/* Task text */}
-                      <p className="text-xs text-muted-foreground line-clamp-2">
-                        {ans.test_tasks?.prompt_text}
-                      </p>
+                      {/* Task text with expand toggle */}
+                      {(() => {
+                        const isExpanded = expandedTaskIds.has(ans.id)
+                        const content = ans.test_tasks?.prompt_html || ans.test_tasks?.prompt_text || ''
+                        const hasHtml = !!ans.test_tasks?.prompt_html
+                        return (
+                          <div>
+                            <div className={isExpanded ? '' : 'line-clamp-2 overflow-hidden'}>
+                              {hasHtml
+                                ? <div className="text-xs **:text-xs [&_p]:my-0.5"><MarkdownContent content={content} /></div>
+                                : <p className="text-xs text-muted-foreground">{content}</p>
+                              }
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setExpandedTaskIds(prev => {
+                                const next = new Set(prev)
+                                next.has(ans.id) ? next.delete(ans.id) : next.add(ans.id)
+                                return next
+                              })}
+                              className="flex items-center gap-0.5 text-[10px] text-primary hover:underline mt-0.5"
+                            >
+                              {isExpanded
+                                ? <><ChevronUp className="h-3 w-3" />Свернуть</>
+                                : <><ChevronDown className="h-3 w-3" />Раскрыть задание</>
+                              }
+                            </button>
+                          </div>
+                        )
+                      })()}
 
                       {/* Task images (miniatures) */}
                       {taskMedia.length > 0 && (
