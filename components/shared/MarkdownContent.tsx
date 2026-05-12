@@ -76,7 +76,7 @@ function prerenderMath(content: string): string {
         displayMode: display,
         throwOnError: false,
         strict: false,
-        output: 'html',  // spans only — no <math> MathML, passes rehypeSanitize
+        output: 'html',  // HTML+SVG (no MathML); SVG is allowed in sanitizeSchema
       })
     } catch {
       return display ? `$$${math}$$` : `$${math}$`
