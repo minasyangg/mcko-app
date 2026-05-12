@@ -96,6 +96,12 @@ export default async function TestDetailPage({ params }: PageProps) {
     }
   }
 
+  // Load scoring rules for manual rule application
+  const { data: scoringRules } = await supabase
+    .from('scoring_rules')
+    .select('id, name, exam_type, grade, subject, scoring_rule_items ( task_number, max_score )')
+    .order('name')
+
   return (
     <TestDetailClient
       testId={id}
@@ -112,6 +118,14 @@ export default async function TestDetailPage({ params }: PageProps) {
       versionStatus={workingVersion?.status ?? null}
       tasks={tasks}
       canEdit={canEdit}
+      scoringRules={(scoringRules ?? []).map(r => ({
+        id: r.id,
+        name: r.name,
+        exam_type: r.exam_type,
+        grade: r.grade,
+        subject: r.subject,
+        items: ((r as any).scoring_rule_items ?? []) as { task_number: number; max_score: number }[],
+      }))}
     />
   )
 }

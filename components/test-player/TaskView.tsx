@@ -162,8 +162,18 @@ export function TaskView({ task, answer, onChange, images = [], disabled, isLock
         )
       }
 
-      default:
-        return <p className="text-muted-foreground text-sm">Неизвестный тип задачи.</p>
+      default: {
+        const text = typeof answerObj['text'] === 'string' ? answerObj['text'] : ''
+        return (
+          <ShortText
+            value={text}
+            onChange={(v) => onChange({ text: v })}
+            hint={task.answer_format_hint ?? 'Введите ответ'}
+            disabled={disabled}
+            size="medium"
+          />
+        )
+      }
     }
   }
 

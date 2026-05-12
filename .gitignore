@@ -2,8 +2,14 @@ node_modules/
 .next/
 .env
 .env.local
+.env.*.local
 .env.production
 out/
 build/
 .claude/
 .vscode/
+
+# Supabase local dev
+supabase/.branches
+supabase/.temp
+supabase/functions/.tmp
