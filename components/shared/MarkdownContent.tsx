@@ -7,23 +7,36 @@ import remarkGfm from 'remark-gfm'
 import katex from 'katex'
 import 'katex/dist/katex.min.css'
 
-// rehype-sanitize schema: allow HTML tables (PaddleOCR) + KaTeX span output
+// rehype-sanitize schema: allow HTML tables (PaddleOCR) + KaTeX output
+// KaTeX uses <svg>/<path> for stretchy symbols like √ even with output:'html'
 const sanitizeSchema = {
   ...defaultSchema,
   tagNames: [
     ...(defaultSchema.tagNames ?? []),
     'table', 'thead', 'tbody', 'tr', 'th', 'td', 'caption', 'colgroup', 'col',
     'div', 'span',
+    // KaTeX SVG elements (needed for √ radical, integral signs, brackets, etc.)
+    'svg', 'path', 'g', 'line', 'rect', 'circle', 'polygon', 'polyline',
+    'defs', 'use', 'symbol', 'mask', 'clipPath',
   ],
   attributes: {
     ...defaultSchema.attributes,
-    '*': ['className', 'style'],
+    '*': ['className', 'style', 'aria-hidden', 'aria-label', 'role'],
     img: ['src', 'alt', 'width', 'height', 'style'],
     table: ['className', 'style', 'border', 'cellpadding', 'cellspacing'],
     th: ['className', 'style', 'align', 'colspan', 'rowspan'],
     td: ['className', 'style', 'align', 'colspan', 'rowspan'],
     div: ['className', 'style'],
     span: ['className', 'style'],
+    // Safe SVG geometry attributes (no event handlers, no scripts)
+    svg: ['xmlns', 'width', 'height', 'viewBox', 'preserveAspectRatio', 'style', 'aria-hidden'],
+    path: ['d', 'fill', 'stroke', 'stroke-width', 'fill-rule', 'clip-rule'],
+    g: ['transform', 'fill', 'stroke'],
+    line: ['x1', 'y1', 'x2', 'y2', 'stroke', 'stroke-width'],
+    rect: ['x', 'y', 'width', 'height', 'fill', 'stroke', 'rx', 'ry'],
+    circle: ['cx', 'cy', 'r', 'fill', 'stroke'],
+    use: ['href', 'x', 'y', 'width', 'height'],
+    symbol: ['id', 'viewBox'],
   },
 }
 
