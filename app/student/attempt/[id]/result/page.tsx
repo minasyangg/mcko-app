@@ -11,6 +11,8 @@ import { enrichTaskMediaWithUrls } from '@/lib/media/signed-urls'
 import { SolutionRequestButton } from '@/components/student/SolutionRequestButton'
 import { SolutionView } from '@/components/test-player/SolutionView'
 import { MathText } from '@/components/shared/MathText'
+import MarkdownContent from '@/components/shared/MarkdownContent'
+import type { TaskMedia } from '@/types/domain'
 
 interface PageProps {
   params: Promise<{ id: string }>
@@ -116,7 +118,7 @@ export default async function ResultPage({ params }: PageProps) {
 
   const { data: tasks } = await supabase
     .from('test_tasks')
-    .select('id, task_number, prompt_text, max_score, task_type')
+    .select('id, task_number, prompt_text, prompt_html, max_score, task_type')
     .eq('test_version_id', assignment.test_version_id)
     .order('sort_order', { ascending: true })
 
@@ -124,6 +126,25 @@ export default async function ResultPage({ params }: PageProps) {
     .from('attempt_task_answers')
     .select('task_id, answer_json, is_correct, awarded_score, teacher_comment')
     .eq('attempt_id', attempt.id)
+
+  // Load task images for result page display
+  const taskMediaByTaskId = new Map<string, { url: string; alt: string | null }[]>()
+  const taskIdsForMedia = (tasks ?? []).map(t => t.id)
+  if (taskIdsForMedia.length > 0) {
+    const { data: rawMedia } = await supabase
+      .from('task_media')
+      .select('id, task_id, storage_path, media_type, original_filename, width_px, height_px, file_size_bytes, format, placement, sort_order, alt_text, source_page, source_bbox, is_manually_uploaded, created_at')
+      .in('task_id', taskIdsForMedia)
+      .order('sort_order', { ascending: true })
+    if (rawMedia?.length) {
+      const enriched = await enrichTaskMediaWithUrls(supabase, rawMedia as TaskMedia[])
+      for (const m of enriched) {
+        if (!m.task_id || !m.signedUrl) continue
+        if (!taskMediaByTaskId.has(m.task_id)) taskMediaByTaskId.set(m.task_id, [])
+        taskMediaByTaskId.get(m.task_id)!.push({ url: m.signedUrl, alt: m.alt_text })
+      }
+    }
+  }
 
   const answerKeyMap = new Map<string, Json>()
   if (showDetails && isChecked && tasks) {
@@ -334,7 +355,7 @@ export default async function ResultPage({ params }: PageProps) {
                           )}
                         </div>
 
-                        <div className="flex-1 min-w-0 space-y-1">
+                        <div className="flex-1 min-w-0 space-y-2">
                           <div className="flex items-center justify-between gap-2">
                             <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
                               Задача {task.task_number}
@@ -345,7 +366,24 @@ export default async function ResultPage({ params }: PageProps) {
                               </span>
                             )}
                           </div>
-                          <p className="text-sm line-clamp-2">{task.prompt_text}</p>
+                          {/* Task images */}
+                          {(() => {
+                            const imgs = taskMediaByTaskId.get(task.id) ?? []
+                            return imgs.length > 0 ? (
+                              <div className="flex flex-wrap gap-2">
+                                {imgs.map((img, i) => (
+                                  <img key={i} src={img.url} alt={img.alt ?? ''} className="max-h-48 rounded border object-contain bg-muted" />
+                                ))}
+                              </div>
+                            ) : null
+                          })()}
+                          {/* Task text with formulas */}
+                          <div className="text-sm">
+                            {(task as any).prompt_html
+                              ? <MarkdownContent content={(task as any).prompt_html} />
+                              : <p>{task.prompt_text}</p>
+                            }
+                          </div>
                           <p className="text-sm">
                             <span className="text-muted-foreground">Ваш ответ: </span>
                             <span className="font-medium">{formatAnswer(ans?.answer_json ?? null)}</span>
