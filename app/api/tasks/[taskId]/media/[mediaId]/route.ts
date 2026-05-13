@@ -3,7 +3,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { NextRequest } from 'next/server'
 
 export async function DELETE(
-  _request: NextRequest,
+  _req: NextRequest,
   { params }: { params: Promise<{ taskId: string; mediaId: string }> }
 ) {
   const { taskId, mediaId } = await params
@@ -21,11 +21,13 @@ export async function DELETE(
   const admin = createAdminClient()
 
   const { data: media } = await admin
-    .from('task_media').select('id, storage_path, task_id').eq('id', mediaId).single()
+    .from('task_media')
+    .select('id, storage_path, task_id')
+    .eq('id', mediaId)
+    .eq('task_id', taskId)
+    .single()
 
-  if (!media || media.task_id !== taskId) {
-    return Response.json({ error: 'Not found' }, { status: 404 })
-  }
+  if (!media) return Response.json({ error: 'Not found' }, { status: 404 })
 
   await admin.storage.from('task-media').remove([media.storage_path])
   await admin.from('task_media').delete().eq('id', mediaId)

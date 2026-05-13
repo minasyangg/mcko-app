@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { Badge } from '@/components/ui/badge'
@@ -40,8 +40,10 @@ import {
   UserPlus,
   EyeOff,
   Eye,
+  ImagePlus,
 } from 'lucide-react'
 import MarkdownContent from '@/components/shared/MarkdownContent'
+import { ImageGallery } from '@/components/shared/ImageGallery'
 import type { TaskMediaWithUrl } from '@/types/domain'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -141,6 +143,33 @@ function EditTaskForm({ task, onSave, onCancel }: EditTaskFormProps) {
   const [gradingMethod, setGradingMethod] = useState(task.grading_method ?? 'exact')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  type GalleryImg = { id: string; signedUrl: string; sort_order: number; alt_text: null }
+  const [images, setImages] = useState<GalleryImg[]>(
+    (task.images ?? []).map((img, i) => ({ id: img.id, signedUrl: img.signedUrl, sort_order: i, alt_text: null }))
+  )
+  const [uploading, setUploading] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const handleFile = useCallback(async (file: File) => {
+    if (!file.type.startsWith('image/')) { setError('Только изображения'); return }
+    setUploading(true)
+    try {
+      const form = new FormData()
+      form.append('file', file)
+      const res = await fetch(`/api/tasks/${task.id}/media`, { method: 'POST', body: form })
+      if (!res.ok) { setError('Ошибка загрузки'); return }
+      const data = await res.json()
+      setImages(prev => [...prev, { id: data.id, signedUrl: data.signedUrl, sort_order: prev.length, alt_text: null }])
+    } finally {
+      setUploading(false)
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    }
+  }, [task.id])
+
+  async function handleImageDelete(mediaId: string) {
+    const res = await fetch(`/api/tasks/${task.id}/media/${mediaId}`, { method: 'DELETE' })
+    if (res.ok) setImages(prev => prev.filter(img => img.id !== mediaId))
+  }
 
   // Derive plain prompt_text from prompt_html for storage
   function derivePromptText(html: string): string {
@@ -228,6 +257,34 @@ function EditTaskForm({ task, onSave, onCancel }: EditTaskFormProps) {
           />
         )}
       </div>
+      {/* Images — uses the same ImageGallery as ReviewBoard */}
+      <div className="space-y-1">
+        <Label className="text-xs">Изображения к заданию</Label>
+        <ImageGallery
+          images={images.map(img => ({ id: img.id, signedUrl: img.signedUrl, sort_order: img.sort_order, alt: img.alt_text }))}
+          onDelete={handleImageDelete}
+          uploading={uploading}
+          uploadSlot={
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploading}
+              className="flex h-24 w-24 flex-col items-center justify-center gap-1 rounded border-2 border-dashed border-muted-foreground/30 text-muted-foreground hover:border-primary hover:text-primary disabled:opacity-50 transition-colors"
+            >
+              <ImagePlus className="h-5 w-5" />
+              <span className="text-[10px]">{uploading ? 'Загрузка...' : 'Добавить'}</span>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f) }}
+              />
+            </button>
+          }
+        />
+      </div>
+
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-1">
           <Label className="text-xs">Тип задачи</Label>
