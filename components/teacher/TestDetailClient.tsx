@@ -90,6 +90,8 @@ export interface TestDetailClientProps {
   tasks: TestTask[]
   canEdit: boolean
   scoringRules?: ScoringRuleOption[]
+  wasPublished?: boolean
+  initialScoringRuleId?: string
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -705,6 +707,8 @@ export function TestDetailClient({
   tasks: initialTasks,
   canEdit,
   scoringRules = [],
+  wasPublished: initialWasPublished = false,
+  initialScoringRuleId = '',
 }: TestDetailClientProps) {
   const router = useRouter()
   const [tasks, setTasks] = useState<TestTask[]>(initialTasks)
@@ -713,7 +717,8 @@ export function TestDetailClient({
   const [togglingActive, setTogglingActive] = useState(false)
   const [editingMeta, setEditingMeta] = useState(false)
   const [test, setTest] = useState(initialTest)
-  const [selectedRuleId, setSelectedRuleId] = useState('')
+  const [wasPublished, setWasPublished] = useState(initialWasPublished)
+  const [selectedRuleId, setSelectedRuleId] = useState(initialScoringRuleId)
   const [applyingRule, setApplyingRule] = useState(false)
   const [publishing, setPublishing] = useState(false)
   const [publishError, setPublishError] = useState<string | null>(null)
@@ -800,6 +805,7 @@ export function TestDetailClient({
         return
       }
       setTest(prev => ({ ...prev, status: 'published', is_active: true }))
+      setWasPublished(true)
       router.refresh()
     } finally {
       setPublishing(false)
@@ -811,8 +817,15 @@ export function TestDetailClient({
     if (!rule || !versionId) return
     setApplyingRule(true)
     try {
-      await Promise.all(
-        rule.items.map(item =>
+      await Promise.all([
+        // Save scoring_rule_id to the test
+        fetch(`/api/tests/${testId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ scoring_rule_id: rule.id }),
+        }),
+        // Apply max_score to each task
+        ...rule.items.map(item =>
           fetch(`/api/tests/tasks/${tasks.find(t => t.task_number === item.task_number)?.id}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
@@ -824,8 +837,8 @@ export function TestDetailClient({
               ))
             }
           })
-        )
-      )
+        ),
+      ])
     } finally {
       setApplyingRule(false)
     }
@@ -988,7 +1001,7 @@ export function TestDetailClient({
             </Link>
           </Button>
           {/* "Опубликовать" — только для тестов которые ещё ни разу не публиковались */}
-          {versionStatus === 'in_review' && versionId && test.status !== 'published' && (
+          {versionStatus === 'in_review' && versionId && !wasPublished && (
             <div className="flex flex-col gap-1">
               <div className="flex gap-2">
                 {tasks.some(t => t.review_status === 'pending') && (
@@ -1042,7 +1055,7 @@ export function TestDetailClient({
             </div>
           )}
           {/* "Снять / Возобновить" — только для ранее опубликованных тестов */}
-          {test.status === 'published' && versionStatus !== null && (
+          {wasPublished && versionStatus !== null && (
             <Button
               size="sm"
               variant="outline"

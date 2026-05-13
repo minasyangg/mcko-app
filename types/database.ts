@@ -1176,6 +1176,7 @@ export type Database = {
           id: string
           is_active: boolean
           organization_id: string
+          scoring_rule_id: string | null
           status: string
           subject: string | null
           title: string
@@ -1191,6 +1192,7 @@ export type Database = {
           id?: string
           is_active?: boolean
           organization_id: string
+          scoring_rule_id?: string | null
           status?: string
           subject?: string | null
           title: string
@@ -1206,6 +1208,7 @@ export type Database = {
           id?: string
           is_active?: boolean
           organization_id?: string
+          scoring_rule_id?: string | null
           status?: string
           subject?: string | null
           title?: string
@@ -1231,6 +1234,13 @@ export type Database = {
             columns: ["organization_id"]
             isOneToOne: false
             referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tests_scoring_rule_id_fkey"
+            columns: ["scoring_rule_id"]
+            isOneToOne: false
+            referencedRelation: "scoring_rules"
             referencedColumns: ["id"]
           },
         ]
