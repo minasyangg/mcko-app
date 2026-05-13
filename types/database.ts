@@ -835,7 +835,7 @@ export type Database = {
       }
       task_answer_keys: {
         Row: {
-          correct_answer: Json
+          correct_answer: Json | null
           created_at: string | null
           grading_config: Json | null
           grading_method: string
@@ -845,7 +845,7 @@ export type Database = {
           task_id: string | null
         }
         Insert: {
-          correct_answer: Json
+          correct_answer?: Json | null
           created_at?: string | null
           grading_config?: Json | null
           grading_method?: string
@@ -855,7 +855,7 @@ export type Database = {
           task_id?: string | null
         }
         Update: {
-          correct_answer?: Json
+          correct_answer?: Json | null
           created_at?: string | null
           grading_config?: Json | null
           grading_method?: string
@@ -1029,6 +1029,7 @@ export type Database = {
           answer_format_hint: string | null
           answer_parts: Json | null
           created_at: string | null
+          grading_method: string
           has_images: boolean | null
           id: string
           max_score: number | null
@@ -1050,6 +1051,7 @@ export type Database = {
           answer_format_hint?: string | null
           answer_parts?: Json | null
           created_at?: string | null
+          grading_method?: string
           has_images?: boolean | null
           id?: string
           max_score?: number | null
@@ -1071,6 +1073,7 @@ export type Database = {
           answer_format_hint?: string | null
           answer_parts?: Json | null
           created_at?: string | null
+          grading_method?: string
           has_images?: boolean | null
           id?: string
           max_score?: number | null

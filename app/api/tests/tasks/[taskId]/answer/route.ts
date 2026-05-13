@@ -54,7 +54,9 @@ export async function PUT(
     const body = await request.json()
     const { correct_answer, grading_method } = body
 
-    if (correct_answer === undefined || correct_answer === null) {
+    // correct_answer is now optional (column is nullable after migration 010)
+    // grading_method lives on test_tasks; only save answer key when correct_answer is provided
+    if (correct_answer === undefined) {
       return Response.json({ error: 'correct_answer is required' }, { status: 400 })
     }
 

@@ -213,6 +213,7 @@ function EditTaskForm({ task, onSave, onCancel }: EditTaskFormProps) {
           task_type: taskType,
           max_score: Number(maxScore) || 1,
           answer_format_hint: answerFormatHint || null,
+          grading_method: gradingMethod,
         }),
       })
       if (!patchRes.ok) {
@@ -225,7 +226,7 @@ function EditTaskForm({ task, onSave, onCancel }: EditTaskFormProps) {
         const answerRes = await fetch(`/api/tests/tasks/${task.id}/answer`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ correct_answer: correctAnswer, grading_method: gradingMethod }),
+          body: JSON.stringify({ correct_answer: correctAnswer }),
         })
         if (!answerRes.ok) {
           const d = await answerRes.json().catch(() => ({}))
@@ -363,9 +364,6 @@ function EditTaskForm({ task, onSave, onCancel }: EditTaskFormProps) {
             {Object.entries(gradingMethodLabel).map(([v, l]) => (
               <SelectItem key={v} value={v}>{l}</SelectItem>
             ))}
-            {gradingMethod && !gradingMethodLabel[gradingMethod] && (
-              <SelectItem value={gradingMethod}>{gradingMethod}</SelectItem>
-            )}
           </SelectContent>
         </Select>
       </div>

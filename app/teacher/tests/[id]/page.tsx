@@ -89,7 +89,7 @@ export default async function TestDetailPage({ params }: PageProps) {
           review_status: t.review_status,
           parse_confidence: t.parse_confidence,
           correct_answer: key ? String(key.correct_answer ?? '') || null : null,
-          grading_method: key?.grading_method ?? null,
+          grading_method: (t as any).grading_method ?? 'exact',
           images: mediaByTask[t.id] ?? [],
         } satisfies TestTask
       })
