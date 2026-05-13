@@ -361,6 +361,9 @@ function EditTaskForm({ task, onSave, onCancel }: EditTaskFormProps) {
             {Object.entries(gradingMethodLabel).map(([v, l]) => (
               <SelectItem key={v} value={v}>{l}</SelectItem>
             ))}
+            {gradingMethod && !gradingMethodLabel[gradingMethod] && (
+              <SelectItem value={gradingMethod}>{gradingMethod}</SelectItem>
+            )}
           </SelectContent>
         </Select>
       </div>
@@ -984,7 +987,8 @@ export function TestDetailClient({
               Аналитика
             </Link>
           </Button>
-          {versionStatus === 'in_review' && versionId && (
+          {/* "Опубликовать" — только для тестов которые ещё ни разу не публиковались */}
+          {versionStatus === 'in_review' && versionId && test.status !== 'published' && (
             <div className="flex flex-col gap-1">
               <div className="flex gap-2">
                 {tasks.some(t => t.review_status === 'pending') && (
@@ -1037,7 +1041,8 @@ export function TestDetailClient({
               </Button>
             </div>
           )}
-          {(test.status === 'published' || !test.is_active) && versionStatus !== null && (
+          {/* "Снять / Возобновить" — только для ранее опубликованных тестов */}
+          {test.status === 'published' && versionStatus !== null && (
             <Button
               size="sm"
               variant="outline"
