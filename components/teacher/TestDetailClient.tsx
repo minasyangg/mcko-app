@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { Badge } from '@/components/ui/badge'
@@ -149,6 +149,10 @@ function EditTaskForm({ task, onSave, onCancel }: EditTaskFormProps) {
   )
   const [uploading, setUploading] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  // Auto-focus container so onPaste fires without requiring a click first
+  useEffect(() => { setTimeout(() => containerRef.current?.focus(), 30) }, [])
 
   const handleFile = useCallback(async (file: File) => {
     if (!file.type.startsWith('image/')) { setError('Только изображения'); return }
@@ -165,6 +169,19 @@ function EditTaskForm({ task, onSave, onCancel }: EditTaskFormProps) {
       if (fileInputRef.current) fileInputRef.current.value = ''
     }
   }, [task.id])
+
+  const handlePaste = useCallback(async (e: React.ClipboardEvent) => {
+    const items = e.clipboardData?.items
+    if (!items) return
+    for (const item of Array.from(items)) {
+      if (item.type.startsWith('image/')) {
+        e.preventDefault()
+        const file = item.getAsFile()
+        if (file) await handleFile(file)
+        break
+      }
+    }
+  }, [handleFile])
 
   async function handleImageDelete(mediaId: string) {
     const res = await fetch(`/api/tasks/${task.id}/media/${mediaId}`, { method: 'DELETE' })
@@ -231,7 +248,12 @@ function EditTaskForm({ task, onSave, onCancel }: EditTaskFormProps) {
   }
 
   return (
-    <div className="space-y-3 pt-3 border-t mt-2">
+    <div
+      ref={containerRef}
+      tabIndex={0}
+      onPaste={handlePaste}
+      className="space-y-3 pt-3 border-t mt-2 outline-none"
+    >
       <div className="space-y-1">
         <div className="flex items-center justify-between">
           <Label className="text-xs">Текст задачи (поддерживает LaTeX: $формула$)</Label>

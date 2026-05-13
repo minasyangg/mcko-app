@@ -64,6 +64,65 @@ function fixOCRSlashes(math: string): string {
   return s
 }
 
+const CYRILLIC_LABELS = ['А', 'Б', 'В', 'Г', 'Д', 'Е']
+
+// Fix answer-box tables: replace first-row cells with Cyrillic А/Б/В/Г by position.
+// Only applies to 2-row tables where the second row is empty (student answer boxes).
+function fixAnswerTableHeaders(tableHtml: string): string {
+  const rows = [...tableHtml.matchAll(/<tr[\s\S]*?<\/tr>/gi)]
+  if (rows.length !== 2) return tableHtml
+  const secondRowCells = [...rows[1][0].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gi)]
+  if (!secondRowCells.every(m => m[1].trim() === '')) return tableHtml
+  let ci = 0
+  const fixedFirstRow = rows[0][0].replace(/<td([^>]*)>[\s\S]*?<\/td>/gi, (_, attrs) => {
+    return `<td${attrs}>${CYRILLIC_LABELS[ci++] ?? '?'}</td>`
+  })
+  return tableHtml.replace(rows[0][0], fixedFirstRow)
+}
+
+// Detect OGЭ/МЦКО matching tasks (Cyrillic А/Б/В items vs numbered 1/2/3 items)
+// and reformat into a two-column table. Falls through unchanged for other content.
+function reformatMatchingTask(content: string): string {
+  const LETTER_RE = /^([А-Е])\)\s*(.+)$/
+  const NUMBER_RE = /^(\d+)\)\s*(.+)$/
+  // Split by HTML tables so we process text and tables separately
+  const parts = content.split(/(<table[\s\S]*?<\/table>)/i)
+  const letterItems: { label: string; text: string }[] = []
+  const numberItems: { num: string; text: string }[] = []
+  for (let i = 0; i < parts.length; i += 2) {
+    for (const line of parts[i].split('\n').map(l => l.trim()).filter(Boolean)) {
+      const lm = line.match(LETTER_RE)
+      const nm = line.match(NUMBER_RE)
+      if (lm) letterItems.push({ label: lm[1], text: lm[2] })
+      else if (nm) numberItems.push({ num: nm[1], text: nm[2] })
+    }
+  }
+  if (letterItems.length < 2 || numberItems.length < 2) {
+    return parts.map((p, i) => i % 2 === 1 ? fixAnswerTableHeaders(p) : p).join('')
+  }
+  // Collect intro lines (everything before the first letter/number item)
+  const introLines: string[] = []
+  let found = false
+  for (let i = 0; i < parts.length && !found; i += 2) {
+    for (const line of parts[i].split('\n').map(l => l.trim()).filter(Boolean)) {
+      if (line.match(LETTER_RE) || line.match(NUMBER_RE)) { found = true; break }
+      introLines.push(line)
+    }
+  }
+  // Build two-column matching table
+  const maxRows = Math.max(letterItems.length, numberItems.length)
+  let matchTable = '<table style="margin:8px 0"><tbody>'
+  for (let r = 0; r < maxRows; r++) {
+    const left = letterItems[r] ? `${letterItems[r].label}) ${letterItems[r].text}` : ''
+    const right = numberItems[r] ? `${numberItems[r].num}) ${numberItems[r].text}` : ''
+    matchTable += `<tr><td style="vertical-align:top">${left}</td><td style="vertical-align:top">${right}</td></tr>`
+  }
+  matchTable += '</tbody></table>'
+  const htmlTables = parts.filter((_, i) => i % 2 === 1).map(fixAnswerTableHeaders)
+  const intro = introLines.join('\n\n')
+  return [intro, matchTable, ...htmlTables].filter(Boolean).join('\n\n')
+}
+
 // Pre-render LaTeX to KaTeX HTML BEFORE ReactMarkdown sees it.
 // remark-math v6 applies CommonMark backslash escaping inside $...$
 // (\sqrt → sqrt, \frac → form-feed+rac, etc.), making formulas unrenderable.
@@ -89,7 +148,7 @@ function prerenderMath(content: string): string {
 }
 
 export default function MarkdownContent({ content }: { content: string }) {
-  const processed = prerenderMath(content)
+  const processed = prerenderMath(reformatMatchingTask(content))
   return (
     <div className="
       prose prose-sm dark:prose-invert max-w-none overflow-x-auto
