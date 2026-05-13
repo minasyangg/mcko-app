@@ -241,6 +241,7 @@ function EditTaskForm({ task, onSave, onCancel }: EditTaskFormProps) {
         answer_format_hint: answerFormatHint || null,
         correct_answer: correctAnswer || null,
         grading_method: correctAnswer ? gradingMethod : task.grading_method,
+        images: images as unknown as import('@/types/domain').TaskMediaWithUrl[],
       })
     } finally {
       setSaving(false)

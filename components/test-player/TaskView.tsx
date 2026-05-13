@@ -62,6 +62,10 @@ export function TaskView({ task, answer, onChange, images = [], disabled, isLock
     switch (task.task_type) {
       case 'single_choice': {
         const options = toOptions(task.options)
+        if (options.length === 0) {
+          const text = typeof answerObj['text'] === 'string' ? answerObj['text'] : ''
+          return <ShortText value={text} onChange={(v) => onChange({ text: v })} hint={task.answer_format_hint ?? 'Введите ответ'} disabled={disabled} size="medium" />
+        }
         const selected = typeof answerObj['selected'] === 'string' ? answerObj['selected'] : null
         return (
           <SingleChoice
@@ -75,6 +79,10 @@ export function TaskView({ task, answer, onChange, images = [], disabled, isLock
 
       case 'multiple_choice': {
         const options = toOptions(task.options)
+        if (options.length === 0) {
+          const text = typeof answerObj['text'] === 'string' ? answerObj['text'] : ''
+          return <ShortText value={text} onChange={(v) => onChange({ text: v })} hint={task.answer_format_hint ?? 'Введите ответ'} disabled={disabled} size="medium" />
+        }
         const selected = Array.isArray(answerObj['selected'])
           ? (answerObj['selected'] as Json[]).filter((v): v is string => typeof v === 'string')
           : []
@@ -84,6 +92,20 @@ export function TaskView({ task, answer, onChange, images = [], disabled, isLock
             value={selected}
             onChange={(v) => onChange({ selected: v })}
             disabled={disabled}
+          />
+        )
+      }
+
+      case 'free_response':
+      case 'matching': {
+        const text = typeof answerObj['text'] === 'string' ? answerObj['text'] : ''
+        return (
+          <ShortText
+            value={text}
+            onChange={(v) => onChange({ text: v })}
+            hint={task.answer_format_hint ?? (task.task_type === 'matching' ? 'Запишите цифры по порядку, например: 312' : 'Введите ответ')}
+            disabled={disabled}
+            size="medium"
           />
         )
       }
