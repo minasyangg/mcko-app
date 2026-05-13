@@ -632,6 +632,8 @@ export function TestDetailClient({
   const [test, setTest] = useState(initialTest)
   const [selectedRuleId, setSelectedRuleId] = useState('')
   const [applyingRule, setApplyingRule] = useState(false)
+  const [publishing, setPublishing] = useState(false)
+  const [publishError, setPublishError] = useState<string | null>(null)
 
   async function handleToggleActive() {
     setTogglingActive(true)
@@ -688,6 +690,24 @@ export function TestDetailClient({
       router.refresh()
     } finally {
       setSavingMeta(false)
+    }
+  }
+
+  async function handlePublish() {
+    if (!versionId) return
+    setPublishing(true)
+    setPublishError(null)
+    try {
+      const res = await fetch(`/api/tests/versions/${versionId}/publish`, { method: 'POST' })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setPublishError(data.error ?? 'Ошибка публикации')
+        return
+      }
+      setTest(prev => ({ ...prev, status: 'published', is_active: true }))
+      router.refresh()
+    } finally {
+      setPublishing(false)
     }
   }
 
@@ -872,6 +892,21 @@ export function TestDetailClient({
               Аналитика
             </Link>
           </Button>
+          {versionStatus === 'in_review' && versionId && (
+            <div className="flex flex-col gap-1">
+              <Button
+                size="sm"
+                onClick={handlePublish}
+                disabled={publishing}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white"
+              >
+                {publishing ? 'Публикация...' : '✓ Опубликовать тест'}
+              </Button>
+              {publishError && (
+                <p className="text-xs text-destructive max-w-xs">{publishError}</p>
+              )}
+            </div>
+          )}
           {canEdit && scoringRules.length > 0 && (
             <div className="flex items-center gap-1.5">
               <Select value={selectedRuleId || '_none'} onValueChange={v => setSelectedRuleId(v === '_none' ? '' : v)}>

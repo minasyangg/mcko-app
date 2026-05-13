@@ -92,13 +92,12 @@ export default function MarkdownContent({ content }: { content: string }) {
   const processed = prerenderMath(content)
   return (
     <div className="
-      prose prose-sm dark:prose-invert max-w-none
+      prose prose-sm dark:prose-invert max-w-none overflow-x-auto
       [&_.katex]:text-base [&_.katex-display]:overflow-x-auto [&_.katex-display]:my-2
-      [&_table]:w-full [&_table]:border-collapse [&_table]:text-sm [&_table]:my-2
-      [&_th]:border [&_th]:border-border [&_th]:px-3 [&_th]:py-1.5 [&_th]:bg-muted/50 [&_th]:font-medium [&_th]:text-left
-      [&_td]:border [&_td]:border-border [&_td]:px-3 [&_td]:py-1.5
+      [&_table]:border-collapse [&_table]:text-sm [&_table]:my-2
+      [&_th]:border [&_th]:border-border [&_th]:px-3 [&_th]:py-1.5 [&_th]:bg-muted/50 [&_th]:font-medium [&_th]:text-center
+      [&_td]:border [&_td]:border-border [&_td]:px-3 [&_td]:py-1.5 [&_td]:min-w-10
       [&_tr:nth-child(even)_td]:bg-muted/20
-      [&_table]:overflow-x-auto [&_table]:block
     ">
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
