@@ -15,8 +15,19 @@ export async function PATCH(
   if (authError || !user) return Response.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { data: profile } = await supabase
-    .from('profiles').select('role').eq('id', user.id).single()
+    .from('profiles').select('role, organization_id').eq('id', user.id).single()
   if (!profile || !['teacher', 'admin'].includes(profile.role)) {
+    return Response.json({ error: 'Forbidden' }, { status: 403 })
+  }
+
+  // Verify the attempt belongs to the teacher's organization
+  const { data: attemptCheck } = await supabase
+    .from('attempts')
+    .select('id, assignments!inner(organization_id)')
+    .eq('id', attemptId)
+    .single()
+  const attemptOrgId = (attemptCheck?.assignments as { organization_id: string } | null)?.organization_id
+  if (!attemptCheck || attemptOrgId !== profile.organization_id) {
     return Response.json({ error: 'Forbidden' }, { status: 403 })
   }
 

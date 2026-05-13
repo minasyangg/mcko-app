@@ -80,6 +80,7 @@ export async function POST(
         .from('tests')
         .update({
           status: 'published',
+          is_active: true,
           current_published_version_id: versionId,
           updated_at: now,
         })
