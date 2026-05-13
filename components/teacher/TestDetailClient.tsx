@@ -691,6 +691,7 @@ export function TestDetailClient({
   const [applyingRule, setApplyingRule] = useState(false)
   const [publishing, setPublishing] = useState(false)
   const [publishError, setPublishError] = useState<string | null>(null)
+  const [approvingAll, setApprovingAll] = useState(false)
 
   async function handleToggleActive() {
     setTogglingActive(true)
@@ -747,6 +748,17 @@ export function TestDetailClient({
       router.refresh()
     } finally {
       setSavingMeta(false)
+    }
+  }
+
+  async function handleApproveAll() {
+    if (!versionId) return
+    setApprovingAll(true)
+    try {
+      await fetch(`/api/tests/versions/${versionId}/approve-all`, { method: 'POST' })
+      setTasks(prev => prev.map(t => ({ ...t, review_status: 'approved' })))
+    } finally {
+      setApprovingAll(false)
     }
   }
 
@@ -951,14 +963,26 @@ export function TestDetailClient({
           </Button>
           {versionStatus === 'in_review' && versionId && (
             <div className="flex flex-col gap-1">
-              <Button
-                size="sm"
-                onClick={handlePublish}
-                disabled={publishing}
-                className="bg-emerald-600 hover:bg-emerald-700 text-white"
-              >
-                {publishing ? 'Публикация...' : '✓ Опубликовать тест'}
-              </Button>
+              <div className="flex gap-2">
+                {tasks.some(t => t.review_status === 'pending') && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={handleApproveAll}
+                    disabled={approvingAll}
+                  >
+                    {approvingAll ? 'Одобрение...' : 'Одобрить все'}
+                  </Button>
+                )}
+                <Button
+                  size="sm"
+                  onClick={handlePublish}
+                  disabled={publishing}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                >
+                  {publishing ? 'Публикация...' : '✓ Опубликовать'}
+                </Button>
+              </div>
               {publishError && (
                 <p className="text-xs text-destructive max-w-xs">{publishError}</p>
               )}
