@@ -124,6 +124,11 @@ function ImageThumb({ src, alt }: { src: string; alt?: string | null }) {
 
 interface GradeState { score: string; comment: string }
 
+// Count rough sentences in plain text (split by .!? followed by space/end)
+function countSentences(text: string): number {
+  return (text.match(/[.!?](\s|$)/g) ?? []).length || (text.length > 0 ? 1 : 0)
+}
+
 // Renders placeholder until card scrolls into view, then mounts full content.
 // `eager` skips the observer — used for the first few visible cards.
 function LazyAnswerCard({ children, eager }: { children: React.ReactNode; eager: boolean }) {
@@ -457,30 +462,41 @@ export function AttemptDrawer({ attemptId, onClose, onGraded }: Props) {
                       {/* Task text with expand toggle */}
                       {(() => {
                         const isExpanded = expandedTaskIds.has(ans.id)
-                        const content = ans.test_tasks?.prompt_html || ans.test_tasks?.prompt_text || ''
+                        const plainText = ans.test_tasks?.prompt_text ?? ''
+                        const content = ans.test_tasks?.prompt_html || plainText
                         const hasHtml = !!ans.test_tasks?.prompt_html
+                        // Show toggle only when content has more than 3 sentences
+                        const long = countSentences(plainText) > 3
+                        const body = hasHtml
+                          ? <div className="text-xs [&_p]:my-0.5"><MarkdownContent content={content} /></div>
+                          : <p className="text-xs text-muted-foreground">{content}</p>
                         return (
                           <div>
-                            <div className={isExpanded ? '' : 'line-clamp-2 overflow-hidden'}>
-                              {hasHtml
-                                ? <div className="text-xs **:text-xs [&_p]:my-0.5"><MarkdownContent content={content} /></div>
-                                : <p className="text-xs text-muted-foreground">{content}</p>
-                              }
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => setExpandedTaskIds(prev => {
-                                const next = new Set(prev)
-                                next.has(ans.id) ? next.delete(ans.id) : next.add(ans.id)
-                                return next
-                              })}
-                              className="flex items-center gap-0.5 text-[10px] text-primary hover:underline mt-0.5"
-                            >
-                              {isExpanded
-                                ? <><ChevronUp className="h-3 w-3" />Свернуть</>
-                                : <><ChevronDown className="h-3 w-3" />Раскрыть задание</>
-                              }
-                            </button>
+                            {long && !isExpanded
+                              ? (
+                                // max-height + overflow:hidden works reliably with nested HTML
+                                <div style={{ maxHeight: '7rem', overflow: 'hidden', maskImage: 'linear-gradient(to bottom, black 60%, transparent 100%)' }}>
+                                  {body}
+                                </div>
+                              )
+                              : body
+                            }
+                            {long && (
+                              <button
+                                type="button"
+                                onClick={() => setExpandedTaskIds(prev => {
+                                  const next = new Set(prev)
+                                  next.has(ans.id) ? next.delete(ans.id) : next.add(ans.id)
+                                  return next
+                                })}
+                                className="flex items-center gap-0.5 text-[10px] text-primary hover:underline mt-1"
+                              >
+                                {isExpanded
+                                  ? <><ChevronUp className="h-3 w-3" />Свернуть</>
+                                  : <><ChevronDown className="h-3 w-3" />Раскрыть задание</>
+                                }
+                              </button>
+                            )}
                           </div>
                         )
                       })()}
