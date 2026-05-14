@@ -164,10 +164,12 @@ export function AttemptDrawer({ attemptId, onClose, onGraded }: Props) {
   const [teacherComment, setTeacherComment] = useState('')
   const [isSaving, setIsSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
+  const [editingScores, setEditingScores] = useState(false)
 
   const supabase = createClient()
 
   useEffect(() => {
+    setEditingScores(false)
     if (!attemptId) { setAttempt(null); setAnswers([]); setMediaByTask({}); setGrades({}); setCorrectAnswerMap({}); setChangedTaskIds(new Set()); return }
     let cancelled = false
     setLoading(true); setSaveError(null)
@@ -325,6 +327,18 @@ export function AttemptDrawer({ attemptId, onClose, onGraded }: Props) {
         setSaveError(d.error ?? 'Ошибка сохранения')
         return
       }
+      // Update local answer scores so the UI reflects new values immediately
+      if (editingScores) {
+        const scoreMap = Object.fromEntries(
+          gradeUpdates.map((u) => [u.answer_id, { score: u.awarded_score, is_correct: u.is_correct }])
+        )
+        setAnswers((prev) => prev.map((a) =>
+          scoreMap[a.id]
+            ? { ...a, awarded_score: scoreMap[a.id].score, is_correct: scoreMap[a.id].is_correct }
+            : a
+        ))
+        setEditingScores(false)
+      }
       onGraded?.(attemptId)
     } finally {
       setIsSaving(false)
@@ -339,7 +353,7 @@ export function AttemptDrawer({ attemptId, onClose, onGraded }: Props) {
 
   return (
     <Sheet open={!!attemptId} onOpenChange={(v) => { if (!v) onClose() }}>
-      <SheetContent side="right" className="w-full sm:max-w-205 overflow-y-auto">
+      <SheetContent side="right" className="w-full sm:max-w-4xl overflow-y-auto">
         <SheetHeader className="pb-4 border-b">
           <SheetTitle>Попытка студента</SheetTitle>
         </SheetHeader>
@@ -510,10 +524,10 @@ export function AttemptDrawer({ attemptId, onClose, onGraded }: Props) {
                         </div>
                       )}
 
-                      {/* Teacher grading inputs for ALL task types when reviewing */}
-                      {needsGrading && g && (
-                        <div className={cn('space-y-2 pt-1 border-t', ans.is_locked && 'opacity-50 pointer-events-none')}>
-                          {ans.is_locked && (
+                      {/* Teacher grading inputs: when reviewing OR when editing scores of a checked attempt */}
+                      {(needsGrading || editingScores) && g && (
+                        <div className={cn('space-y-2 pt-1 border-t', ans.is_locked && !editingScores && 'opacity-50 pointer-events-none')}>
+                          {ans.is_locked && !editingScores && (
                             <p className="text-xs text-green-700 dark:text-green-400">
                               Балл засчитан в предыдущей попытке — редактирование заблокировано.
                             </p>
@@ -527,9 +541,10 @@ export function AttemptDrawer({ attemptId, onClose, onGraded }: Props) {
                               onChange={(e) => setGrades((prev) => ({
                                 ...prev, [ans.id]: { ...prev[ans.id], score: e.target.value }
                               }))}
+                              onWheel={(e) => e.currentTarget.blur()}
                               className="w-20 h-7 text-sm"
                               placeholder="Балл"
-                              disabled={ans.is_locked}
+                              disabled={ans.is_locked && !editingScores}
                             />
                             <span className="text-xs text-muted-foreground">
                               из {ans.test_tasks?.max_score ?? '?'} б.
@@ -561,7 +576,7 @@ export function AttemptDrawer({ attemptId, onClose, onGraded }: Props) {
               </div>
             </div>
 
-            {/* Global teacher comment + finalize */}
+            {/* Global teacher comment + finalize (during initial grading) */}
             {needsGrading && (
               <div className="space-y-3 border-t pt-4">
                 <div className="space-y-1">
@@ -586,6 +601,45 @@ export function AttemptDrawer({ attemptId, onClose, onGraded }: Props) {
                     <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Сохранение...</>
                   ) : 'Закрыть проверку'}
                 </Button>
+              </div>
+            )}
+
+            {/* Edit scores for already-checked attempts */}
+            {!needsGrading && attempt.status === 'checked' && (
+              <div className="border-t pt-4 space-y-3">
+                {!editingScores ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full"
+                    onClick={() => setEditingScores(true)}
+                  >
+                    Изменить баллы
+                  </Button>
+                ) : (
+                  <>
+                    {saveError && <p className="text-xs text-destructive">{saveError}</p>}
+                    <div className="flex gap-2">
+                      <Button
+                        className="flex-1"
+                        onClick={handleFinalize}
+                        disabled={isSaving}
+                      >
+                        {isSaving
+                          ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Сохранение...</>
+                          : 'Сохранить баллы'
+                        }
+                      </Button>
+                      <Button
+                        variant="outline"
+                        onClick={() => { setEditingScores(false); setSaveError(null) }}
+                        disabled={isSaving}
+                      >
+                        Отмена
+                      </Button>
+                    </div>
+                  </>
+                )}
               </div>
             )}
 
