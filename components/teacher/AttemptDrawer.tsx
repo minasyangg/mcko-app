@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { Badge } from '@/components/ui/badge'
@@ -123,6 +123,34 @@ function ImageThumb({ src, alt }: { src: string; alt?: string | null }) {
 }
 
 interface GradeState { score: string; comment: string }
+
+// Renders placeholder until card scrolls into view, then mounts full content.
+// `eager` skips the observer — used for the first few visible cards.
+function LazyAnswerCard({ children, eager }: { children: React.ReactNode; eager: boolean }) {
+  const ref = useRef<HTMLDivElement>(null)
+  const [mounted, setMounted] = useState(eager)
+
+  useEffect(() => {
+    if (eager || mounted) return
+    const el = ref.current
+    if (!el) return
+    const io = new IntersectionObserver(
+      ([entry]) => { if (entry.isIntersecting) { setMounted(true); io.disconnect() } },
+      { rootMargin: '300px' }
+    )
+    io.observe(el)
+    return () => io.disconnect()
+  }, [eager, mounted])
+
+  return (
+    <div ref={ref}>
+      {mounted
+        ? children
+        : <div className="h-20 rounded-md border bg-muted/10 animate-pulse" />
+      }
+    </div>
+  )
+}
 
 export function AttemptDrawer({ attemptId, onClose, onGraded }: Props) {
   const [attempt, setAttempt] = useState<AttemptDetail | null>(null)
@@ -369,7 +397,7 @@ export function AttemptDrawer({ attemptId, onClose, onGraded }: Props) {
             <div className="space-y-3">
               <h3 className="text-sm font-semibold">Ответы ({answers.length})</h3>
               <div className="space-y-3">
-                {answers.map((ans) => {
+                {answers.map((ans, idx) => {
                   const isManual = ans.test_tasks?.task_type === 'manual_review' ||
                                    ans.test_tasks?.task_type === 'composite' ||
                                    ans.test_tasks?.task_type === 'short_text'
@@ -377,8 +405,8 @@ export function AttemptDrawer({ attemptId, onClose, onGraded }: Props) {
                   const taskMedia = (mediaByTask[ans.task_id ?? ''] ?? [])
 
                   return (
+                    <LazyAnswerCard key={ans.id} eager={idx < 4}>
                     <div
-                      key={ans.id}
                       className={cn(
                         'rounded-md border p-3 space-y-2',
                         ans.is_locked && 'border-green-300 bg-green-50/40 dark:border-green-700',
@@ -527,6 +555,7 @@ export function AttemptDrawer({ attemptId, onClose, onGraded }: Props) {
                         </div>
                       )}
                     </div>
+                    </LazyAnswerCard>
                   )
                 })}
               </div>

@@ -23,21 +23,23 @@ export function TaskImageGallery({ images, placement }: TaskImageGalleryProps) {
           alt={img.alt_text}
           width={img.width_px}
           height={img.height_px}
+          priority={placement === 'above_text'}
         />
       </div>
     )
   }
 
-  // Multiple images — responsive grid
+  // Multiple images — responsive grid; first image gets priority load
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-      {filtered.map((img) => (
+      {filtered.map((img, idx) => (
         <TaskImage
           key={img.id}
           src={img.signedUrl}
           alt={img.alt_text}
           width={img.width_px}
           height={img.height_px}
+          priority={placement === 'above_text' && idx === 0}
         />
       ))}
     </div>
