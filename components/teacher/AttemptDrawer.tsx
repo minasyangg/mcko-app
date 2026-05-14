@@ -574,7 +574,7 @@ export function AttemptDrawer({ attemptId, onClose, onGraded }: Props) {
                             placeholder="Комментарий (поддерживается LaTeX: $x^2$, $$\frac{a}{b}$$)"
                             rows={2}
                             className="text-xs resize-none"
-                            disabled={ans.is_locked}
+                            disabled={ans.is_locked && !editingScores}
                           />
                           {/* LaTeX preview */}
                           {g.comment.trim() && (

@@ -824,20 +824,24 @@ export function TestDetailClient({
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ scoring_rule_id: rule.id }),
         }),
-        // Apply max_score to each task
-        ...rule.items.map(item =>
-          fetch(`/api/tests/tasks/${tasks.find(t => t.task_number === item.task_number)?.id}`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ max_score: item.max_score }),
-          }).then(async (res) => {
-            if (res.ok) {
-              setTasks(prev => prev.map(t =>
-                t.task_number === item.task_number ? { ...t, max_score: item.max_score } : t
-              ))
-            }
-          })
-        ),
+        // Apply max_score to each task (skip rule items with no matching task)
+        ...rule.items.flatMap(item => {
+          const taskId = tasks.find(t => t.task_number === item.task_number)?.id
+          if (!taskId) return []
+          return [
+            fetch(`/api/tests/tasks/${taskId}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ max_score: item.max_score }),
+            }).then(async (res) => {
+              if (res.ok) {
+                setTasks(prev => prev.map(t =>
+                  t.task_number === item.task_number ? { ...t, max_score: item.max_score } : t
+                ))
+              }
+            }),
+          ]
+        }),
       ])
     } finally {
       setApplyingRule(false)
