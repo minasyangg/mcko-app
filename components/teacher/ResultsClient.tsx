@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useMemo } from 'react'
+import { usePagination, useScrollTrigger } from '@/lib/hooks/usePagination'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -45,6 +46,9 @@ export function ResultsClient({ rows, tests, groups }: Props) {
       return true
     })
   }, [updatedRows, search, filterTest, filterGroup, filterStatus])
+
+  const { visible, hasMore, loadMore, total, showing } = usePagination(filtered)
+  const scrollRef = useScrollTrigger(loadMore, hasMore)
 
   const completed = filtered.filter((r) => r.maxScore > 0)
   const avgPct = completed.length > 0
@@ -164,7 +168,7 @@ export function ResultsClient({ rows, tests, groups }: Props) {
               </tr>
             </thead>
             <tbody className="divide-y">
-              {filtered.map((r) => (
+              {visible.map((r) => (
                 <tr key={r.attemptId} className="hover:bg-muted/30 transition-colors">
                   <td className="px-4 py-3 font-medium">{r.studentName}</td>
                   <td className="px-4 py-3 text-muted-foreground">{r.grade ?? '—'}</td>
@@ -221,6 +225,28 @@ export function ResultsClient({ rows, tests, groups }: Props) {
             </tbody>
           </table>
         </div>
+      )}
+
+      {/* Pagination footer */}
+      {hasMore && (
+        <div className="flex flex-col items-center gap-3 pt-2">
+          {/* Auto-load sentinel (desktop scroll) */}
+          <div ref={scrollRef} />
+          {/* Manual button (mobile-friendly) */}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={loadMore}
+            className="w-full sm:w-auto"
+          >
+            Ещё ({total - showing} строк)
+          </Button>
+        </div>
+      )}
+      {!hasMore && total > 25 && (
+        <p className="text-center text-xs text-muted-foreground">
+          Показано всего {total} результатов
+        </p>
       )}
 
       <AttemptDrawer
