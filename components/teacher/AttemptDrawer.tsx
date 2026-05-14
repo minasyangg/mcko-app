@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { Badge } from '@/components/ui/badge'
@@ -124,6 +124,39 @@ function ImageThumb({ src, alt }: { src: string; alt?: string | null }) {
 
 interface GradeState { score: string; comment: string }
 
+// Count rough sentences in plain text (split by .!? followed by space/end)
+function countSentences(text: string): number {
+  return (text.match(/[.!?](\s|$)/g) ?? []).length || (text.length > 0 ? 1 : 0)
+}
+
+// Renders placeholder until card scrolls into view, then mounts full content.
+// `eager` skips the observer — used for the first few visible cards.
+function LazyAnswerCard({ children, eager }: { children: React.ReactNode; eager: boolean }) {
+  const ref = useRef<HTMLDivElement>(null)
+  const [mounted, setMounted] = useState(eager)
+
+  useEffect(() => {
+    if (eager || mounted) return
+    const el = ref.current
+    if (!el) return
+    const io = new IntersectionObserver(
+      ([entry]) => { if (entry.isIntersecting) { setMounted(true); io.disconnect() } },
+      { rootMargin: '300px' }
+    )
+    io.observe(el)
+    return () => io.disconnect()
+  }, [eager, mounted])
+
+  return (
+    <div ref={ref}>
+      {mounted
+        ? children
+        : <div className="h-20 rounded-md border bg-muted/10 animate-pulse" />
+      }
+    </div>
+  )
+}
+
 export function AttemptDrawer({ attemptId, onClose, onGraded }: Props) {
   const [attempt, setAttempt] = useState<AttemptDetail | null>(null)
   const [answers, setAnswers] = useState<AnswerRow[]>([])
@@ -136,10 +169,12 @@ export function AttemptDrawer({ attemptId, onClose, onGraded }: Props) {
   const [teacherComment, setTeacherComment] = useState('')
   const [isSaving, setIsSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
+  const [editingScores, setEditingScores] = useState(false)
 
   const supabase = createClient()
 
   useEffect(() => {
+    setEditingScores(false)
     if (!attemptId) { setAttempt(null); setAnswers([]); setMediaByTask({}); setGrades({}); setCorrectAnswerMap({}); setChangedTaskIds(new Set()); return }
     let cancelled = false
     setLoading(true); setSaveError(null)
@@ -297,6 +332,18 @@ export function AttemptDrawer({ attemptId, onClose, onGraded }: Props) {
         setSaveError(d.error ?? 'Ошибка сохранения')
         return
       }
+      // Update local answer scores so the UI reflects new values immediately
+      if (editingScores) {
+        const scoreMap = Object.fromEntries(
+          gradeUpdates.map((u) => [u.answer_id, { score: u.awarded_score, is_correct: u.is_correct }])
+        )
+        setAnswers((prev) => prev.map((a) =>
+          scoreMap[a.id]
+            ? { ...a, awarded_score: scoreMap[a.id].score, is_correct: scoreMap[a.id].is_correct }
+            : a
+        ))
+        setEditingScores(false)
+      }
       onGraded?.(attemptId)
     } finally {
       setIsSaving(false)
@@ -311,7 +358,7 @@ export function AttemptDrawer({ attemptId, onClose, onGraded }: Props) {
 
   return (
     <Sheet open={!!attemptId} onOpenChange={(v) => { if (!v) onClose() }}>
-      <SheetContent side="right" className="w-full sm:max-w-205 overflow-y-auto">
+      <SheetContent side="right" className="w-full sm:max-w-4xl overflow-y-auto">
         <SheetHeader className="pb-4 border-b">
           <SheetTitle>Попытка студента</SheetTitle>
         </SheetHeader>
@@ -369,7 +416,7 @@ export function AttemptDrawer({ attemptId, onClose, onGraded }: Props) {
             <div className="space-y-3">
               <h3 className="text-sm font-semibold">Ответы ({answers.length})</h3>
               <div className="space-y-3">
-                {answers.map((ans) => {
+                {answers.map((ans, idx) => {
                   const isManual = ans.test_tasks?.task_type === 'manual_review' ||
                                    ans.test_tasks?.task_type === 'composite' ||
                                    ans.test_tasks?.task_type === 'short_text'
@@ -377,8 +424,8 @@ export function AttemptDrawer({ attemptId, onClose, onGraded }: Props) {
                   const taskMedia = (mediaByTask[ans.task_id ?? ''] ?? [])
 
                   return (
+                    <LazyAnswerCard key={ans.id} eager={idx < 4}>
                     <div
-                      key={ans.id}
                       className={cn(
                         'rounded-md border p-3 space-y-2',
                         ans.is_locked && 'border-green-300 bg-green-50/40 dark:border-green-700',
@@ -415,30 +462,41 @@ export function AttemptDrawer({ attemptId, onClose, onGraded }: Props) {
                       {/* Task text with expand toggle */}
                       {(() => {
                         const isExpanded = expandedTaskIds.has(ans.id)
-                        const content = ans.test_tasks?.prompt_html || ans.test_tasks?.prompt_text || ''
+                        const plainText = ans.test_tasks?.prompt_text ?? ''
+                        const content = ans.test_tasks?.prompt_html || plainText
                         const hasHtml = !!ans.test_tasks?.prompt_html
+                        // Show toggle only when content has more than 3 sentences
+                        const long = countSentences(plainText) > 3
+                        const body = hasHtml
+                          ? <div className="text-xs [&_p]:my-0.5"><MarkdownContent content={content} /></div>
+                          : <p className="text-xs text-muted-foreground">{content}</p>
                         return (
                           <div>
-                            <div className={isExpanded ? '' : 'line-clamp-2 overflow-hidden'}>
-                              {hasHtml
-                                ? <div className="text-xs **:text-xs [&_p]:my-0.5"><MarkdownContent content={content} /></div>
-                                : <p className="text-xs text-muted-foreground">{content}</p>
-                              }
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => setExpandedTaskIds(prev => {
-                                const next = new Set(prev)
-                                next.has(ans.id) ? next.delete(ans.id) : next.add(ans.id)
-                                return next
-                              })}
-                              className="flex items-center gap-0.5 text-[10px] text-primary hover:underline mt-0.5"
-                            >
-                              {isExpanded
-                                ? <><ChevronUp className="h-3 w-3" />Свернуть</>
-                                : <><ChevronDown className="h-3 w-3" />Раскрыть задание</>
-                              }
-                            </button>
+                            {long && !isExpanded
+                              ? (
+                                // max-height + overflow:hidden works reliably with nested HTML
+                                <div style={{ maxHeight: '7rem', overflow: 'hidden', maskImage: 'linear-gradient(to bottom, black 60%, transparent 100%)' }}>
+                                  {body}
+                                </div>
+                              )
+                              : body
+                            }
+                            {long && (
+                              <button
+                                type="button"
+                                onClick={() => setExpandedTaskIds(prev => {
+                                  const next = new Set(prev)
+                                  next.has(ans.id) ? next.delete(ans.id) : next.add(ans.id)
+                                  return next
+                                })}
+                                className="flex items-center gap-0.5 text-[10px] text-primary hover:underline mt-1"
+                              >
+                                {isExpanded
+                                  ? <><ChevronUp className="h-3 w-3" />Свернуть</>
+                                  : <><ChevronDown className="h-3 w-3" />Раскрыть задание</>
+                                }
+                              </button>
+                            )}
                           </div>
                         )
                       })()}
@@ -482,10 +540,10 @@ export function AttemptDrawer({ attemptId, onClose, onGraded }: Props) {
                         </div>
                       )}
 
-                      {/* Teacher grading inputs for ALL task types when reviewing */}
-                      {needsGrading && g && (
-                        <div className={cn('space-y-2 pt-1 border-t', ans.is_locked && 'opacity-50 pointer-events-none')}>
-                          {ans.is_locked && (
+                      {/* Teacher grading inputs: when reviewing OR when editing scores of a checked attempt */}
+                      {(needsGrading || editingScores) && g && (
+                        <div className={cn('space-y-2 pt-1 border-t', ans.is_locked && !editingScores && 'opacity-50 pointer-events-none')}>
+                          {ans.is_locked && !editingScores && (
                             <p className="text-xs text-green-700 dark:text-green-400">
                               Балл засчитан в предыдущей попытке — редактирование заблокировано.
                             </p>
@@ -499,9 +557,10 @@ export function AttemptDrawer({ attemptId, onClose, onGraded }: Props) {
                               onChange={(e) => setGrades((prev) => ({
                                 ...prev, [ans.id]: { ...prev[ans.id], score: e.target.value }
                               }))}
+                              onWheel={(e) => e.currentTarget.blur()}
                               className="w-20 h-7 text-sm"
                               placeholder="Балл"
-                              disabled={ans.is_locked}
+                              disabled={ans.is_locked && !editingScores}
                             />
                             <span className="text-xs text-muted-foreground">
                               из {ans.test_tasks?.max_score ?? '?'} б.
@@ -515,7 +574,7 @@ export function AttemptDrawer({ attemptId, onClose, onGraded }: Props) {
                             placeholder="Комментарий (поддерживается LaTeX: $x^2$, $$\frac{a}{b}$$)"
                             rows={2}
                             className="text-xs resize-none"
-                            disabled={ans.is_locked}
+                            disabled={ans.is_locked && !editingScores}
                           />
                           {/* LaTeX preview */}
                           {g.comment.trim() && (
@@ -527,12 +586,13 @@ export function AttemptDrawer({ attemptId, onClose, onGraded }: Props) {
                         </div>
                       )}
                     </div>
+                    </LazyAnswerCard>
                   )
                 })}
               </div>
             </div>
 
-            {/* Global teacher comment + finalize */}
+            {/* Global teacher comment + finalize (during initial grading) */}
             {needsGrading && (
               <div className="space-y-3 border-t pt-4">
                 <div className="space-y-1">
@@ -557,6 +617,45 @@ export function AttemptDrawer({ attemptId, onClose, onGraded }: Props) {
                     <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Сохранение...</>
                   ) : 'Закрыть проверку'}
                 </Button>
+              </div>
+            )}
+
+            {/* Edit scores for already-checked attempts */}
+            {!needsGrading && attempt.status === 'checked' && (
+              <div className="border-t pt-4 space-y-3">
+                {!editingScores ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full"
+                    onClick={() => setEditingScores(true)}
+                  >
+                    Изменить баллы
+                  </Button>
+                ) : (
+                  <>
+                    {saveError && <p className="text-xs text-destructive">{saveError}</p>}
+                    <div className="flex gap-2">
+                      <Button
+                        className="flex-1"
+                        onClick={handleFinalize}
+                        disabled={isSaving}
+                      >
+                        {isSaving
+                          ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Сохранение...</>
+                          : 'Сохранить баллы'
+                        }
+                      </Button>
+                      <Button
+                        variant="outline"
+                        onClick={() => { setEditingScores(false); setSaveError(null) }}
+                        disabled={isSaving}
+                      >
+                        Отмена
+                      </Button>
+                    </div>
+                  </>
+                )}
               </div>
             )}
 

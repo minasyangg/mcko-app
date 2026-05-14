@@ -44,6 +44,7 @@ import {
 } from 'lucide-react'
 import MarkdownContent from '@/components/shared/MarkdownContent'
 import { ImageGallery } from '@/components/shared/ImageGallery'
+import { TestPreviewModal } from '@/components/teacher/TestPreviewModal'
 import type { TaskMediaWithUrl } from '@/types/domain'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -717,6 +718,7 @@ export function TestDetailClient({
   const [test, setTest] = useState(initialTest)
   const [wasPublished, setWasPublished] = useState(initialWasPublished)
   const [selectedRuleId, setSelectedRuleId] = useState(initialScoringRuleId)
+  const [previewOpen, setPreviewOpen] = useState(false)
   const [applyingRule, setApplyingRule] = useState(false)
   const [publishing, setPublishing] = useState(false)
   const [publishError, setPublishError] = useState<string | null>(null)
@@ -822,20 +824,24 @@ export function TestDetailClient({
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ scoring_rule_id: rule.id }),
         }),
-        // Apply max_score to each task
-        ...rule.items.map(item =>
-          fetch(`/api/tests/tasks/${tasks.find(t => t.task_number === item.task_number)?.id}`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ max_score: item.max_score }),
-          }).then(async (res) => {
-            if (res.ok) {
-              setTasks(prev => prev.map(t =>
-                t.task_number === item.task_number ? { ...t, max_score: item.max_score } : t
-              ))
-            }
-          })
-        ),
+        // Apply max_score to each task (skip rule items with no matching task)
+        ...rule.items.flatMap(item => {
+          const taskId = tasks.find(t => t.task_number === item.task_number)?.id
+          if (!taskId) return []
+          return [
+            fetch(`/api/tests/tasks/${taskId}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ max_score: item.max_score }),
+            }).then(async (res) => {
+              if (res.ok) {
+                setTasks(prev => prev.map(t =>
+                  t.task_number === item.task_number ? { ...t, max_score: item.max_score } : t
+                ))
+              }
+            }),
+          ]
+        }),
       ])
     } finally {
       setApplyingRule(false)
@@ -980,6 +986,12 @@ export function TestDetailClient({
 
         {/* Action buttons */}
         <div className="flex flex-wrap gap-2">
+          {tasks.length > 0 && (
+            <Button size="sm" variant="outline" onClick={() => setPreviewOpen(true)}>
+              <Eye className="h-4 w-4 mr-1.5" />
+              Предпросмотр
+            </Button>
+          )}
           <Button asChild size="sm" variant="outline">
             <Link href={`/teacher/tests/${testId}/import`}>
               <Upload className="h-4 w-4 mr-1.5" />
@@ -1175,6 +1187,13 @@ export function TestDetailClient({
           </div>
         )}
       </div>
+
+      <TestPreviewModal
+        open={previewOpen}
+        onClose={() => setPreviewOpen(false)}
+        testTitle={test.title}
+        tasks={tasks}
+      />
     </div>
   )
 }
