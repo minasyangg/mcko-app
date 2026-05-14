@@ -27,16 +27,23 @@ export async function PATCH(
   }
 
   const body = await request.json().catch(() => ({}))
-  const allowed = ['title', 'subject', 'grade', 'exam_type', 'description'] as const
-  const update: { title?: string; subject?: string | null; grade?: string | null; exam_type?: string | null; description?: string | null } = {}
-  for (const key of allowed) {
-    if (!(key in body)) continue
-    if (key === 'title') {
-      if (body[key]) update.title = String(body[key])
-    } else {
-      (update as Record<string, string | null>)[key] = body[key] ? String(body[key]) : null
-    }
+
+  type TestUpdate = {
+    title?: string
+    subject?: string | null
+    grade?: string | null
+    exam_type?: string | null
+    description?: string | null
+    scoring_rule_id?: string | null
   }
+  const update: TestUpdate = {}
+
+  for (const key of ['subject', 'grade', 'exam_type', 'description'] as const) {
+    if (key in body) update[key] = body[key] ? String(body[key]) : null
+  }
+  if ('title' in body && body.title) update.title = String(body.title)
+  if ('scoring_rule_id' in body) update.scoring_rule_id = body.scoring_rule_id || null
+
   if (Object.keys(update).length === 0) {
     return Response.json({ error: 'No fields to update' }, { status: 400 })
   }

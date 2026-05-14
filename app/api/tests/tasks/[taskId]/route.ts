@@ -57,7 +57,7 @@ export async function PATCH(
     }
 
     const body = await request.json()
-    const { prompt_text, prompt_html, task_type, options, answer_format_hint, max_score, review_status } = body
+    const { prompt_text, prompt_html, task_type, options, answer_format_hint, max_score, review_status, grading_method } = body
 
     const updateData: TaskUpdate = {}
     if (prompt_text !== undefined) updateData.prompt_text = prompt_text
@@ -67,6 +67,7 @@ export async function PATCH(
     if (answer_format_hint !== undefined) updateData.answer_format_hint = answer_format_hint
     if (max_score !== undefined) updateData.max_score = max_score
     if (review_status !== undefined) updateData.review_status = review_status
+    if (grading_method !== undefined) updateData.grading_method = grading_method
 
     const admin = createAdminClient()
 

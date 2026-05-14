@@ -18,6 +18,12 @@ export async function POST(
       return Response.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
+    const { data: profile } = await supabase
+      .from('profiles').select('role').eq('id', user.id).single()
+    if (!profile || !['teacher', 'admin'].includes(profile.role)) {
+      return Response.json({ error: 'Forbidden' }, { status: 403 })
+    }
+
     const body = await request.json()
     const { task_id, placement } = body as { task_id: string; placement?: string }
 

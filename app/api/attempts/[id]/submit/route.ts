@@ -81,7 +81,7 @@ export async function POST(
 
   const { data: tasks } = await supabase
     .from('test_tasks')
-    .select('id, max_score, task_type')
+    .select('id, max_score, task_type, grading_method')
     .eq('test_version_id', assignment.test_version_id)
     .order('sort_order', { ascending: true })
 
@@ -129,15 +129,23 @@ export async function POST(
       continue
     }
 
-    // No answer key at all → needs teacher review
+    // Effective grading method: from answer key if exists, else from task itself
+    const effectiveMethod = answerKey?.grading_method ?? (task as any).grading_method ?? 'manual'
+
+    // No answer key → use task's grading_method to decide if manual review needed
     if (!answerKey) {
-      allAutoChecked = false
+      if (effectiveMethod === 'manual') {
+        allAutoChecked = false
+      } else {
+        // No key, no reference answer — can't auto-grade, flag for teacher
+        allAutoChecked = false
+      }
       continue
     }
 
     if (!savedAnswer) {
       // Has key but no answer → 0 score, auto-graded as incorrect
-      if (answerKey.grading_method !== 'manual') {
+      if (effectiveMethod !== 'manual') {
         updates.push({ taskId: task.id, is_correct: false, awarded_score: 0, auto_checked: true })
       } else {
         allAutoChecked = false
@@ -145,8 +153,8 @@ export async function POST(
       continue
     }
 
-    const isManual = answerKey.grading_method === 'manual'
-    const isTextTask = ['short_text', 'manual_review', 'composite'].includes(task.task_type)
+    const isManual = effectiveMethod === 'manual'
+    const isTextTask = ['short_text', 'manual_review', 'composite', 'free_response'].includes(task.task_type)
 
     // For manual_review tasks with a correct_answer: try AI semantic check
     if (isManual && isTextTask) {
@@ -181,7 +189,7 @@ export async function POST(
     const result = checkAnswer(
       savedAnswer.answer_json ?? null,
       answerKey.correct_answer,
-      answerKey.grading_method,
+      effectiveMethod,
       answerKey.grading_config,
       maxScore,
       answerKey.partial_score_rules

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { Badge } from '@/components/ui/badge'
@@ -40,8 +40,10 @@ import {
   UserPlus,
   EyeOff,
   Eye,
+  ImagePlus,
 } from 'lucide-react'
 import MarkdownContent from '@/components/shared/MarkdownContent'
+import { ImageGallery } from '@/components/shared/ImageGallery'
 import type { TaskMediaWithUrl } from '@/types/domain'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -88,6 +90,8 @@ export interface TestDetailClientProps {
   tasks: TestTask[]
   canEdit: boolean
   scoringRules?: ScoringRuleOption[]
+  wasPublished?: boolean
+  initialScoringRuleId?: string
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -141,6 +145,50 @@ function EditTaskForm({ task, onSave, onCancel }: EditTaskFormProps) {
   const [gradingMethod, setGradingMethod] = useState(task.grading_method ?? 'exact')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  type GalleryImg = { id: string; signedUrl: string; sort_order: number; alt_text: null }
+  const [images, setImages] = useState<GalleryImg[]>(
+    (task.images ?? []).map((img, i) => ({ id: img.id, signedUrl: img.signedUrl, sort_order: i, alt_text: null }))
+  )
+  const [uploading, setUploading] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  // Auto-focus container so onPaste fires without requiring a click first
+  useEffect(() => { setTimeout(() => containerRef.current?.focus(), 30) }, [])
+
+  const handleFile = useCallback(async (file: File) => {
+    if (!file.type.startsWith('image/')) { setError('Только изображения'); return }
+    setUploading(true)
+    try {
+      const form = new FormData()
+      form.append('file', file)
+      const res = await fetch(`/api/tasks/${task.id}/media`, { method: 'POST', body: form })
+      if (!res.ok) { setError('Ошибка загрузки'); return }
+      const data = await res.json()
+      setImages(prev => [...prev, { id: data.id, signedUrl: data.signedUrl, sort_order: prev.length, alt_text: null }])
+    } finally {
+      setUploading(false)
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    }
+  }, [task.id])
+
+  const handlePaste = useCallback(async (e: React.ClipboardEvent) => {
+    const items = e.clipboardData?.items
+    if (!items) return
+    for (const item of Array.from(items)) {
+      if (item.type.startsWith('image/')) {
+        e.preventDefault()
+        const file = item.getAsFile()
+        if (file) await handleFile(file)
+        break
+      }
+    }
+  }, [handleFile])
+
+  async function handleImageDelete(mediaId: string) {
+    const res = await fetch(`/api/tasks/${task.id}/media/${mediaId}`, { method: 'DELETE' })
+    if (res.ok) setImages(prev => prev.filter(img => img.id !== mediaId))
+  }
 
   // Derive plain prompt_text from prompt_html for storage
   function derivePromptText(html: string): string {
@@ -165,6 +213,7 @@ function EditTaskForm({ task, onSave, onCancel }: EditTaskFormProps) {
           task_type: taskType,
           max_score: Number(maxScore) || 1,
           answer_format_hint: answerFormatHint || null,
+          grading_method: gradingMethod,
         }),
       })
       if (!patchRes.ok) {
@@ -177,7 +226,7 @@ function EditTaskForm({ task, onSave, onCancel }: EditTaskFormProps) {
         const answerRes = await fetch(`/api/tests/tasks/${task.id}/answer`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ correct_answer: correctAnswer, grading_method: gradingMethod }),
+          body: JSON.stringify({ correct_answer: correctAnswer }),
         })
         if (!answerRes.ok) {
           const d = await answerRes.json().catch(() => ({}))
@@ -195,6 +244,7 @@ function EditTaskForm({ task, onSave, onCancel }: EditTaskFormProps) {
         answer_format_hint: answerFormatHint || null,
         correct_answer: correctAnswer || null,
         grading_method: correctAnswer ? gradingMethod : task.grading_method,
+        images: images as unknown as import('@/types/domain').TaskMediaWithUrl[],
       })
     } finally {
       setSaving(false)
@@ -202,7 +252,12 @@ function EditTaskForm({ task, onSave, onCancel }: EditTaskFormProps) {
   }
 
   return (
-    <div className="space-y-3 pt-3 border-t mt-2">
+    <div
+      ref={containerRef}
+      tabIndex={0}
+      onPaste={handlePaste}
+      className="space-y-3 pt-3 border-t mt-2 outline-none"
+    >
       <div className="space-y-1">
         <div className="flex items-center justify-between">
           <Label className="text-xs">Текст задачи (поддерживает LaTeX: $формула$)</Label>
@@ -228,6 +283,34 @@ function EditTaskForm({ task, onSave, onCancel }: EditTaskFormProps) {
           />
         )}
       </div>
+      {/* Images — uses the same ImageGallery as ReviewBoard */}
+      <div className="space-y-1">
+        <Label className="text-xs">Изображения к заданию</Label>
+        <ImageGallery
+          images={images.map(img => ({ id: img.id, signedUrl: img.signedUrl, sort_order: img.sort_order, alt: img.alt_text }))}
+          onDelete={handleImageDelete}
+          uploading={uploading}
+          uploadSlot={
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploading}
+              className="flex h-24 w-24 flex-col items-center justify-center gap-1 rounded border-2 border-dashed border-muted-foreground/30 text-muted-foreground hover:border-primary hover:text-primary disabled:opacity-50 transition-colors"
+            >
+              <ImagePlus className="h-5 w-5" />
+              <span className="text-[10px]">{uploading ? 'Загрузка...' : 'Добавить'}</span>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f) }}
+              />
+            </button>
+          }
+        />
+      </div>
+
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-1">
           <Label className="text-xs">Тип задачи</Label>
@@ -622,6 +705,8 @@ export function TestDetailClient({
   tasks: initialTasks,
   canEdit,
   scoringRules = [],
+  wasPublished: initialWasPublished = false,
+  initialScoringRuleId = '',
 }: TestDetailClientProps) {
   const router = useRouter()
   const [tasks, setTasks] = useState<TestTask[]>(initialTasks)
@@ -630,8 +715,12 @@ export function TestDetailClient({
   const [togglingActive, setTogglingActive] = useState(false)
   const [editingMeta, setEditingMeta] = useState(false)
   const [test, setTest] = useState(initialTest)
-  const [selectedRuleId, setSelectedRuleId] = useState('')
+  const [wasPublished, setWasPublished] = useState(initialWasPublished)
+  const [selectedRuleId, setSelectedRuleId] = useState(initialScoringRuleId)
   const [applyingRule, setApplyingRule] = useState(false)
+  const [publishing, setPublishing] = useState(false)
+  const [publishError, setPublishError] = useState<string | null>(null)
+  const [approvingAll, setApprovingAll] = useState(false)
 
   async function handleToggleActive() {
     setTogglingActive(true)
@@ -691,13 +780,50 @@ export function TestDetailClient({
     }
   }
 
+  async function handleApproveAll() {
+    if (!versionId) return
+    setApprovingAll(true)
+    try {
+      await fetch(`/api/tests/versions/${versionId}/approve-all`, { method: 'POST' })
+      setTasks(prev => prev.map(t => ({ ...t, review_status: 'approved' })))
+    } finally {
+      setApprovingAll(false)
+    }
+  }
+
+  async function handlePublish() {
+    if (!versionId) return
+    setPublishing(true)
+    setPublishError(null)
+    try {
+      const res = await fetch(`/api/tests/versions/${versionId}/publish`, { method: 'POST' })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setPublishError(data.error ?? 'Ошибка публикации')
+        return
+      }
+      setTest(prev => ({ ...prev, status: 'published', is_active: true }))
+      setWasPublished(true)
+      router.refresh()
+    } finally {
+      setPublishing(false)
+    }
+  }
+
   async function handleApplyRule() {
     const rule = scoringRules.find(r => r.id === selectedRuleId)
     if (!rule || !versionId) return
     setApplyingRule(true)
     try {
-      await Promise.all(
-        rule.items.map(item =>
+      await Promise.all([
+        // Save scoring_rule_id to the test
+        fetch(`/api/tests/${testId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ scoring_rule_id: rule.id }),
+        }),
+        // Apply max_score to each task
+        ...rule.items.map(item =>
           fetch(`/api/tests/tasks/${tasks.find(t => t.task_number === item.task_number)?.id}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
@@ -709,8 +835,8 @@ export function TestDetailClient({
               ))
             }
           })
-        )
-      )
+        ),
+      ])
     } finally {
       setApplyingRule(false)
     }
@@ -872,6 +998,34 @@ export function TestDetailClient({
               Аналитика
             </Link>
           </Button>
+          {/* "Опубликовать" — только для тестов которые ещё ни разу не публиковались */}
+          {versionStatus === 'in_review' && versionId && !wasPublished && (
+            <div className="flex flex-col gap-1">
+              <div className="flex gap-2">
+                {tasks.some(t => t.review_status === 'pending') && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={handleApproveAll}
+                    disabled={approvingAll}
+                  >
+                    {approvingAll ? 'Одобрение...' : 'Одобрить все'}
+                  </Button>
+                )}
+                <Button
+                  size="sm"
+                  onClick={handlePublish}
+                  disabled={publishing}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                >
+                  {publishing ? 'Публикация...' : '✓ Опубликовать'}
+                </Button>
+              </div>
+              {publishError && (
+                <p className="text-xs text-destructive max-w-xs">{publishError}</p>
+              )}
+            </div>
+          )}
           {canEdit && scoringRules.length > 0 && (
             <div className="flex items-center gap-1.5">
               <Select value={selectedRuleId || '_none'} onValueChange={v => setSelectedRuleId(v === '_none' ? '' : v)}>
@@ -898,7 +1052,8 @@ export function TestDetailClient({
               </Button>
             </div>
           )}
-          {(test.status === 'published' || !test.is_active) && versionStatus !== null && (
+          {/* "Снять / Возобновить" — только для ранее опубликованных тестов */}
+          {wasPublished && versionStatus !== null && (
             <Button
               size="sm"
               variant="outline"
