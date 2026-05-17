@@ -684,8 +684,8 @@ function parseJsonPaddleOCR(pages: PaddlePage[]): {
     .filter(t => t.answer)
     .map(t => ({
       task_number: t.number,
-      correct_answer: t.answer!,
-      grading_method_guess: /^-?\d+([.,]\d+)?$/.test(t.answer!) ? 'numeric_tolerance' : 'normalized',
+      correct_answer: cleanParsedAnswer(t.answer!),
+      grading_method_guess: detectGradingMethod(t.answer!),
       confidence: 0.98,
     }))
 
@@ -881,6 +881,63 @@ export async function applyMatchingScoringRules(
   return updated
 }
 
+// ─── Answer classification helpers ──────────────────────────────────────────
+
+function cleanParsedAnswer(raw: string): string {
+  return raw.trim()
+    .replace(/[.;:]+$/, '')
+    .replace(/([-–−])\s+(\d)/g, '$1$2') // "- 7" → "-7"
+    .trim()
+}
+
+function detectGradingMethod(rawAnswer: string): string {
+  const cleaned = cleanParsedAnswer(rawAnswer).trim()
+  const lower = cleaned.toLowerCase()
+
+  // Image-based → manual
+  if (/см\.?\s*рис|по\s+рисунку|на\s+рисунке|на\s+графике/.test(lower)) return 'manual'
+  // Multi-part "1) ... 2) ..." → manual
+  if (/\d+\)[\s\S]+\d+\)/.test(cleaned)) return 'manual'
+  // LaTeX formula → manual
+  if (cleaned.startsWith('$') || /\\frac|\\sqrt/.test(cleaned)) return 'manual'
+
+  // Strip "или" alternatives for detection
+  const firstAlt = cleaned.split(/\s+или\s+/i)[0].trim()
+
+  // Letter-digit correspondence "А-3, Б-1" → sequence
+  if (/^[А-Еа-е]-\d/.test(firstAlt)) return 'sequence'
+
+  // Pure numeric (int/decimal, optional negative, optional units after space)
+  if (/^[-–−]?\d+([,.]?\d+)?(\s+[а-яa-zёА-ЯA-Z\/²³°%·]+\.?)*$/.test(firstAlt)) {
+    return 'numeric_tolerance'
+  }
+
+  // Digit sequence 2-6 digits (multiple choice items concatenated, e.g. "124", "35")
+  if (/^\d{2,6}$/.test(cleaned) && !cleaned.startsWith('0')) return 'set_match'
+
+  // Comma-separated small numbers "1, 4" "2,4,5" → set_match
+  if (/^\d+(,\s*\d+)+$/.test(cleaned)) return 'set_match'
+
+  return 'normalized'
+}
+
+function buildFormatHint(rawAnswer: string, method: string): string | null {
+  const cleaned = cleanParsedAnswer(rawAnswer)
+  switch (method) {
+    case 'numeric_tolerance':
+      if (/[,.]/.test(cleaned.replace(/\s.*$/, ''))) {
+        return 'Запишите число через точку или запятую, например: 4.5 (можно и 4,5)'
+      }
+      return 'Запишите целое число, например: 42'
+    case 'sequence':
+      return 'Запишите цифры подряд по порядку букв (А, Б, В…), например: 312'
+    case 'set_match':
+      return 'Запишите номера правильных ответов подряд без пробелов, например: 124'
+    default:
+      return null
+  }
+}
+
 // ─── Storage helpers ──────────────────────────────────────────────────────────
 
 // Delete all source documents from test-documents bucket after successful parsing.
@@ -991,13 +1048,24 @@ async function runParsing(jobId: string, testVersionId: string, docIds: string[]
 
         const ans = ansMap.get(t.number) as any
         if (ans?.correct_answer != null) {
+          const rawAns = String(ans.correct_answer)
+          const cleanedAns = cleanParsedAnswer(rawAns)
+          const method = detectGradingMethod(rawAns)
+          const hint = buildFormatHint(rawAns, method)
           const { error: ae } = await client.from('task_answer_keys').insert({
             task_id: task.id,
-            correct_answer: ans.correct_answer,
-            grading_method: ans.grading_method_guess ?? 'normalized',
+            correct_answer: cleanedAns,
+            grading_method: method,
             parse_confidence: ans.confidence ?? 0.98,
           })
-          if (!ae) matchedAns++
+          if (!ae) {
+            matchedAns++
+            // Update grading_method + hint on the task itself
+            await client.from('test_tasks').update({
+              grading_method: method,
+              ...(hint ? { answer_format_hint: hint } : {}),
+            }).eq('id', task.id)
+          }
         }
 
         const sol = solMap.get(t.number) as any
@@ -1144,13 +1212,23 @@ async function runParsing(jobId: string, testVersionId: string, docIds: string[]
 
       const ans = ansMap.get(t.number) as any
       if (ans?.correct_answer != null) {
+        const rawAns = String(ans.correct_answer)
+        const cleanedAns = cleanParsedAnswer(rawAns)
+        const method = detectGradingMethod(rawAns)
+        const hint = buildFormatHint(rawAns, method)
         const { error: ae } = await client.from('task_answer_keys').insert({
           task_id: task.id,
-          correct_answer: ans.correct_answer,
-          grading_method: ans.grading_method_guess ?? 'exact',
+          correct_answer: cleanedAns,
+          grading_method: method,
           parse_confidence: ans.confidence ?? 0.8,
         })
-        if (!ae) matchedAns++
+        if (!ae) {
+          matchedAns++
+          await client.from('test_tasks').update({
+            grading_method: method,
+            ...(hint ? { answer_format_hint: hint } : {}),
+          }).eq('id', task.id)
+        }
       }
 
       const sol = solMap.get(t.number) as any

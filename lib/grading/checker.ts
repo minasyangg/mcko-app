@@ -1,4 +1,4 @@
-import { normalizeText, normalizeNumeric } from './normalizer'
+import { normalizeText, normalizeNumeric, extractNumericValue, splitAlternatives } from './normalizer'
 import type { Json } from '@/types/database'
 
 export interface GradingResult {
@@ -14,29 +14,41 @@ function toObj(j: Json): Record<string, Json | undefined> {
   return {}
 }
 
-// Extract the scalar answer string from whatever shape the value has.
-// Handles: plain string/number, array, { text }, { value }, { selected }
+// Extract scalar string from any answer shape: plain value, {text}, {value}, {selected}, {parts}
 function extractScalar(j: Json | undefined): string {
   if (j === undefined || j === null) return ''
   if (typeof j === 'string') return j
   if (typeof j === 'number') return String(j)
   if (typeof j === 'boolean') return String(j)
-  if (Array.isArray(j)) return j.map(v => toString(v as Json)).join(', ')
+  if (Array.isArray(j)) return j.map(v => scalarToString(v as Json)).join(', ')
   const o = toObj(j as Json)
-  if (o['selected'] !== undefined) return toString(o['selected'])
-  if (o['text'] !== undefined) return toString(o['text'])
-  if (o['value'] !== undefined) return toString(o['value'])
+  if (o['selected'] !== undefined) return scalarToString(o['selected'])
+  if (o['text'] !== undefined) return scalarToString(o['text'])
+  if (o['value'] !== undefined) return scalarToString(o['value'])
   if (o['parts'] !== undefined && typeof o['parts'] === 'object' && !Array.isArray(o['parts'])) {
-    return Object.values(o['parts'] as Record<string, Json>).map(v => toString(v)).join(', ')
+    return Object.values(o['parts'] as Record<string, Json>).map(v => scalarToString(v)).join(', ')
   }
   return ''
 }
 
-function toString(j: Json | undefined): string {
+function scalarToString(j: Json | undefined): string {
   if (typeof j === 'string') return j
   if (typeof j === 'number') return String(j)
-  if (Array.isArray(j)) return j.map(v => toString(v as Json)).join(', ')
+  if (Array.isArray(j)) return j.map(v => scalarToString(v as Json)).join(', ')
   return ''
+}
+
+// Normalize a sequence answer: "А-3,Б-1,В-2" or "3 1 2" or "312" → ["3","1","2"]
+function normalizeSequence(s: string): string[] {
+  // Remove Cyrillic/Latin letter-dash prefixes ("А-", "Б-" etc.)
+  const withoutPrefixes = s.replace(/[А-ЕA-Fa-fа-е]-/gi, ' ')
+  // Extract all numeric tokens
+  const tokens = withoutPrefixes.match(/\d+/g) ?? []
+  if (tokens.length === 1 && tokens[0].length > 1) {
+    // "312" → single multi-digit token → split into individual digits
+    return tokens[0].split('')
+  }
+  return tokens
 }
 
 export function checkAnswer(
@@ -55,9 +67,9 @@ export function checkAnswer(
       const ansText = extractScalar(answerJson)
       const correctText = extractScalar(correctAnswer)
       const normalizedAns = normalizeText(ansText, caseSensitive)
-      const normalizedCorrect = normalizeText(correctText, caseSensitive)
-      const is_correct = normalizedAns === normalizedCorrect
-
+      // Support "или" alternatives in correct answer
+      const alternatives = splitAlternatives(correctText)
+      const is_correct = alternatives.some(alt => normalizedAns === normalizeText(alt, caseSensitive))
       return {
         is_correct,
         awarded_score: is_correct ? maxScore : 0,
@@ -69,9 +81,9 @@ export function checkAnswer(
       const ansText = extractScalar(answerJson)
       const correctText = extractScalar(correctAnswer)
       const normalizedAns = normalizeText(ansText, caseSensitive)
-      const normalizedCorrect = normalizeText(correctText, caseSensitive)
-      const is_correct = normalizedAns === normalizedCorrect
-
+      // Support "или" alternatives in correct answer
+      const alternatives = splitAlternatives(correctText)
+      const is_correct = alternatives.some(alt => normalizedAns === normalizeText(alt, caseSensitive))
       return {
         is_correct,
         awarded_score: is_correct ? maxScore : 0,
@@ -80,51 +92,82 @@ export function checkAnswer(
     }
 
     case 'numeric_tolerance': {
-      const ansValueStr = extractScalar(answerJson)
-      const correctValueStr = extractScalar(correctAnswer)
-
-      const ansNum = normalizeNumeric(ansValueStr)
-      const correctNum = normalizeNumeric(correctValueStr)
-
+      const studentStr = extractScalar(answerJson)
+      const correctStr = extractScalar(correctAnswer)
       const tolerance = typeof config['tolerance'] === 'number' ? config['tolerance'] : 0
 
-      if (ansNum === null || correctNum === null) {
-        return {
-          is_correct: false,
-          awarded_score: 0,
-          normalized_answer_json: ansValueStr,
+      // Support "или" alternatives (e.g. "–1012 или –1210")
+      const alternatives = splitAlternatives(correctStr)
+
+      for (const alt of alternatives) {
+        // Strip units before numeric comparison ("19 км/ч" → "19")
+        const studentNum = normalizeNumeric(extractNumericValue(studentStr) ?? studentStr)
+        const correctNum = normalizeNumeric(extractNumericValue(alt) ?? alt)
+
+        if (studentNum !== null && correctNum !== null) {
+          if (Math.abs(studentNum - correctNum) <= tolerance) {
+            return { is_correct: true, awarded_score: maxScore, normalized_answer_json: studentNum }
+          }
+        } else {
+          // Fallback: text comparison (handles non-numeric like "π", "-")
+          if (normalizeText(studentStr) === normalizeText(alt)) {
+            return { is_correct: true, awarded_score: maxScore, normalized_answer_json: normalizeText(studentStr) }
+          }
         }
       }
 
-      const is_correct = Math.abs(ansNum - correctNum) <= tolerance
+      // Compute normalized student value for display
+      const displayNum = normalizeNumeric(extractNumericValue(studentStr) ?? studentStr)
+      return {
+        is_correct: false,
+        awarded_score: 0,
+        normalized_answer_json: displayNum ?? normalizeText(studentStr),
+      }
+    }
 
+    case 'sequence': {
+      // Matching tasks: "А→3, Б→1, В→2" answer is "312" or "А-3,Б-1,В-2"
+      const studentStr = extractScalar(answerJson)
+      const correctStr = extractScalar(correctAnswer)
+      const studentSeq = normalizeSequence(studentStr)
+      const correctSeq = normalizeSequence(correctStr)
+      const is_correct = studentSeq.length > 0 &&
+        studentSeq.length === correctSeq.length &&
+        studentSeq.every((v, i) => v === correctSeq[i])
       return {
         is_correct,
         awarded_score: is_correct ? maxScore : 0,
-        normalized_answer_json: ansNum,
+        normalized_answer_json: studentSeq,
       }
     }
 
     case 'set_match': {
       const ans = toObj(answerJson)
-      // correct can be plain "1,2,4" or ["1","2","4"] or {selected:[...]}
       const rawCorrect = correctAnswer
+      // Correct answer can be: "1,2,4" | ["1","2","4"] | {selected:[...]} | plain string
       const correctRawSelected: Json[] = Array.isArray(rawCorrect)
         ? rawCorrect
-        : typeof rawCorrect === 'string' && rawCorrect.includes(',')
+        : typeof rawCorrect === 'string' && /,/.test(rawCorrect)
         ? rawCorrect.split(',').map((s) => s.trim())
         : toObj(rawCorrect as Json)['selected'] !== undefined
         ? (Array.isArray(toObj(rawCorrect as Json)['selected'])
             ? (toObj(rawCorrect as Json)['selected'] as Json[])
             : [toObj(rawCorrect as Json)['selected'] as Json])
+        : typeof rawCorrect === 'string' && rawCorrect.length > 1 && /^\d+$/.test(rawCorrect)
+        ? rawCorrect.split('').map(d => d) // "124" → ["1","2","4"]
         : [rawCorrect as Json]
 
-      const ansSelected = Array.isArray(ans['selected'])
-        ? (ans['selected'] as Json[]).map((v) => normalizeText(toString(v), caseSensitive))
-        : [normalizeText(toString(ans['selected']), caseSensitive)]
+      // Student answer: from {selected: [...]} or extract from text ("124" → ["1","2","4"])
+      let ansSelected: string[]
+      if (Array.isArray(ans['selected'])) {
+        ansSelected = (ans['selected'] as Json[]).map((v) => normalizeText(scalarToString(v), caseSensitive))
+      } else if (typeof ans['text'] === 'string' && /^\d+$/.test(ans['text'] as string)) {
+        ansSelected = (ans['text'] as string).split('').map(d => d)
+      } else {
+        ansSelected = [normalizeText(scalarToString(ans['selected']), caseSensitive)]
+      }
 
-      const correctSelected = correctRawSelected.map((v) => normalizeText(toString(v as Json), caseSensitive))
-
+      const correctSelected = correctRawSelected.map((v) => normalizeText(scalarToString(v as Json), caseSensitive))
       const correctSet = new Set(correctSelected)
       const matchCount = ansSelected.filter((v) => correctSet.has(v)).length
       const totalCorrect = correctSelected.length
@@ -134,72 +177,41 @@ export function checkAnswer(
       if (is_correct) {
         awarded_score = maxScore
       } else if (config['partial_credit'] === true && totalCorrect > 0) {
-        // Proportional partial credit
         awarded_score = Math.round((matchCount / totalCorrect) * maxScore * 100) / 100
-
-        // Check partial_score_rules if provided
         if (partialScoreRules && Array.isArray(partialScoreRules)) {
           const rules = partialScoreRules as Array<{ min_correct: number; score: number }>
           const sortedRules = [...rules].sort((a, b) => b.min_correct - a.min_correct)
           for (const rule of sortedRules) {
-            if (matchCount >= rule.min_correct) {
-              awarded_score = rule.score
-              break
-            }
+            if (matchCount >= rule.min_correct) { awarded_score = rule.score; break }
           }
         }
       }
-
-      return {
-        is_correct,
-        awarded_score,
-        normalized_answer_json: ansSelected,
-      }
+      return { is_correct, awarded_score, normalized_answer_json: ansSelected }
     }
 
     case 'contains': {
       const ansText = normalizeText(extractScalar(answerJson), caseSensitive)
-
       const keywords = Array.isArray(config['keywords'])
-        ? (config['keywords'] as Json[]).map((k) => normalizeText(toString(k), caseSensitive))
+        ? (config['keywords'] as Json[]).map((k) => normalizeText(scalarToString(k), caseSensitive))
         : []
-
       const is_correct = keywords.length > 0 && keywords.every((kw) => ansText.includes(kw))
-
-      return {
-        is_correct,
-        awarded_score: is_correct ? maxScore : 0,
-        normalized_answer_json: ansText,
-      }
+      return { is_correct, awarded_score: is_correct ? maxScore : 0, normalized_answer_json: ansText }
     }
 
     case 'regex': {
       const ansText = extractScalar(answerJson)
       const pattern = typeof config['pattern'] === 'string' ? config['pattern'] : ''
-
       let is_correct = false
       try {
         const flags = caseSensitive ? '' : 'i'
-        const re = new RegExp(pattern, flags)
-        is_correct = re.test(ansText)
-      } catch {
-        is_correct = false
-      }
-
-      return {
-        is_correct,
-        awarded_score: is_correct ? maxScore : 0,
-        normalized_answer_json: ansText,
-      }
+        is_correct = new RegExp(pattern, flags).test(ansText)
+      } catch { is_correct = false }
+      return { is_correct, awarded_score: is_correct ? maxScore : 0, normalized_answer_json: ansText }
     }
 
     case 'manual':
     default: {
-      return {
-        is_correct: false,
-        awarded_score: 0,
-        normalized_answer_json: answerJson,
-      }
+      return { is_correct: false, awarded_score: 0, normalized_answer_json: answerJson }
     }
   }
 }
