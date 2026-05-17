@@ -883,6 +883,28 @@ export async function applyMatchingScoringRules(
 
 // ─── Storage helpers ──────────────────────────────────────────────────────────
 
+// Delete all source documents from test-documents bucket after successful parsing.
+// The original files are no longer needed once tasks are extracted into the DB.
+async function cleanupSourceDocuments(
+  client: SupabaseClient<Database>,
+  testVersionId: string
+): Promise<void> {
+  try {
+    const { data: docs } = await client
+      .from('test_documents')
+      .select('storage_path')
+      .eq('test_version_id', testVersionId)
+    const paths = (docs ?? []).map((d) => d.storage_path).filter(Boolean)
+    if (paths.length > 0) {
+      await client.storage.from('test-documents').remove(paths)
+      console.log(`[parsing] deleted ${paths.length} source document(s) from storage`)
+    }
+  } catch (err) {
+    // Non-fatal: log but don't fail the job
+    console.warn('[parsing] cleanupSourceDocuments failed:', err)
+  }
+}
+
 // Delete all Storage files for a version folder (task-media/{versionId}/*)
 export async function deleteVersionStorage(
   client: SupabaseClient<Database>,
@@ -1018,6 +1040,7 @@ async function runParsing(jobId: string, testVersionId: string, docIds: string[]
       }).eq('id', jobId)
 
       if (inserted > 0) await client.from('test_versions').update({ status: 'in_review' }).eq('id', testVersionId)
+      await cleanupSourceDocuments(client, testVersionId)
       console.log(`[parsing/json] done: ${inserted} tasks, ${totalImgs} images`)
       return
 
@@ -1164,7 +1187,7 @@ async function runParsing(jobId: string, testVersionId: string, docIds: string[]
     if (inserted > 0) {
       await client.from('test_versions').update({ status: 'in_review' }).eq('id', testVersionId)
     }
-
+    await cleanupSourceDocuments(client, testVersionId)
     console.log(`[parsing] done: ${inserted} tasks, ${imagesExtracted} images`)
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
