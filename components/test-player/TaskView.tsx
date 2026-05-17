@@ -18,6 +18,7 @@ interface TaskViewProps {
   images?: TaskMediaWithUrl[]
   disabled?: boolean
   isLocked?: boolean
+  onRefreshMedia?: () => void
 }
 
 interface TaskOption {
@@ -52,7 +53,7 @@ function toParts(raw: Json): AnswerPart[] {
   }).filter((p) => p.label)
 }
 
-export function TaskView({ task, answer, onChange, images = [], disabled, isLocked }: TaskViewProps) {
+export function TaskView({ task, answer, onChange, images = [], disabled, isLocked, onRefreshMedia }: TaskViewProps) {
   const answerObj =
     answer !== null && answer !== undefined && typeof answer === 'object' && !Array.isArray(answer)
       ? (answer as Record<string, Json | undefined>)
@@ -207,7 +208,7 @@ export function TaskView({ task, answer, onChange, images = [], disabled, isLock
       </p>
 
       {images.length > 0 && (
-        <TaskImageGallery images={images} placement="above_text" />
+        <TaskImageGallery images={images} placement="above_text" onRefreshRequest={onRefreshMedia} />
       )}
 
       {task.prompt_html
@@ -216,7 +217,7 @@ export function TaskView({ task, answer, onChange, images = [], disabled, isLock
       }
 
       {images.length > 0 && (
-        <TaskImageGallery images={images} placement="below_text" />
+        <TaskImageGallery images={images} placement="below_text" onRefreshRequest={onRefreshMedia} />
       )}
 
       {task.max_score != null && task.max_score > 1 && (

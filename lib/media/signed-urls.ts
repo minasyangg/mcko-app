@@ -2,7 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Database } from '@/types/database'
 import type { TaskMedia, TaskMediaWithUrl } from '@/types/domain'
 
-const SIGNED_URL_TTL = 3600 // 1 hour
+const SIGNED_URL_TTL = 14400 // 4 hours — covers most exam sessions
 
 type Bucket = 'task-media' | 'solution-media' | 'test-documents'
 
@@ -26,11 +26,16 @@ export async function generateSignedUrls(
       .from(bucket)
       .createSignedUrls(paths, SIGNED_URL_TTL)
 
-    if (error || !data) continue
+    if (error || !data) {
+      console.error(`[signed-urls] createSignedUrls failed for bucket "${bucket}":`, error?.message ?? 'no data')
+      continue
+    }
 
     for (const item of data) {
       if (item.signedUrl && item.path) {
         result[item.path] = item.signedUrl
+      } else if (item.path) {
+        console.error(`[signed-urls] Empty signedUrl for path: ${item.path}`)
       }
     }
   }
