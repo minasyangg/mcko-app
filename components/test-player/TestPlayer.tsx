@@ -53,8 +53,7 @@ export function TestPlayer({
 
   const [currentIdx, setCurrentIdx] = useState(0)
   const [answers, setAnswers] = useState<Record<string, Json>>(initialAnswers)
-  // Mutable copy of taskMediaMap so we can refresh signed URLs client-side
-  const [mediaMap, setMediaMap] = useState(taskMediaMap)
+  const mediaMap = taskMediaMap
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [showSubmitDialog, setShowSubmitDialog] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -63,29 +62,6 @@ export function TestPlayer({
   const [savedTaskIds, setSavedTaskIds] = useState<Set<string>>(
     () => new Set(Object.keys(initialAnswers))
   )
-
-  // Refresh signed URLs for a task when images fail (expired or missing URL)
-  const refreshingRef = useRef<Set<string>>(new Set())
-  const refreshTaskMedia = useCallback(async (taskId: string) => {
-    if (refreshingRef.current.has(taskId)) return
-    refreshingRef.current.add(taskId)
-    try {
-      const res = await fetch('/api/tasks/media/refresh', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ taskIds: [taskId] }),
-      })
-      if (!res.ok) return
-      const { media } = await res.json()
-      if (Array.isArray(media) && media.length > 0) {
-        setMediaMap((prev) => ({ ...prev, [taskId]: media }))
-      }
-    } catch (err) {
-      console.error('[TestPlayer] refreshTaskMedia failed:', err)
-    } finally {
-      refreshingRef.current.delete(taskId)
-    }
-  }, [])
 
   // Track pending (unsaved) answer per task
   const pendingRef = useRef<Record<string, Json>>({})
@@ -310,7 +286,6 @@ export function TestPlayer({
                 images={mediaMap[currentTask.id] ?? []}
                 disabled={isSubmitting || lockedSet.has(currentTask.id)}
                 isLocked={lockedSet.has(currentTask.id)}
-                onRefreshMedia={() => refreshTaskMedia(currentTask.id)}
               />
             )}
 

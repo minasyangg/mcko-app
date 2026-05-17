@@ -4,10 +4,9 @@ import { TaskImage } from './TaskImage'
 interface TaskImageGalleryProps {
   images: TaskMediaWithUrl[]
   placement: 'above_text' | 'below_text' | 'inline'
-  onRefreshRequest?: () => void
 }
 
-export function TaskImageGallery({ images, placement, onRefreshRequest }: TaskImageGalleryProps) {
+export function TaskImageGallery({ images, placement }: TaskImageGalleryProps) {
   // inline images are embedded in prompt_html — skip here
   const filtered = images
     .filter((img) => (img.placement ?? 'above_text') === placement)
@@ -25,7 +24,6 @@ export function TaskImageGallery({ images, placement, onRefreshRequest }: TaskIm
           width={img.width_px}
           height={img.height_px}
           priority={placement === 'above_text'}
-          onRefreshRequest={onRefreshRequest}
         />
       </div>
     )
@@ -42,7 +40,6 @@ export function TaskImageGallery({ images, placement, onRefreshRequest }: TaskIm
           width={img.width_px}
           height={img.height_px}
           priority={placement === 'above_text' && idx === 0}
-          onRefreshRequest={onRefreshRequest}
         />
       ))}
     </div>

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { Skeleton } from '@/components/ui/skeleton'
-import { ImageOff, X, ZoomIn, RefreshCw } from 'lucide-react'
+import { ImageOff, X, ZoomIn } from 'lucide-react'
 
 interface TaskImageProps {
   src: string
@@ -11,11 +11,9 @@ interface TaskImageProps {
   height?: number | null
   /** First visible image — eager load + high fetch priority */
   priority?: boolean
-  /** Called when image fails after retry — parent can refresh the signed URL */
-  onRefreshRequest?: () => void
 }
 
-export function TaskImage({ src, alt, width, height, priority = false, onRefreshRequest }: TaskImageProps) {
+export function TaskImage({ src, alt, width, height, priority = false }: TaskImageProps) {
   const [status, setStatus] = useState<'loading' | 'loaded' | 'error'>('loading')
   const [lightboxOpen, setLightboxOpen] = useState(false)
   // Incrementing this key causes React to remount <img>, triggering a fresh fetch
@@ -66,16 +64,6 @@ export function TaskImage({ src, alt, width, height, priority = false, onRefresh
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-muted-foreground">
             <ImageOff className="h-8 w-8" />
             <span className="text-xs text-center px-2">Изображение недоступно</span>
-            {onRefreshRequest && (
-              <button
-                type="button"
-                onClick={() => { setStatus('loading'); retried.current = false; onRefreshRequest() }}
-                className="flex items-center gap-1 text-[11px] text-primary hover:underline"
-              >
-                <RefreshCw className="h-3 w-3" />
-                Обновить
-              </button>
-            )}
           </div>
         )}
 
