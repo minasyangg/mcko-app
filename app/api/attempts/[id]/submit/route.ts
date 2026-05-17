@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { NextResponse } from 'next/server'
 import { checkAnswer } from '@/lib/grading/checker'
 import type { Json } from '@/types/database'
@@ -91,8 +92,10 @@ export async function POST(
 
   const taskIds = tasks.map((t) => t.id)
 
+  // task_answer_keys are hidden from students by RLS — must use admin client
+  const admin = createAdminClient()
   const [{ data: answerKeys }, { data: savedAnswers }] = await Promise.all([
-    supabase
+    admin
       .from('task_answer_keys')
       .select('task_id, correct_answer, grading_method, grading_config, partial_score_rules')
       .in('task_id', taskIds),

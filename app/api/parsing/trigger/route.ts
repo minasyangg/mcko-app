@@ -883,6 +883,13 @@ export async function applyMatchingScoringRules(
 
 // ─── Answer classification helpers ──────────────────────────────────────────
 
+// Keywords in task text that require free-text explanation → always manual/AI grading
+const EXPLANATION_KEYWORDS = /поясни|объясни|докажи|обоснуй|опиши|сформулируй|охарактеризуй|сравни|проанализируй|ответ\s+поясните|ответ\s+объясните/i
+
+export function requiresExplanation(promptText: string): boolean {
+  return EXPLANATION_KEYWORDS.test(promptText)
+}
+
 function cleanParsedAnswer(raw: string): string {
   return raw.trim()
     .replace(/[.;:]+$/, '')
@@ -1028,15 +1035,18 @@ async function runParsing(jobId: string, testVersionId: string, docIds: string[]
       let inserted = 0, matchedAns = 0, matchedSol = 0, totalImgs = 0
 
       for (const t of tasks) {
+        // Tasks with explanation keywords → always manual (AI semantic grading)
+        const needsExplanation = requiresExplanation(t.prompt_text ?? '')
         const { data: task, error: te } = await client.from('test_tasks').insert({
           test_version_id: testVersionId,
           task_number: t.number,
           sort_order: t.number,
           prompt_text: t.prompt_text,
           prompt_html: t.prompt_html ?? null,
-          task_type: t.task_type_guess ?? 'short_text',
+          task_type: needsExplanation ? 'manual_review' : (t.task_type_guess ?? 'short_text'),
           options: null,
           answer_format_hint: null,
+          grading_method: needsExplanation ? 'manual' : 'exact',
           parse_confidence: t.confidence ?? 0.98,
           has_images: t.has_unmatched_images ?? false,
           source_pages: [1],
@@ -1050,7 +1060,7 @@ async function runParsing(jobId: string, testVersionId: string, docIds: string[]
         if (ans?.correct_answer != null) {
           const rawAns = String(ans.correct_answer)
           const cleanedAns = cleanParsedAnswer(rawAns)
-          const method = detectGradingMethod(rawAns)
+          const method = needsExplanation ? 'manual' : detectGradingMethod(rawAns)
           const hint = buildFormatHint(rawAns, method)
           const { error: ae } = await client.from('task_answer_keys').insert({
             task_id: task.id,
@@ -1060,7 +1070,6 @@ async function runParsing(jobId: string, testVersionId: string, docIds: string[]
           })
           if (!ae) {
             matchedAns++
-            // Update grading_method + hint on the task itself
             await client.from('test_tasks').update({
               grading_method: method,
               ...(hint ? { answer_format_hint: hint } : {}),
@@ -1191,15 +1200,17 @@ async function runParsing(jobId: string, testVersionId: string, docIds: string[]
     let inserted = 0, matchedAns = 0, matchedSol = 0
 
     for (const t of tasks) {
+      const needsExplanation = requiresExplanation(t.prompt_text ?? '')
       const { data: task, error: te } = await client.from('test_tasks').insert({
         test_version_id: testVersionId,
         task_number: t.number,
         sort_order: t.number,
         prompt_text: t.prompt_text,
         prompt_html: t.prompt_html ?? null,
-        task_type: t.task_type_guess ?? 'short_text',
+        task_type: needsExplanation ? 'manual_review' : (t.task_type_guess ?? 'short_text'),
         options: Array.isArray(t.options) && t.options.length ? t.options : null,
         answer_format_hint: t.answer_format_hint ?? null,
+        grading_method: needsExplanation ? 'manual' : 'exact',
         parse_confidence: t.confidence ?? 0.8,
         has_images: t.has_unmatched_images ?? false,
         source_pages: Array.isArray(t.source_pages) ? t.source_pages : [1],
@@ -1214,7 +1225,7 @@ async function runParsing(jobId: string, testVersionId: string, docIds: string[]
       if (ans?.correct_answer != null) {
         const rawAns = String(ans.correct_answer)
         const cleanedAns = cleanParsedAnswer(rawAns)
-        const method = detectGradingMethod(rawAns)
+        const method = needsExplanation ? 'manual' : detectGradingMethod(rawAns)
         const hint = buildFormatHint(rawAns, method)
         const { error: ae } = await client.from('task_answer_keys').insert({
           task_id: task.id,
