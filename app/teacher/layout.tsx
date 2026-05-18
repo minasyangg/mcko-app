@@ -16,16 +16,27 @@ export default async function TeacherLayout({ children }: { children: React.Reac
   if (!profile) redirect('/no-profile')
   if (profile.role !== 'teacher' && profile.role !== 'admin') redirect('/student')
 
-  const [{ count: pendingRequests }, { count: pendingReview }] = await Promise.all([
+  const [{ count: pendingRequests }, { data: completedAttempts }] = await Promise.all([
     supabase
       .from('solution_requests')
       .select('*', { count: 'exact', head: true })
       .eq('status', 'pending'),
     supabase
       .from('attempts')
-      .select('*', { count: 'exact', head: true })
-      .in('status', ['submitted', 'under_review']),
+      .select('student_id, assignment_id, status, last_activity_at')
+      .in('status', ['submitted', 'under_review', 'checked'])
+      .order('last_activity_at', { ascending: false })
+      .limit(1000),
   ])
+
+  // Count groups where the LATEST attempt needs review (matches MonitorTable "На проверке" tab)
+  const latestByGroup = new Map<string, string>()
+  for (const a of completedAttempts ?? []) {
+    const key = `${a.student_id}:${a.assignment_id}`
+    if (!latestByGroup.has(key)) latestByGroup.set(key, a.status)
+  }
+  const pendingReview = [...latestByGroup.values()]
+    .filter(s => s === 'submitted' || s === 'under_review').length
 
   return (
     <div className="min-h-screen flex flex-col md:flex-row">

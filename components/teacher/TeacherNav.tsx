@@ -32,6 +32,7 @@ function NavLink({
   icon: Icon,
   exact,
   badge,
+  badgeVariant = 'default',
   onClick,
 }: {
   href: string
@@ -39,6 +40,7 @@ function NavLink({
   icon: React.ElementType
   exact?: boolean
   badge?: number
+  badgeVariant?: 'default' | 'warning'
   onClick?: () => void
 }) {
   const pathname = usePathname()
@@ -58,7 +60,12 @@ function NavLink({
       <Icon className="h-4 w-4 shrink-0" />
       <span className="truncate">{label}</span>
       {badge != null && badge > 0 && (
-        <span className="ml-auto text-xs bg-destructive text-destructive-foreground rounded-full px-1.5 py-0.5 leading-none shrink-0">
+        <span className={cn(
+          'ml-auto inline-flex items-center justify-center rounded-full min-w-4.5 h-4.5 px-1 text-[11px] font-semibold leading-none shrink-0',
+          badgeVariant === 'warning'
+            ? 'bg-orange-500 text-white'
+            : 'bg-destructive text-destructive-foreground'
+        )}>
           {badge}
         </span>
       )}
@@ -81,6 +88,7 @@ function NavList({ pendingRequests, monitorBadge, onLinkClick }: { pendingReques
             href === '/teacher/monitor' ? monitorBadge :
             undefined
           }
+          badgeVariant={href === '/teacher/monitor' ? 'warning' : 'default'}
           onClick={onLinkClick}
         />
       ))}
@@ -96,11 +104,12 @@ export function TeacherNav({ fullName, pendingRequests, pendingReview }: Props) 
     const supabase = createClient()
 
     const fetchPendingReview = async () => {
-      const { count } = await supabase
-        .from('attempts')
-        .select('*', { count: 'exact', head: true })
-        .in('status', ['submitted', 'under_review'])
-      if (count !== null) setMonitorBadge(count)
+      try {
+        const res = await fetch('/api/teacher/monitor/pending-count')
+        if (!res.ok) return
+        const { count } = await res.json()
+        setMonitorBadge(count)
+      } catch { /* ignore transient errors */ }
     }
 
     const channel = supabase
