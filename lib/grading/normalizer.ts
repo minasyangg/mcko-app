@@ -20,14 +20,6 @@ export function normalizeNumeric(value: string): number | null {
   return isNaN(n) ? null : n
 }
 
-// Strip trailing punctuation from a parsed correct answer ("4,5." → "4,5", "- 7" → "-7")
-export function cleanCorrectAnswer(raw: string): string {
-  return raw.trim()
-    .replace(/[.;:]+$/, '')
-    .replace(/([-–−])\s+(\d)/g, '$1$2')
-    .trim()
-}
-
 // Extract leading numeric value, discarding units ("19 км/ч" → "19", "4,5 м/с" → "4.5")
 export function extractNumericValue(s: string): string | null {
   const m = s.trim().match(/^(-?\d+[.,]?\d*(?:[eE][+-]?\d+)?)/)

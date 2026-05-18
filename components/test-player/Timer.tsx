@@ -57,6 +57,7 @@ export function Timer({ startedAt, timeLimitSec, onExpire }: TimerProps) {
 
   return (
     <span
+      suppressHydrationWarning
       className={[
         'inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-sm font-mono font-medium tabular-nums',
         isLow

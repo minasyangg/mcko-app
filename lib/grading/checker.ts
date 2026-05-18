@@ -40,8 +40,8 @@ function scalarToString(j: Json | undefined): string {
 
 // Normalize a sequence answer: "А-3,Б-1,В-2" or "3 1 2" or "312" → ["3","1","2"]
 function normalizeSequence(s: string): string[] {
-  // Remove Cyrillic/Latin letter-dash prefixes ("А-", "Б-" etc.)
-  const withoutPrefixes = s.replace(/[А-ЕA-Fa-fа-е]-/gi, ' ')
+  // Remove any letter-dash prefix ("А-", "Б-", "Ж-", "A-", etc.)
+  const withoutPrefixes = s.replace(/[А-Яа-яA-Za-z]-/g, ' ')
   // Extract all numeric tokens
   const tokens = withoutPrefixes.match(/\d+/g) ?? []
   if (tokens.length === 1 && tokens[0].length > 1) {
@@ -145,14 +145,15 @@ export function checkAnswer(
       const ans = toObj(answerJson)
       const rawCorrect = correctAnswer
       // Correct answer can be: "1,2,4" | ["1","2","4"] | {selected:[...]} | plain string
+      const rawCorrectObj = toObj(rawCorrect as Json)
       const correctRawSelected: Json[] = Array.isArray(rawCorrect)
         ? rawCorrect
         : typeof rawCorrect === 'string' && /,/.test(rawCorrect)
         ? rawCorrect.split(',').map((s) => s.trim())
-        : toObj(rawCorrect as Json)['selected'] !== undefined
-        ? (Array.isArray(toObj(rawCorrect as Json)['selected'])
-            ? (toObj(rawCorrect as Json)['selected'] as Json[])
-            : [toObj(rawCorrect as Json)['selected'] as Json])
+        : rawCorrectObj['selected'] !== undefined
+        ? (Array.isArray(rawCorrectObj['selected'])
+            ? (rawCorrectObj['selected'] as Json[])
+            : [rawCorrectObj['selected'] as Json])
         : typeof rawCorrect === 'string' && rawCorrect.length > 1 && /^\d+$/.test(rawCorrect)
         ? rawCorrect.split('').map(d => d) // "124" → ["1","2","4"]
         : [rawCorrect as Json]

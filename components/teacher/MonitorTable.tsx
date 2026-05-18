@@ -228,8 +228,8 @@ export function MonitorTable({ initialAttempts }: Props) {
       <AttemptDrawer
         attemptId={selectedAttemptId}
         onClose={() => setSelectedAttemptId(null)}
-        onGraded={(id) => {
-          setAttempts((prev) => prev.map((a) => a.id === id ? { ...a, status: 'checked' } : a))
+        onGraded={(id, score) => {
+          setAttempts((prev) => prev.map((a) => a.id === id ? { ...a, status: 'checked', score } : a))
           setSelectedAttemptId(null)
         }}
       />

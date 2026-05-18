@@ -39,6 +39,7 @@ export async function PATCH(
 
   const admin = createAdminClient()
   const now = new Date().toISOString()
+  let finalizedScore: number | undefined
 
   // Find locked answers so we don't overwrite scores that were finalized in a previous attempt
   const answerIds = (body.answers ?? []).map(a => a.answer_id)
@@ -76,6 +77,7 @@ export async function PATCH(
       .eq('attempt_id', attemptId)
 
     const attemptScore = (allAnswers ?? []).reduce((s, a) => s + (a.awarded_score ?? 0), 0)
+    finalizedScore = attemptScore
 
     await admin.from('attempts').update({
       status: 'checked',
@@ -150,5 +152,5 @@ export async function PATCH(
     }
   }
 
-  return Response.json({ ok: true })
+  return Response.json({ ok: true, ...(finalizedScore !== undefined ? { score: finalizedScore } : {}) })
 }

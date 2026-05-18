@@ -1,11 +1,12 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { LogoutButton } from '@/components/shared/LogoutButton'
 import { BookOpen, Users, Monitor, FileText, ClipboardList, BarChart2, TrendingUp, Menu, X, ListChecks } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { createClient } from '@/lib/supabase/client'
 
 const navItems = [
   { href: '/teacher', label: 'Дашборд', icon: BarChart2, exact: true },
@@ -22,6 +23,7 @@ const navItems = [
 interface Props {
   fullName: string
   pendingRequests: number
+  pendingReview: number
 }
 
 function NavLink({
@@ -64,7 +66,7 @@ function NavLink({
   )
 }
 
-function NavList({ pendingRequests, onLinkClick }: { pendingRequests: number; onLinkClick?: () => void }) {
+function NavList({ pendingRequests, monitorBadge, onLinkClick }: { pendingRequests: number; monitorBadge: number; onLinkClick?: () => void }) {
   return (
     <nav className="flex-1 py-2 space-y-0.5 overflow-y-auto">
       {navItems.map(({ href, label, icon, exact }) => (
@@ -74,7 +76,11 @@ function NavList({ pendingRequests, onLinkClick }: { pendingRequests: number; on
           label={label}
           icon={icon}
           exact={exact}
-          badge={href === '/teacher/solution-requests' ? pendingRequests : undefined}
+          badge={
+            href === '/teacher/solution-requests' ? pendingRequests :
+            href === '/teacher/monitor' ? monitorBadge :
+            undefined
+          }
           onClick={onLinkClick}
         />
       ))}
@@ -82,8 +88,29 @@ function NavList({ pendingRequests, onLinkClick }: { pendingRequests: number; on
   )
 }
 
-export function TeacherNav({ fullName, pendingRequests }: Props) {
+export function TeacherNav({ fullName, pendingRequests, pendingReview }: Props) {
   const [mobileOpen, setMobileOpen] = useState(false)
+  const [monitorBadge, setMonitorBadge] = useState(pendingReview)
+
+  useEffect(() => {
+    const supabase = createClient()
+
+    const fetchPendingReview = async () => {
+      const { count } = await supabase
+        .from('attempts')
+        .select('*', { count: 'exact', head: true })
+        .in('status', ['submitted', 'under_review'])
+      if (count !== null) setMonitorBadge(count)
+    }
+
+    const channel = supabase
+      .channel('monitor-badge')
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'attempts' }, fetchPendingReview)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'attempts' }, fetchPendingReview)
+      .subscribe()
+
+    return () => { supabase.removeChannel(channel) }
+  }, [])
 
   return (
     <>
@@ -92,7 +119,7 @@ export function TeacherNav({ fullName, pendingRequests }: Props) {
         <div className="h-14 flex items-center px-4 border-b shrink-0">
           <span className="font-semibold text-sm">ExamPlatform</span>
         </div>
-        <NavList pendingRequests={pendingRequests} />
+        <NavList pendingRequests={pendingRequests} monitorBadge={monitorBadge} />
         <div className="p-4 border-t space-y-1 shrink-0">
           <p className="text-xs text-muted-foreground truncate">{fullName}</p>
           <LogoutButton size="sm" variant="ghost" className="w-full justify-start px-0" />
@@ -133,6 +160,7 @@ export function TeacherNav({ fullName, pendingRequests }: Props) {
             </div>
             <NavList
               pendingRequests={pendingRequests}
+              monitorBadge={monitorBadge}
               onLinkClick={() => setMobileOpen(false)}
             />
             <div className="p-4 border-t space-y-1 shrink-0">

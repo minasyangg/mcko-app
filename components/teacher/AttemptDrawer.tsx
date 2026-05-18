@@ -60,7 +60,7 @@ interface MediaRow {
 interface Props {
   attemptId: string | null
   onClose: () => void
-  onGraded?: (attemptId: string) => void
+  onGraded?: (attemptId: string, score: number) => void
 }
 
 const STATUS_LABELS: Record<string, string> = {
@@ -327,9 +327,9 @@ export function AttemptDrawer({ attemptId, onClose, onGraded }: Props) {
           teacher_comment: teacherComment || undefined,
         }),
       })
+      const resData = await res.json().catch(() => ({}))
       if (!res.ok) {
-        const d = await res.json().catch(() => ({}))
-        setSaveError(d.error ?? 'Ошибка сохранения')
+        setSaveError(resData.error ?? 'Ошибка сохранения')
         return
       }
       // Update local answer scores so the UI reflects new values immediately
@@ -344,7 +344,7 @@ export function AttemptDrawer({ attemptId, onClose, onGraded }: Props) {
         ))
         setEditingScores(false)
       }
-      onGraded?.(attemptId)
+      onGraded?.(attemptId, resData.score ?? 0)
     } finally {
       setIsSaving(false)
     }
