@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { NextResponse } from 'next/server'
 import { checkAnswer } from '@/lib/grading/checker'
 import type { Json } from '@/types/database'
@@ -7,34 +8,57 @@ import type { Json } from '@/types/database'
 async function checkWithAI(
   studentAnswer: string,
   correctAnswer: string,
-  maxScore: number
+  maxScore: number,
+  criteria?: string | null
 ): Promise<{ is_correct: boolean; awarded_score: number } | null> {
   const apiKey = process.env.DEEPSEEK_API_KEY
   if (!apiKey || !studentAnswer.trim() || !correctAnswer.trim()) return null
 
-  try {
-    const prompt = `Оцени ответ ученика. Отвечай строго JSON без пояснений.
-Правильный ответ: ${correctAnswer.slice(0, 500)}
-Ответ ученика: ${studentAnswer.slice(0, 500)}
-Максимальный балл: ${maxScore}
-Верни: {"is_correct": bool, "awarded_score": число_от_0_до_${maxScore}}`
+  const systemPrompt =
+    'Ты ассистент-преподаватель, проверяющий письменные ответы учеников на школьных экзаменах ' +
+    '(ОГЭ, ЕГЭ, ВПР). Оценивай по смыслу, а не по дословному совпадению. ' +
+    'Синонимы и перефразировки засчитываются. Отвечай строго валидным JSON.'
 
+  const scoringSection = criteria?.trim()
+    ? `Критерии оценивания (используй их как основу для выставления балла):\n${criteria.trim()}`
+    : maxScore === 1
+      ? `Шкала оценивания:\n- 1 балл: ответ верный по смыслу\n- 0 баллов: ответ неверный или не по теме`
+      : `Шкала оценивания:\n` + [
+          `- ${maxScore} баллов: ответ полностью верный, раскрыт полностью`,
+          maxScore >= 3 ? `- ${Math.round(maxScore * 0.67)}–${maxScore - 1} баллов: ответ в основном верный, но неполный или с незначительными ошибками` : null,
+          `- 1 балл: ответ частично верный, но с существенными пропусками или ошибками`,
+          `- 0 баллов: ответ неверный, не по теме или отсутствует`,
+        ].filter(Boolean).join('\n')
+
+  const userPrompt =
+    `Оцени письменный ответ ученика по шкале от 0 до ${maxScore}.\n\n` +
+    `Эталонный ответ: ${correctAnswer.slice(0, 800)}\n\n` +
+    `Ответ ученика: ${studentAnswer.slice(0, 800)}\n\n` +
+    `${scoringSection}\n\n` +
+    `Орфография и пунктуация не учитываются.\n\n` +
+    `Верни JSON: {"awarded_score": <целое число от 0 до ${maxScore}>}`
+
+  try {
     const res = await fetch('https://api.deepseek.com/v1/chat/completions', {
       method: 'POST',
       headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model: 'deepseek-chat',
-        messages: [{ role: 'user', content: prompt }],
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
         response_format: { type: 'json_object' },
         temperature: 0.0,
-        max_tokens: 100,
+        max_tokens: 50,
       }),
     })
     if (!res.ok) return null
     const json = await res.json()
     const content = JSON.parse(json.choices?.[0]?.message?.content ?? '{}')
-    const awarded = Math.min(Math.max(Number(content.awarded_score) || 0, 0), maxScore)
-    return { is_correct: !!content.is_correct, awarded_score: awarded }
+    const awarded = Math.min(Math.max(Math.round(Number(content.awarded_score)) || 0, 0), maxScore)
+    // Derive is_correct from the score — don't trust the model's boolean
+    return { is_correct: awarded === maxScore, awarded_score: awarded }
   } catch {
     return null
   }
@@ -71,7 +95,7 @@ export async function POST(
 
   const { data: assignment } = await supabase
     .from('assignments')
-    .select('id, test_version_id')
+    .select('id, test_version_id, max_attempts, test_versions!test_version_id(tests!test_id(scoring_rule_id))')
     .eq('id', attempt.assignment_id)
     .single()
 
@@ -79,9 +103,12 @@ export async function POST(
     return NextResponse.json({ error: 'Assignment not found' }, { status: 404 })
   }
 
+  const scoringRuleId: string | null =
+    ((assignment as any).test_versions as any)?.tests?.scoring_rule_id ?? null
+
   const { data: tasks } = await supabase
     .from('test_tasks')
-    .select('id, max_score, task_type, grading_method')
+    .select('id, task_number, max_score, task_type, grading_method')
     .eq('test_version_id', assignment.test_version_id)
     .order('sort_order', { ascending: true })
 
@@ -91,19 +118,32 @@ export async function POST(
 
   const taskIds = tasks.map((t) => t.id)
 
-  const [{ data: answerKeys }, { data: savedAnswers }] = await Promise.all([
-    supabase
+  // task_answer_keys are hidden from students by RLS — must use admin client
+  const admin = createAdminClient()
+  const [{ data: answerKeys }, { data: savedAnswers }, { data: criteriaItems }] = await Promise.all([
+    admin
       .from('task_answer_keys')
       .select('task_id, correct_answer, grading_method, grading_config, partial_score_rules')
       .in('task_id', taskIds),
     supabase
       .from('attempt_task_answers')
-      .select('task_id, answer_json, answer_version, is_locked, awarded_score, is_correct')
+      .select('task_id, answer_json, is_locked, awarded_score, is_correct')
       .eq('attempt_id', attemptId),
+    scoringRuleId
+      ? admin.from('scoring_rule_items').select('task_number, note').eq('rule_id', scoringRuleId)
+      : Promise.resolve({ data: [] as { task_number: number; note: string | null }[] }),
   ])
 
   const answerKeyMap = new Map((answerKeys ?? []).map((k) => [k.task_id, k]))
   const savedAnswerMap = new Map((savedAnswers ?? []).map((a) => [a.task_id, a]))
+
+  // Criteria by task_number (from scoring rule note field)
+  const criteriaMap = new Map<number, string>()
+  for (const item of criteriaItems ?? []) {
+    if (item.task_number && item.note?.trim()) {
+      criteriaMap.set(item.task_number, item.note.trim())
+    }
+  }
 
   const now = new Date().toISOString()
 
@@ -132,14 +172,8 @@ export async function POST(
     // Effective grading method: from answer key if exists, else from task itself
     const effectiveMethod = answerKey?.grading_method ?? (task as any).grading_method ?? 'manual'
 
-    // No answer key → use task's grading_method to decide if manual review needed
     if (!answerKey) {
-      if (effectiveMethod === 'manual') {
-        allAutoChecked = false
-      } else {
-        // No key, no reference answer — can't auto-grade, flag for teacher
-        allAutoChecked = false
-      }
+      allAutoChecked = false
       continue
     }
 
@@ -170,7 +204,8 @@ export async function POST(
         : String(savedAnswer.answer_json ?? '')
 
       if (correctVal && studentVal) {
-        const aiResult = await checkWithAI(studentVal, correctVal, maxScore)
+        const criteria = criteriaMap.get((task as any).task_number) ?? null
+        const aiResult = await checkWithAI(studentVal, correctVal, maxScore, criteria)
         if (aiResult) {
           totalScore += aiResult.awarded_score
           updates.push({ taskId: task.id, is_correct: aiResult.is_correct, awarded_score: aiResult.awarded_score, auto_checked: true })
@@ -199,9 +234,9 @@ export async function POST(
     updates.push({ taskId: task.id, is_correct: result.is_correct, awarded_score: result.awarded_score, auto_checked: true })
   }
 
-  // Write grading results for non-locked tasks
-  for (const u of updates) {
-    await supabase
+  // Write grading results for non-locked tasks (parallel)
+  await Promise.all(updates.map(u =>
+    supabase
       .from('attempt_task_answers')
       .update({
         is_correct: u.is_correct,
@@ -210,7 +245,7 @@ export async function POST(
       })
       .eq('attempt_id', attemptId)
       .eq('task_id', u.taskId)
-  }
+  ))
 
   const newStatus = allAutoChecked ? 'checked' : 'submitted'
 
@@ -230,12 +265,21 @@ export async function POST(
     return NextResponse.json({ error: 'Failed to finalize attempt' }, { status: 500 })
   }
 
-  // Compute cumulative score: MAX(awarded_score) per task across ALL attempts for this assignment
-  const { data: allAttemptIds } = await supabase
-    .from('attempts')
-    .select('id')
-    .eq('assignment_id', attempt.assignment_id)
-    .eq('student_id', user.id)
+  // Compute cumulative score: MAX(awarded_score) per task across all completed attempts
+  const [{ data: allAttemptIds }, completedCountResult] = await Promise.all([
+    supabase
+      .from('attempts')
+      .select('id')
+      .eq('assignment_id', attempt.assignment_id)
+      .eq('student_id', user.id)
+      .in('status', ['submitted', 'checked']),
+    supabase
+      .from('attempts')
+      .select('id', { count: 'exact', head: true })
+      .eq('assignment_id', attempt.assignment_id)
+      .eq('student_id', user.id)
+      .in('status', ['submitted', 'checked']),
+  ])
 
   const ids = (allAttemptIds ?? []).map(a => a.id)
   if (ids.length > 0) {
@@ -251,25 +295,12 @@ export async function POST(
     }
     const cumulativeScore = [...taskBest.values()].reduce((s, v) => s + v, 0)
 
-    // Determine if all attempts used
-    const { data: asgn } = await supabase
-      .from('assignments')
-      .select('max_attempts, test_version_id')
-      .eq('id', attempt.assignment_id)
-      .single()
-
-    const completedCount = (await supabase
-      .from('attempts')
-      .select('id', { count: 'exact', head: true })
-      .eq('assignment_id', attempt.assignment_id)
-      .eq('student_id', user.id)
-      .in('status', ['submitted', 'checked'])).count ?? 0
-
-    const allUsed = completedCount >= (asgn?.max_attempts ?? 1)
+    const completedCount = completedCountResult.count ?? 0
+    const allUsed = completedCount >= (assignment.max_attempts ?? 1)
 
     await supabase.from('student_final_results').upsert({
       student_id: user.id,
-      test_version_id: asgn?.test_version_id ?? assignment.test_version_id,
+      test_version_id: assignment.test_version_id,
       final_score: cumulativeScore,
       max_score: totalMaxScore,
       attempt_count: completedCount,

@@ -13,7 +13,7 @@ export async function DELETE(
   if (authError || !user) return Response.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { data: profile } = await supabase
-    .from('profiles').select('role').eq('id', user.id).single()
+    .from('profiles').select('role, organization_id').eq('id', user.id).single()
   if (!profile || !['teacher', 'admin'].includes(profile.role)) {
     return Response.json({ error: 'Forbidden' }, { status: 403 })
   }
@@ -22,12 +22,17 @@ export async function DELETE(
 
   const { data: media } = await admin
     .from('task_media')
-    .select('id, storage_path, task_id')
+    .select('id, storage_path, task_id, test_tasks!task_id(test_versions!test_version_id(tests!test_id(organization_id)))')
     .eq('id', mediaId)
     .eq('task_id', taskId)
     .single()
 
   if (!media) return Response.json({ error: 'Not found' }, { status: 404 })
+
+  const taskOrgId = ((media as any).test_tasks as any)?.test_versions?.tests?.organization_id
+  if (taskOrgId && taskOrgId !== profile.organization_id) {
+    return Response.json({ error: 'Forbidden' }, { status: 403 })
+  }
 
   await admin.storage.from('task-media').remove([media.storage_path])
   await admin.from('task_media').delete().eq('id', mediaId)

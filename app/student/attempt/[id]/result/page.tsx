@@ -124,7 +124,7 @@ export default async function ResultPage({ params }: PageProps) {
 
   const { data: studentAnswers } = await supabase
     .from('attempt_task_answers')
-    .select('task_id, answer_json, is_correct, awarded_score, teacher_comment')
+    .select('task_id, answer_json, is_correct, awarded_score, teacher_comment, is_locked, auto_checked_at')
     .eq('attempt_id', attempt.id)
 
   // Load task images for result page display
@@ -333,22 +333,25 @@ export default async function ResultPage({ params }: PageProps) {
                 const hasSolution = solutionTaskIds.has(task.id)
                 const solutionContent = solutionContentMap.get(task.id)
                 const solutionMedia = solutionMediaMap.get(task.id) ?? []
+                // Show ✓/✗ for tasks that are resolved: locked (from prior attempt),
+                // auto-graded in current attempt, or teacher has finalized everything
+                const isResolved = isChecked || ans?.is_locked === true || ans?.auto_checked_at != null
 
                 return (
                   <Card
                     key={task.id}
                     className={[
-                      isChecked && isCorrect === true ? 'border-green-200 dark:border-green-800' :
-                      isChecked && isCorrect === false ? 'border-red-200 dark:border-red-800' : ''
+                      isResolved && isCorrect === true ? 'border-green-200 dark:border-green-800' :
+                      isResolved && isCorrect === false ? 'border-red-200 dark:border-red-800' : ''
                     ].join(' ')}
                   >
                     <CardContent className="pt-4 space-y-3">
                       <div className="flex items-start gap-3">
                         {/* Status icon */}
                         <div className="mt-0.5 shrink-0">
-                          {isChecked && isCorrect === true ? (
+                          {isResolved && isCorrect === true ? (
                             <CheckCircle2 className="h-4 w-4 text-green-500" />
-                          ) : isChecked && isCorrect === false ? (
+                          ) : isResolved && isCorrect === false ? (
                             <XCircle className="h-4 w-4 text-destructive" />
                           ) : (
                             <MinusCircle className="h-4 w-4 text-muted-foreground" />
@@ -360,7 +363,7 @@ export default async function ResultPage({ params }: PageProps) {
                             <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
                               Задача {task.task_number}
                             </span>
-                            {isChecked && (
+                            {isResolved && (
                               <span className="text-xs tabular-nums text-muted-foreground shrink-0">
                                 <span className="font-semibold text-foreground">{awardedScore}</span>/{task.max_score} б.
                               </span>

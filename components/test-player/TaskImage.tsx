@@ -24,8 +24,13 @@ export function TaskImage({ src, alt, width, height, priority = false }: TaskIma
   const aspectStyle =
     width && height ? { aspectRatio: `${width} / ${height}` } : { aspectRatio: '4 / 3' }
 
-  // Reset state when src changes (task navigation)
   useEffect(() => {
+    // Empty src (failed signed URL generation) → show error immediately, no retry
+    if (!src) {
+      console.error(`[TaskImage] Empty src — signed URL generation failed at ${new Date().toISOString()}`)
+      setStatus('error')
+      return
+    }
     setStatus('loading')
     setRetryKey(0)
     retried.current = false
@@ -34,17 +39,13 @@ export function TaskImage({ src, alt, width, height, priority = false }: TaskIma
   function handleError() {
     if (!retried.current) {
       retried.current = true
-      console.error(
-        `[TaskImage] Load failed, retrying in 1.5s — src: ${src} — ${new Date().toISOString()}`
-      )
+      console.error(`[TaskImage] Load failed, retrying in 1.5s — ${new Date().toISOString()} — src: ${src}`)
       setTimeout(() => {
         setStatus('loading')
         setRetryKey((k) => k + 1)
       }, 1500)
     } else {
-      console.error(
-        `[TaskImage] Retry failed, image unavailable — src: ${src} — ${new Date().toISOString()}`
-      )
+      console.error(`[TaskImage] Retry failed — likely expired signed URL — ${new Date().toISOString()} — src: ${src}`)
       setStatus('error')
     }
   }
@@ -55,14 +56,14 @@ export function TaskImage({ src, alt, width, height, priority = false }: TaskIma
         className="relative max-w-full overflow-hidden rounded-md border bg-muted"
         style={{ ...aspectStyle, maxHeight: '320px' }}
       >
-        {status === 'loading' && (
+        {status === 'loading' && src && (
           <Skeleton className="absolute inset-0 w-full h-full rounded-md" />
         )}
 
         {status === 'error' && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-muted-foreground">
             <ImageOff className="h-8 w-8" />
-            <span className="text-xs">Изображение недоступно</span>
+            <span className="text-xs text-center px-2">Изображение недоступно</span>
           </div>
         )}
 

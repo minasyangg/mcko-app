@@ -684,8 +684,8 @@ function parseJsonPaddleOCR(pages: PaddlePage[]): {
     .filter(t => t.answer)
     .map(t => ({
       task_number: t.number,
-      correct_answer: t.answer!,
-      grading_method_guess: /^-?\d+([.,]\d+)?$/.test(t.answer!) ? 'numeric_tolerance' : 'normalized',
+      correct_answer: cleanParsedAnswer(t.answer!),
+      grading_method_guess: detectGradingMethod(t.answer!),
       confidence: 0.98,
     }))
 
@@ -881,7 +881,93 @@ export async function applyMatchingScoringRules(
   return updated
 }
 
+// ─── Answer classification helpers ──────────────────────────────────────────
+
+// Keywords in task text that require free-text explanation → always manual/AI grading
+const EXPLANATION_KEYWORDS = /поясни|объясни|докажи|обоснуй|опиши|сформулируй|охарактеризуй|сравни|проанализируй|ответ\s+поясните|ответ\s+объясните/i
+
+export function requiresExplanation(promptText: string): boolean {
+  return EXPLANATION_KEYWORDS.test(promptText)
+}
+
+function cleanParsedAnswer(raw: string): string {
+  return raw.trim()
+    .replace(/[.;:]+$/, '')
+    .replace(/([-–−])\s+(\d)/g, '$1$2') // "- 7" → "-7"
+    .trim()
+}
+
+function detectGradingMethod(rawAnswer: string): string {
+  const cleaned = cleanParsedAnswer(rawAnswer).trim()
+  const lower = cleaned.toLowerCase()
+
+  // Image-based → manual
+  if (/см\.?\s*рис|по\s+рисунку|на\s+рисунке|на\s+графике/.test(lower)) return 'manual'
+  // Multi-part "1) ... 2) ..." → manual
+  if (/\d+\)[\s\S]+\d+\)/.test(cleaned)) return 'manual'
+  // LaTeX formula → manual
+  if (cleaned.startsWith('$') || /\\frac|\\sqrt/.test(cleaned)) return 'manual'
+
+  // Strip "или" alternatives for detection
+  const firstAlt = cleaned.split(/\s+или\s+/i)[0].trim()
+
+  // Letter-digit correspondence "А-3, Б-1" → sequence
+  if (/^[А-Еа-е]-\d/.test(firstAlt)) return 'sequence'
+
+  // Pure numeric (int/decimal, optional negative, optional units after space)
+  if (/^[-–−]?\d+([,.]?\d+)?(\s+[а-яa-zёА-ЯA-Z\/²³°%·]+\.?)*$/.test(firstAlt)) {
+    return 'numeric_tolerance'
+  }
+
+  // Digit sequence 2-6 digits (multiple choice items concatenated, e.g. "124", "35")
+  if (/^\d{2,6}$/.test(cleaned) && !cleaned.startsWith('0')) return 'set_match'
+
+  // Comma-separated small numbers "1, 4" "2,4,5" → set_match
+  if (/^\d+(,\s*\d+)+$/.test(cleaned)) return 'set_match'
+
+  return 'normalized'
+}
+
+function buildFormatHint(rawAnswer: string, method: string): string | null {
+  const cleaned = cleanParsedAnswer(rawAnswer)
+  switch (method) {
+    case 'numeric_tolerance':
+      if (/[,.]/.test(cleaned.replace(/\s.*$/, ''))) {
+        return 'Запишите число через точку или запятую, например: 4.5 (можно и 4,5)'
+      }
+      return 'Запишите целое число, например: 42'
+    case 'sequence':
+      return 'Запишите цифры подряд по порядку букв (А, Б, В…), например: 312'
+    case 'set_match':
+      return 'Запишите номера правильных ответов подряд без пробелов, например: 124'
+    default:
+      return null
+  }
+}
+
 // ─── Storage helpers ──────────────────────────────────────────────────────────
+
+// Delete all source documents from test-documents bucket after successful parsing.
+// The original files are no longer needed once tasks are extracted into the DB.
+async function cleanupSourceDocuments(
+  client: SupabaseClient<Database>,
+  testVersionId: string
+): Promise<void> {
+  try {
+    const { data: docs } = await client
+      .from('test_documents')
+      .select('storage_path')
+      .eq('test_version_id', testVersionId)
+    const paths = (docs ?? []).map((d) => d.storage_path).filter(Boolean)
+    if (paths.length > 0) {
+      await client.storage.from('test-documents').remove(paths)
+      console.log(`[parsing] deleted ${paths.length} source document(s) from storage`)
+    }
+  } catch (err) {
+    // Non-fatal: log but don't fail the job
+    console.warn('[parsing] cleanupSourceDocuments failed:', err)
+  }
+}
 
 // Delete all Storage files for a version folder (task-media/{versionId}/*)
 export async function deleteVersionStorage(
@@ -949,15 +1035,18 @@ async function runParsing(jobId: string, testVersionId: string, docIds: string[]
       let inserted = 0, matchedAns = 0, matchedSol = 0, totalImgs = 0
 
       for (const t of tasks) {
+        // Tasks with explanation keywords → always manual (AI semantic grading)
+        const needsExplanation = requiresExplanation(t.prompt_text ?? '')
         const { data: task, error: te } = await client.from('test_tasks').insert({
           test_version_id: testVersionId,
           task_number: t.number,
           sort_order: t.number,
           prompt_text: t.prompt_text,
           prompt_html: t.prompt_html ?? null,
-          task_type: t.task_type_guess ?? 'short_text',
+          task_type: needsExplanation ? 'manual_review' : (t.task_type_guess ?? 'short_text'),
           options: null,
           answer_format_hint: null,
+          grading_method: needsExplanation ? 'manual' : 'exact',
           parse_confidence: t.confidence ?? 0.98,
           has_images: t.has_unmatched_images ?? false,
           source_pages: [1],
@@ -969,13 +1058,23 @@ async function runParsing(jobId: string, testVersionId: string, docIds: string[]
 
         const ans = ansMap.get(t.number) as any
         if (ans?.correct_answer != null) {
+          const rawAns = String(ans.correct_answer)
+          const cleanedAns = cleanParsedAnswer(rawAns)
+          const method = needsExplanation ? 'manual' : detectGradingMethod(rawAns)
+          const hint = buildFormatHint(rawAns, method)
           const { error: ae } = await client.from('task_answer_keys').insert({
             task_id: task.id,
-            correct_answer: ans.correct_answer,
-            grading_method: ans.grading_method_guess ?? 'normalized',
+            correct_answer: cleanedAns,
+            grading_method: method,
             parse_confidence: ans.confidence ?? 0.98,
           })
-          if (!ae) matchedAns++
+          if (!ae) {
+            matchedAns++
+            await client.from('test_tasks').update({
+              grading_method: method,
+              ...(hint ? { answer_format_hint: hint } : {}),
+            }).eq('id', task.id)
+          }
         }
 
         const sol = solMap.get(t.number) as any
@@ -1018,6 +1117,7 @@ async function runParsing(jobId: string, testVersionId: string, docIds: string[]
       }).eq('id', jobId)
 
       if (inserted > 0) await client.from('test_versions').update({ status: 'in_review' }).eq('id', testVersionId)
+      await cleanupSourceDocuments(client, testVersionId)
       console.log(`[parsing/json] done: ${inserted} tasks, ${totalImgs} images`)
       return
 
@@ -1100,15 +1200,17 @@ async function runParsing(jobId: string, testVersionId: string, docIds: string[]
     let inserted = 0, matchedAns = 0, matchedSol = 0
 
     for (const t of tasks) {
+      const needsExplanation = requiresExplanation(t.prompt_text ?? '')
       const { data: task, error: te } = await client.from('test_tasks').insert({
         test_version_id: testVersionId,
         task_number: t.number,
         sort_order: t.number,
         prompt_text: t.prompt_text,
         prompt_html: t.prompt_html ?? null,
-        task_type: t.task_type_guess ?? 'short_text',
+        task_type: needsExplanation ? 'manual_review' : (t.task_type_guess ?? 'short_text'),
         options: Array.isArray(t.options) && t.options.length ? t.options : null,
         answer_format_hint: t.answer_format_hint ?? null,
+        grading_method: needsExplanation ? 'manual' : 'exact',
         parse_confidence: t.confidence ?? 0.8,
         has_images: t.has_unmatched_images ?? false,
         source_pages: Array.isArray(t.source_pages) ? t.source_pages : [1],
@@ -1121,13 +1223,23 @@ async function runParsing(jobId: string, testVersionId: string, docIds: string[]
 
       const ans = ansMap.get(t.number) as any
       if (ans?.correct_answer != null) {
+        const rawAns = String(ans.correct_answer)
+        const cleanedAns = cleanParsedAnswer(rawAns)
+        const method = needsExplanation ? 'manual' : detectGradingMethod(rawAns)
+        const hint = buildFormatHint(rawAns, method)
         const { error: ae } = await client.from('task_answer_keys').insert({
           task_id: task.id,
-          correct_answer: ans.correct_answer,
-          grading_method: ans.grading_method_guess ?? 'exact',
+          correct_answer: cleanedAns,
+          grading_method: method,
           parse_confidence: ans.confidence ?? 0.8,
         })
-        if (!ae) matchedAns++
+        if (!ae) {
+          matchedAns++
+          await client.from('test_tasks').update({
+            grading_method: method,
+            ...(hint ? { answer_format_hint: hint } : {}),
+          }).eq('id', task.id)
+        }
       }
 
       const sol = solMap.get(t.number) as any
@@ -1164,7 +1276,7 @@ async function runParsing(jobId: string, testVersionId: string, docIds: string[]
     if (inserted > 0) {
       await client.from('test_versions').update({ status: 'in_review' }).eq('id', testVersionId)
     }
-
+    await cleanupSourceDocuments(client, testVersionId)
     console.log(`[parsing] done: ${inserted} tasks, ${imagesExtracted} images`)
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)

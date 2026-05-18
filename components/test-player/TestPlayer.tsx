@@ -53,6 +53,7 @@ export function TestPlayer({
 
   const [currentIdx, setCurrentIdx] = useState(0)
   const [answers, setAnswers] = useState<Record<string, Json>>(initialAnswers)
+  const mediaMap = taskMediaMap
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [showSubmitDialog, setShowSubmitDialog] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -282,7 +283,7 @@ export function TestPlayer({
                 task={currentTask}
                 answer={answers[currentTask.id]}
                 onChange={(ans) => handleAnswerChange(currentTask.id, ans)}
-                images={taskMediaMap[currentTask.id] ?? []}
+                images={mediaMap[currentTask.id] ?? []}
                 disabled={isSubmitting || lockedSet.has(currentTask.id)}
                 isLocked={lockedSet.has(currentTask.id)}
               />
