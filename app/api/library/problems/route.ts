@@ -1,52 +1,77 @@
 import { createClient } from '@/lib/supabase/server'
 import { NextRequest } from 'next/server'
 
-// GET /api/library/problems?exam_type=ОГЭ&subject=Физика&topic_id=...&q=...&page=1&per_page=20
+// GET /api/library/problems
+// Params: subject, exam_type, grade, topic_id (repeatable), source, source_id, q, page, per_page
 export async function GET(request: NextRequest) {
   const supabase = await createClient()
   const { data: { user }, error: authError } = await supabase.auth.getUser()
   if (authError || !user) return Response.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { searchParams } = new URL(request.url)
-  const exam_type        = searchParams.get('exam_type')
-  const subject          = searchParams.get('subject')
-  const grade            = searchParams.get('grade')
-  const topic_id         = searchParams.get('topic_id')
-  const task_number_type = searchParams.get('task_number_type')
-  const q                = searchParams.get('q')
-  const page             = Math.max(1, parseInt(searchParams.get('page') ?? '1'))
-  const per_page         = Math.min(50, Math.max(1, parseInt(searchParams.get('per_page') ?? '20')))
-  const from             = (page - 1) * per_page
-  const to               = from + per_page - 1
+  const { data: profile } = await supabase
+    .from('profiles').select('role, organization_id').eq('id', user.id).single()
+  if (!profile) return Response.json({ error: 'Forbidden' }, { status: 403 })
+
+  const sp        = new URL(request.url).searchParams
+  const subject   = sp.get('subject')
+  const exam_type = sp.get('exam_type')
+  const grade     = sp.get('grade')
+  const topicIds  = sp.getAll('topic_id').filter(Boolean)
+  const source    = sp.get('source')         // 'all' | 'verified' | 'custom'
+  const sourceId  = sp.get('source_id')      // точный поиск по sdamgia ID
+  const q         = sp.get('q')?.trim()
+  const page      = Math.max(1, parseInt(sp.get('page') ?? '1'))
+  const perPage   = Math.min(50, Math.max(1, parseInt(sp.get('per_page') ?? '20')))
+  const from      = (page - 1) * perPage
+  const to        = from + perPage - 1
 
   let query = supabase
     .from('library_problems')
     .select(`
-      id, exam_type, subject, grade,
-      topic_id, task_number_type, source_id, source_domain,
-      prompt_text, task_type, correct_answer, grading_method,
-      default_max_score, has_solution:solution_html
+      id, source_id, source_domain, source_url,
+      exam_type, subject, grade,
+      task_number_type, prompt_text, task_type,
+      correct_answer, grading_method, default_max_score,
+      organization_id,
+      solution_html,
+      topic_id,
+      library_topics ( id, fipicod, name )
     `, { count: 'exact' })
     .eq('is_active', true)
-    .order('task_number_type', { ascending: true })
+    .order('used_count', { ascending: true })
     .order('source_id', { ascending: true })
     .range(from, to)
 
-  if (exam_type)        query = query.eq('exam_type', exam_type)
-  if (subject)          query = query.eq('subject', subject)
-  if (grade)            query = query.eq('grade', grade)
-  if (topic_id)         query = query.eq('topic_id', topic_id)
-  if (task_number_type) query = query.eq('task_number_type', task_number_type)
-  if (q?.trim())        query = query.textSearch('prompt_text', q.trim(), { config: 'russian' })
+  // Фильтр по источнику
+  if (source === 'verified') {
+    query = query.is('organization_id', null)
+  } else if (source === 'custom') {
+    query = query.eq('organization_id', profile.organization_id)
+  } else {
+    // 'all' — глобальные + своей орг
+    query = query.or(`organization_id.is.null,organization_id.eq.${profile.organization_id}`)
+  }
+
+  if (subject)   query = query.eq('subject', subject)
+  if (exam_type) query = query.eq('exam_type', exam_type)
+  if (grade)     query = query.eq('grade', grade)
+  if (topicIds.length > 0) query = query.in('topic_id', topicIds)
+
+  // Поиск по source_id (точный, приоритетный)
+  if (sourceId?.trim()) {
+    query = query.eq('source_id', sourceId.trim())
+  } else if (q) {
+    query = query.textSearch('prompt_text', q, { config: 'russian' })
+  }
 
   const { data, count, error } = await query
   if (error) return Response.json({ error: error.message }, { status: 500 })
 
   return Response.json({
-    data:       data ?? [],
-    total:      count ?? 0,
+    data:        data ?? [],
+    total:       count ?? 0,
     page,
-    per_page,
-    total_pages: Math.ceil((count ?? 0) / per_page),
+    per_page:    perPage,
+    total_pages: Math.ceil((count ?? 0) / perPage),
   })
 }
