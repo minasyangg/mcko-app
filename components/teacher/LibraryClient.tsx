@@ -5,7 +5,6 @@ import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'
 import { Loader2, Search, SlidersHorizontal, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -213,9 +212,10 @@ export function LibraryClient({ initialTopics, totalProblems }: Props) {
               return (
                 <div key={sec.id}>
                   <label className="flex items-center gap-2 cursor-pointer">
-                    <Checkbox
+                    <input type="checkbox"
+                      className="accent-primary h-3.5 w-3.5 cursor-pointer"
                       checked={topicIds.includes(sec.id)}
-                      onCheckedChange={() => toggleTopic(sec.id)}
+                      onChange={() => toggleTopic(sec.id)}
                     />
                     <span className={cn('text-xs font-medium', anySelected && 'text-primary')}>
                       {sec.name}
@@ -225,9 +225,10 @@ export function LibraryClient({ initialTopics, totalProblems }: Props) {
                     <div className="ml-5 mt-1 space-y-1">
                       {subs.map(sub => (
                         <label key={sub.id} className="flex items-center gap-2 cursor-pointer">
-                          <Checkbox
+                          <input type="checkbox"
+                            className="accent-primary h-3.5 w-3.5 cursor-pointer"
                             checked={topicIds.includes(sub.id)}
-                            onCheckedChange={() => toggleTopic(sub.id)}
+                            onChange={() => toggleTopic(sub.id)}
                           />
                           <span className="text-xs text-muted-foreground">
                             {sub.fipicod ? `${sub.fipicod} ` : ''}{sub.name}
@@ -303,7 +304,7 @@ export function LibraryClient({ initialTopics, totalProblems }: Props) {
         <aside className={cn(
           'w-56 shrink-0 space-y-5',
           'hidden md:block',
-          filtersOpen && '!block'
+          filtersOpen && 'block!'
         )}>
           <FilterPanel />
         </aside>
