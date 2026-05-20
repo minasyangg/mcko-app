@@ -279,6 +279,115 @@ export type Database = {
           },
         ]
       }
+      exam_blueprint_sections: {
+        Row: {
+          blueprint_id: string
+          count: number
+          id: string
+          max_score: number | null
+          sort_order: number | null
+          task_number_type: string | null
+          topic_id: string | null
+        }
+        Insert: {
+          blueprint_id: string
+          count?: number
+          id?: string
+          max_score?: number | null
+          sort_order?: number | null
+          task_number_type?: string | null
+          topic_id?: string | null
+        }
+        Update: {
+          blueprint_id?: string
+          count?: number
+          id?: string
+          max_score?: number | null
+          sort_order?: number | null
+          task_number_type?: string | null
+          topic_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "exam_blueprint_sections_blueprint_id_fkey"
+            columns: ["blueprint_id"]
+            isOneToOne: false
+            referencedRelation: "exam_blueprints"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "exam_blueprint_sections_topic_id_fkey"
+            columns: ["topic_id"]
+            isOneToOne: false
+            referencedRelation: "library_topics"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      exam_blueprints: {
+        Row: {
+          created_at: string | null
+          created_by: string | null
+          description: string | null
+          exam_type: string
+          grade: string | null
+          id: string
+          name: string
+          organization_id: string
+          scoring_rule_id: string | null
+          subject: string
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          created_by?: string | null
+          description?: string | null
+          exam_type: string
+          grade?: string | null
+          id?: string
+          name: string
+          organization_id: string
+          scoring_rule_id?: string | null
+          subject: string
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          created_by?: string | null
+          description?: string | null
+          exam_type?: string
+          grade?: string | null
+          id?: string
+          name?: string
+          organization_id?: string
+          scoring_rule_id?: string | null
+          subject?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "exam_blueprints_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "exam_blueprints_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "exam_blueprints_scoring_rule_id_fkey"
+            columns: ["scoring_rule_id"]
+            isOneToOne: false
+            referencedRelation: "scoring_rules"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       group_members: {
         Row: {
           added_at: string | null
@@ -350,6 +459,211 @@ export type Database = {
             columns: ["organization_id"]
             isOneToOne: false
             referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      library_problem_media: {
+        Row: {
+          alt_text: string | null
+          created_at: string | null
+          file_size_bytes: number | null
+          height_px: number | null
+          id: string
+          library_problem_id: string
+          placement: string | null
+          sort_order: number | null
+          storage_path: string
+          width_px: number | null
+        }
+        Insert: {
+          alt_text?: string | null
+          created_at?: string | null
+          file_size_bytes?: number | null
+          height_px?: number | null
+          id?: string
+          library_problem_id: string
+          placement?: string | null
+          sort_order?: number | null
+          storage_path: string
+          width_px?: number | null
+        }
+        Update: {
+          alt_text?: string | null
+          created_at?: string | null
+          file_size_bytes?: number | null
+          height_px?: number | null
+          id?: string
+          library_problem_id?: string
+          placement?: string | null
+          sort_order?: number | null
+          storage_path?: string
+          width_px?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "library_problem_media_library_problem_id_fkey"
+            columns: ["library_problem_id"]
+            isOneToOne: false
+            referencedRelation: "library_problems"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      library_problems: {
+        Row: {
+          correct_answer: Json | null
+          created_at: string | null
+          criteria_html: string | null
+          criteria_scores: Json | null
+          default_max_score: number
+          exam_type: string
+          grade: string | null
+          grading_config: Json | null
+          grading_method: string
+          id: string
+          is_active: boolean | null
+          options: Json | null
+          organization_id: string | null
+          prompt_html: string | null
+          prompt_text: string
+          scraped_at: string | null
+          solution_html: string | null
+          solution_text: string | null
+          source_domain: string | null
+          source_id: string | null
+          source_type: string
+          source_url: string | null
+          subject: string
+          task_number_type: string | null
+          task_type: string
+          theme_id: number | null
+          topic_id: string | null
+          updated_at: string | null
+          used_count: number | null
+        }
+        Insert: {
+          correct_answer?: Json | null
+          created_at?: string | null
+          criteria_html?: string | null
+          criteria_scores?: Json | null
+          default_max_score?: number
+          exam_type: string
+          grade?: string | null
+          grading_config?: Json | null
+          grading_method?: string
+          id?: string
+          is_active?: boolean | null
+          options?: Json | null
+          organization_id?: string | null
+          prompt_html?: string | null
+          prompt_text: string
+          scraped_at?: string | null
+          solution_html?: string | null
+          solution_text?: string | null
+          source_domain?: string | null
+          source_id?: string | null
+          source_type?: string
+          source_url?: string | null
+          subject: string
+          task_number_type?: string | null
+          task_type?: string
+          theme_id?: number | null
+          topic_id?: string | null
+          updated_at?: string | null
+          used_count?: number | null
+        }
+        Update: {
+          correct_answer?: Json | null
+          created_at?: string | null
+          criteria_html?: string | null
+          criteria_scores?: Json | null
+          default_max_score?: number
+          exam_type?: string
+          grade?: string | null
+          grading_config?: Json | null
+          grading_method?: string
+          id?: string
+          is_active?: boolean | null
+          options?: Json | null
+          organization_id?: string | null
+          prompt_html?: string | null
+          prompt_text?: string
+          scraped_at?: string | null
+          solution_html?: string | null
+          solution_text?: string | null
+          source_domain?: string | null
+          source_id?: string | null
+          source_type?: string
+          source_url?: string | null
+          subject?: string
+          task_number_type?: string | null
+          task_type?: string
+          theme_id?: number | null
+          topic_id?: string | null
+          updated_at?: string | null
+          used_count?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "library_problems_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "library_problems_topic_id_fkey"
+            columns: ["topic_id"]
+            isOneToOne: false
+            referencedRelation: "library_topics"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      library_topics: {
+        Row: {
+          created_at: string | null
+          description: string | null
+          exam_type: string
+          fipicod: string | null
+          grade: string | null
+          id: string
+          name: string
+          parent_id: string | null
+          sort_order: number | null
+          subject: string
+        }
+        Insert: {
+          created_at?: string | null
+          description?: string | null
+          exam_type: string
+          fipicod?: string | null
+          grade?: string | null
+          id?: string
+          name: string
+          parent_id?: string | null
+          sort_order?: number | null
+          subject: string
+        }
+        Update: {
+          created_at?: string | null
+          description?: string | null
+          exam_type?: string
+          fipicod?: string | null
+          grade?: string | null
+          id?: string
+          name?: string
+          parent_id?: string | null
+          sort_order?: number | null
+          subject?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "library_topics_parent_id_fkey"
+            columns: ["parent_id"]
+            isOneToOne: false
+            referencedRelation: "library_topics"
             referencedColumns: ["id"]
           },
         ]
@@ -1032,6 +1346,7 @@ export type Database = {
           grading_method: string
           has_images: boolean | null
           id: string
+          library_problem_id: string | null
           max_score: number | null
           options: Json | null
           parse_confidence: number | null
@@ -1041,6 +1356,7 @@ export type Database = {
           review_status: string | null
           sort_order: number
           source_doc_id: string | null
+          source_library_type: string | null
           source_pages: number[] | null
           task_number: number
           task_type: string
@@ -1054,6 +1370,7 @@ export type Database = {
           grading_method?: string
           has_images?: boolean | null
           id?: string
+          library_problem_id?: string | null
           max_score?: number | null
           options?: Json | null
           parse_confidence?: number | null
@@ -1063,6 +1380,7 @@ export type Database = {
           review_status?: string | null
           sort_order: number
           source_doc_id?: string | null
+          source_library_type?: string | null
           source_pages?: number[] | null
           task_number: number
           task_type?: string
@@ -1076,6 +1394,7 @@ export type Database = {
           grading_method?: string
           has_images?: boolean | null
           id?: string
+          library_problem_id?: string | null
           max_score?: number | null
           options?: Json | null
           parse_confidence?: number | null
@@ -1085,6 +1404,7 @@ export type Database = {
           review_status?: string | null
           sort_order?: number
           source_doc_id?: string | null
+          source_library_type?: string | null
           source_pages?: number[] | null
           task_number?: number
           task_type?: string
@@ -1092,6 +1412,13 @@ export type Database = {
           title?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "test_tasks_library_problem_id_fkey"
+            columns: ["library_problem_id"]
+            isOneToOne: false
+            referencedRelation: "library_problems"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "test_tasks_source_doc_id_fkey"
             columns: ["source_doc_id"]
