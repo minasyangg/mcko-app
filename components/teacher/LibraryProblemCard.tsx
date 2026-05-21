@@ -91,10 +91,10 @@ export function LibraryProblemCard({ problem }: Props) {
 
             {/* Статусы */}
             {hasAns && (
-              <CheckCircle2 className="h-3.5 w-3.5 text-green-500" title="Есть ответ" />
+              <CheckCircle2 className="h-3.5 w-3.5 text-green-500" aria-label="Есть ответ" />
             )}
             {hasSol && (
-              <BookOpen className="h-3.5 w-3.5 text-blue-400" title="Есть решение" />
+              <BookOpen className="h-3.5 w-3.5 text-blue-400" aria-label="Есть решение" />
             )}
 
             {/* Ссылка на источник */}
