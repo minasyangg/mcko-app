@@ -38,6 +38,7 @@ interface Problem {
   default_max_score: number
   organization_id: string | null
   solution_html: string | null
+  library_code: string | null
   topic_id: string | null
   library_topics: { id: string; fipicod: string | null; name: string } | null
 }

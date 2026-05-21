@@ -30,11 +30,11 @@ export async function GET(request: NextRequest) {
     .select(`
       id, source_id, source_domain, source_url,
       exam_type, subject, grade,
-      task_number_type, prompt_text, task_type,
+      task_number_type, prompt_text, prompt_html, task_type,
       correct_answer, grading_method, default_max_score,
       organization_id,
       solution_html,
-      topic_id,
+      topic_id, library_code,
       library_topics ( id, fipicod, name )
     `, { count: 'exact' })
     .eq('is_active', true)

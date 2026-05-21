@@ -5,6 +5,7 @@ import { ChevronDown, ChevronUp, ExternalLink, CheckCircle2, BookOpen } from 'lu
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
+import MarkdownContent from '@/components/shared/MarkdownContent'
 
 interface Problem {
   id: string
@@ -24,6 +25,7 @@ interface Problem {
   organization_id: string | null
   solution_html: string | null
   topic_id: string | null
+  library_code: string | null
   library_topics: { id: string; fipicod: string | null; name: string } | null
 }
 
@@ -46,11 +48,11 @@ function answerText(answer: unknown): string {
 export function LibraryProblemCard({ problem }: Props) {
   const [expanded, setExpanded] = useState(false)
 
-  const topic   = problem.library_topics
-  const hasAns  = !!problem.correct_answer && answerText(problem.correct_answer) !== ''
-  const hasSol  = !!problem.solution_html
-  const isVerif = problem.organization_id === null
+  const topic      = problem.library_topics
+  const hasAns     = !!problem.correct_answer && answerText(problem.correct_answer) !== ''
+  const hasSol     = !!problem.solution_html
   const sdamgiaUrl = problem.source_url
+  const codeLabel  = problem.library_code ?? (problem.source_id ? `#${problem.source_id}` : null)
 
   return (
     <div className={cn(
@@ -61,10 +63,10 @@ export function LibraryProblemCard({ problem }: Props) {
         {/* Заголовок */}
         <div className="flex items-start justify-between gap-3">
           <div className="flex flex-wrap items-center gap-2 min-w-0">
-            {/* ID задачи */}
-            {problem.source_id && (
+            {/* Код задачи */}
+            {codeLabel && (
               <span className="text-xs font-mono text-muted-foreground shrink-0">
-                #{problem.source_id}
+                {codeLabel}
               </span>
             )}
 
@@ -84,11 +86,6 @@ export function LibraryProblemCard({ problem }: Props) {
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
-            {/* Макс. балл */}
-            <span className="text-xs text-muted-foreground whitespace-nowrap">
-              {problem.default_max_score} б.
-            </span>
-
             {/* Статусы */}
             {hasAns && (
               <CheckCircle2 className="h-3.5 w-3.5 text-green-500" aria-label="Есть ответ" />
@@ -110,10 +107,7 @@ export function LibraryProblemCard({ problem }: Props) {
 
         {/* Текст условия */}
         {expanded && problem.prompt_html ? (
-          <div
-            className="text-sm prose prose-sm max-w-none dark:prose-invert"
-            dangerouslySetInnerHTML={{ __html: problem.prompt_html }}
-          />
+          <MarkdownContent content={problem.prompt_html} />
         ) : (
           <p className="text-sm text-foreground line-clamp-3 leading-relaxed">
             {problem.prompt_text}
@@ -132,10 +126,7 @@ export function LibraryProblemCard({ problem }: Props) {
         {expanded && hasSol && (
           <div className="mt-3 pt-3 border-t space-y-1">
             <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Решение</p>
-            <div
-              className="text-sm prose prose-sm max-w-none dark:prose-invert"
-              dangerouslySetInnerHTML={{ __html: problem.solution_html! }}
-            />
+            <MarkdownContent content={problem.solution_html!.replace(/style="[^"]*display\s*:\s*none[^"]*"/gi, '')} />
           </div>
         )}
 
