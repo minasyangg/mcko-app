@@ -42,14 +42,18 @@ export async function GET(request: NextRequest) {
     .order('source_id', { ascending: true })
     .range(from, to)
 
+  const orgId = profile.organization_id ?? ''
+
   // Фильтр по источнику
   if (source === 'verified') {
     query = query.is('organization_id', null)
-  } else if (source === 'custom') {
-    query = query.eq('organization_id', profile.organization_id)
+  } else if (source === 'custom' && orgId) {
+    query = query.eq('organization_id', orgId)
   } else {
-    // 'all' — глобальные + своей орг
-    query = query.or(`organization_id.is.null,organization_id.eq.${profile.organization_id}`)
+    // 'all' — глобальные + своей орг (если орг есть)
+    query = orgId
+      ? query.or(`organization_id.is.null,organization_id.eq.${orgId}`)
+      : query.is('organization_id', null)
   }
 
   if (subject)   query = query.eq('subject', subject)
