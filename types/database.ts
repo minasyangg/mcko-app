@@ -512,6 +512,7 @@ export type Database = {
       }
       library_problems: {
         Row: {
+          answer_source: string
           correct_answer: Json | null
           created_at: string | null
           criteria_html: string | null
@@ -521,8 +522,10 @@ export type Database = {
           grade: string | null
           grading_config: Json | null
           grading_method: string
+          has_answer: boolean
           id: string
           is_active: boolean | null
+          library_code: string | null
           options: Json | null
           organization_id: string | null
           prompt_html: string | null
@@ -543,6 +546,7 @@ export type Database = {
           used_count: number | null
         }
         Insert: {
+          answer_source?: string
           correct_answer?: Json | null
           created_at?: string | null
           criteria_html?: string | null
@@ -554,6 +558,7 @@ export type Database = {
           grading_method?: string
           id?: string
           is_active?: boolean | null
+          library_code?: string | null
           options?: Json | null
           organization_id?: string | null
           prompt_html?: string | null
@@ -574,6 +579,7 @@ export type Database = {
           used_count?: number | null
         }
         Update: {
+          answer_source?: string
           correct_answer?: Json | null
           created_at?: string | null
           criteria_html?: string | null
@@ -585,6 +591,7 @@ export type Database = {
           grading_method?: string
           id?: string
           is_active?: boolean | null
+          library_code?: string | null
           options?: Json | null
           organization_id?: string | null
           prompt_html?: string | null

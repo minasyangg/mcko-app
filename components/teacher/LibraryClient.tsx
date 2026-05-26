@@ -34,6 +34,8 @@ interface Problem {
   prompt_html: string | null
   task_type: string
   correct_answer: unknown
+  has_answer: boolean
+  answer_source: string
   grading_method: string
   default_max_score: number
   organization_id: string | null
@@ -55,14 +57,15 @@ const PER_PAGE = 20
 
 export function LibraryClient({ initialTopics, totalProblems }: Props) {
   // ── Фильтры ──────────────────────────────────────────────────────────────
-  const [source,    setSource]    = useState<'all' | 'verified' | 'custom'>('all')
-  const [subject,   setSubject]   = useState('')
-  const [examType,  setExamType]  = useState('')
-  const [grade,     setGrade]     = useState('')
-  const [topicIds,  setTopicIds]  = useState<string[]>([])
-  const [sourceId,  setSourceId]  = useState('')
-  const [query,     setQuery]     = useState('')
+  const [source,     setSource]    = useState<'all' | 'verified' | 'custom'>('all')
+  const [subject,    setSubject]   = useState('')
+  const [examType,   setExamType]  = useState('')
+  const [grade,      setGrade]     = useState('')
+  const [topicIds,   setTopicIds]  = useState<string[]>([])
+  const [sourceId,   setSourceId]  = useState('')
+  const [query,      setQuery]     = useState('')
   const [topicSearch, setTopicSearch] = useState('')
+  const [hasAnswer,  setHasAnswer] = useState<'all' | 'yes' | 'no'>('all')
 
   // ── Данные ────────────────────────────────────────────────────────────────
   const [problems,  setProblems]  = useState<Problem[]>([])
@@ -100,6 +103,8 @@ export function LibraryClient({ initialTopics, totalProblems }: Props) {
       if (examType)  params.set('exam_type', examType)
       if (grade)     params.set('grade', grade)
       topicIds.forEach(id => params.append('topic_id', id))
+      if (hasAnswer === 'yes') params.set('has_answer', 'true')
+      if (hasAnswer === 'no')  params.set('has_answer', 'false')
       if (sourceId.trim()) params.set('source_id', sourceId.trim())
       else if (query.trim()) params.set('q', query.trim())
 
@@ -113,7 +118,7 @@ export function LibraryClient({ initialTopics, totalProblems }: Props) {
     } finally {
       setLoading(false)
     }
-  }, [source, subject, examType, grade, topicIds, sourceId, query])
+  }, [source, subject, examType, grade, topicIds, sourceId, query, hasAnswer])
 
   // Сброс и перезагрузка при изменении фильтров
   useEffect(() => {
@@ -132,11 +137,12 @@ export function LibraryClient({ initialTopics, totalProblems }: Props) {
     return () => io.disconnect()
   }, [hasMore, loading, page, fetchProblems])
 
-  const hasFilters = !!(source !== 'all' || subject || examType || grade || topicIds.length || sourceId || query)
+  const hasFilters = !!(source !== 'all' || subject || examType || grade || topicIds.length || sourceId || query || hasAnswer !== 'all')
 
   const resetFilters = () => {
     setSource('all'); setSubject(''); setExamType(''); setGrade('')
     setTopicIds([]); setSourceId(''); setQuery(''); setTopicSearch('')
+    setHasAnswer('all')
   }
 
   const toggleTopic = (id: string) =>
@@ -155,6 +161,18 @@ export function LibraryClient({ initialTopics, totalProblems }: Props) {
             <span className="text-sm">
               {s === 'all' ? 'Все' : s === 'verified' ? 'Верифицированные' : 'Мои задачи'}
             </span>
+          </label>
+        ))}
+      </div>
+
+      {/* Ответ */}
+      <div className="space-y-2">
+        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Ответ</p>
+        {([['all', 'Все задачи'], ['yes', 'С ответом'], ['no', 'Без ответа']] as const).map(([val, label]) => (
+          <label key={val} className="flex items-center gap-2 cursor-pointer">
+            <input type="radio" name="hasAnswer" value={val} checked={hasAnswer === val}
+              onChange={() => setHasAnswer(val)} className="accent-primary" />
+            <span className="text-sm">{label}</span>
           </label>
         ))}
       </div>

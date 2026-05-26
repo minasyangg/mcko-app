@@ -19,6 +19,7 @@ export async function GET(request: NextRequest) {
   const topicIds  = sp.getAll('topic_id').filter(Boolean)
   const source    = sp.get('source')         // 'all' | 'verified' | 'custom'
   const sourceId  = sp.get('source_id')      // точный поиск по sdamgia ID
+  const hasAnswer = sp.get('has_answer')     // 'true' | 'false' | null
   const q         = sp.get('q')?.trim()
   const page      = Math.max(1, parseInt(sp.get('page') ?? '1'))
   const perPage   = Math.min(50, Math.max(1, parseInt(sp.get('per_page') ?? '20')))
@@ -32,6 +33,7 @@ export async function GET(request: NextRequest) {
       exam_type, subject, grade,
       task_number_type, prompt_text, prompt_html, task_type,
       correct_answer, grading_method, default_max_score,
+      has_answer, answer_source,
       organization_id,
       solution_html,
       topic_id, library_code,
@@ -60,6 +62,8 @@ export async function GET(request: NextRequest) {
   if (exam_type) query = query.eq('exam_type', exam_type)
   if (grade)     query = query.eq('grade', grade)
   if (topicIds.length > 0) query = query.in('topic_id', topicIds)
+  if (hasAnswer === 'true')  query = query.eq('has_answer', true)
+  if (hasAnswer === 'false') query = query.eq('has_answer', false)
 
   // Поиск по source_id (точный, приоритетный)
   if (sourceId?.trim()) {
