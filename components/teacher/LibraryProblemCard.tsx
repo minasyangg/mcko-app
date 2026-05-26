@@ -106,12 +106,11 @@ export function LibraryProblemCard({ problem }: Props) {
               </span>
             )}
 
-            {/* Тип задачи */}
-            {problem.task_number_type && (
-              <Badge variant="secondary" className="text-xs shrink-0">
-                {problem.task_number_type}
-              </Badge>
-            )}
+            {/* Экзамен + тип задачи */}
+            <Badge variant="secondary" className="text-xs shrink-0">
+              {problem.exam_type}
+              {problem.task_number_type ? ` · ${problem.task_number_type}` : ''}
+            </Badge>
 
             {/* Тема */}
             {topic && (
