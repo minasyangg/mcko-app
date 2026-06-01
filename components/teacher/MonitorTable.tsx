@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { AttemptDrawer } from '@/components/teacher/AttemptDrawer'
+import { TableFilterBar, useTableFilter, type FilterField } from '@/components/shared/TableFilter'
 import { cn } from '@/lib/utils'
 
 export interface AttemptRow {
@@ -101,7 +102,6 @@ function TableView({ rows, onSelect }: { rows: AttemptRow[]; onSelect: (id: stri
             <th className="px-4 py-3 text-left font-medium text-muted-foreground">Класс</th>
             <th className="px-4 py-3 text-left font-medium text-muted-foreground">Тест</th>
             <th className="px-4 py-3 text-left font-medium text-muted-foreground">Статус</th>
-            <th className="px-4 py-3 text-center font-medium text-muted-foreground">Задание</th>
             <th className="px-4 py-3 text-center font-medium text-muted-foreground">Балл</th>
             <th className="px-4 py-3 text-left font-medium text-muted-foreground">Активность</th>
             <th className="px-4 py-3 text-left font-medium text-muted-foreground">Начата</th>
@@ -117,9 +117,6 @@ function TableView({ rows, onSelect }: { rows: AttemptRow[]; onSelect: (id: stri
                 {a.test_title}
               </td>
               <td className="px-4 py-3"><StatusChip status={a.status} attemptNumber={a.attempt_number} maxAttempts={a.max_attempts} /></td>
-              <td className="px-4 py-3 text-center text-muted-foreground">
-                {a.current_task_number ?? '—'}
-              </td>
               <td className="px-4 py-3 text-center font-medium tabular-nums">
                 {a.score !== null ? `${a.score}/${a.max_score ?? '?'}` : '—'}
               </td>
@@ -141,6 +138,12 @@ function TableView({ rows, onSelect }: { rows: AttemptRow[]; onSelect: (id: stri
     </div>
   )
 }
+
+const FILTER_FIELDS: FilterField[] = [
+  { key: 'full_name',   label: 'Ученик', type: 'text',   placeholder: 'Поиск по ФИО', width: 'w-48' },
+  { key: 'grade',       label: 'Класс',  type: 'select',                               width: 'w-28' },
+  { key: 'test_title',  label: 'Тест',   type: 'text',   placeholder: 'Поиск по тесту', width: 'w-48' },
+]
 
 export function MonitorTable({ initialAttempts }: Props) {
   const [attempts, setAttempts] = useState<AttemptRow[]>(initialAttempts)
@@ -174,17 +177,20 @@ export function MonitorTable({ initialAttempts }: Props) {
     return () => { supabase.removeChannel(channel) }
   }, [])
 
-  const active = attempts.filter((a) => ['not_started', 'in_progress'].includes(a.status))
-  const review = attempts.filter((a) => ['submitted', 'under_review'].includes(a.status))
+  const active  = attempts.filter((a) => ['not_started', 'in_progress'].includes(a.status))
+  const review  = attempts.filter((a) => ['submitted', 'under_review'].includes(a.status))
   const checked = attempts.filter((a) => ['checked', 'completed'].includes(a.status))
 
-  const tabs: { key: Tab; label: string; count: number }[] = [
-    { key: 'active', label: 'В процессе', count: active.length },
-    { key: 'review', label: 'На проверке', count: review.length },
-    { key: 'checked', label: 'Проверено', count: checked.length },
-  ]
+  const tabRows = tab === 'active' ? active : tab === 'review' ? review : checked
 
-  const currentRows = tab === 'active' ? active : tab === 'review' ? review : checked
+  const { filtered, filters, setFilter, clearFilters, hasActiveFilters } =
+    useTableFilter(tabRows, FILTER_FIELDS)
+
+  const tabs: { key: Tab; label: string; count: number }[] = [
+    { key: 'active',  label: 'В процессе',  count: active.length },
+    { key: 'review',  label: 'На проверке', count: review.length },
+    { key: 'checked', label: 'Проверено',   count: checked.length },
+  ]
 
   if (attempts.length === 0) {
     return (
@@ -202,7 +208,7 @@ export function MonitorTable({ initialAttempts }: Props) {
         {tabs.map((t) => (
           <button
             key={t.key}
-            onClick={() => setTab(t.key)}
+            onClick={() => { setTab(t.key); clearFilters() }}
             className={cn(
               'px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors',
               tab === t.key
@@ -221,8 +227,18 @@ export function MonitorTable({ initialAttempts }: Props) {
         ))}
       </div>
 
+      {/* Filters */}
+      <TableFilterBar
+        fields={FILTER_FIELDS}
+        filters={filters}
+        setFilter={setFilter}
+        clearFilters={clearFilters}
+        hasActiveFilters={hasActiveFilters}
+        data={tabRows}
+      />
+
       <div className="rounded-md border overflow-hidden">
-        <TableView rows={currentRows} onSelect={setSelectedAttemptId} />
+        <TableView rows={filtered} onSelect={setSelectedAttemptId} />
       </div>
 
       <AttemptDrawer
