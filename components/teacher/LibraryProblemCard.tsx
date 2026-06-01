@@ -144,12 +144,13 @@ export function LibraryProblemCard({ problem }: Props) {
         </div>
 
         {/* Текст условия */}
-        {expanded && problem.prompt_html ? (
-          <MarkdownContent content={problem.prompt_html} />
+        {expanded ? (
+          <MarkdownContent content={problem.prompt_html ?? problem.prompt_text} />
         ) : (
-          <p className="text-sm text-foreground line-clamp-3 leading-relaxed">
-            {problem.prompt_text}
-          </p>
+          <div className="max-h-28 overflow-hidden relative text-sm leading-relaxed">
+            <MarkdownContent content={problem.prompt_html ?? problem.prompt_text} />
+            <div className="absolute bottom-0 left-0 right-0 h-8 bg-linear-to-t from-card to-transparent pointer-events-none" />
+          </div>
         )}
 
         {/* Ответ */}

@@ -5,7 +5,6 @@ import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Label } from '@/components/ui/label'
 import { Loader2, Search, SlidersHorizontal, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { LibraryProblemCard } from './LibraryProblemCard'
@@ -63,7 +62,6 @@ export function LibraryClient({ initialTopics, totalProblems }: Props) {
   const [grade,      setGrade]     = useState('')
   const [topicIds,   setTopicIds]  = useState<string[]>([])
   const [sourceId,   setSourceId]  = useState('')
-  const [query,      setQuery]     = useState('')
   const [topicSearch, setTopicSearch] = useState('')
   const [hasAnswer,  setHasAnswer] = useState<'all' | 'yes' | 'no'>('all')
   const [siteDomain, setSiteDomain] = useState<'' | 'fipi' | 'sdamgia'>('')
@@ -73,6 +71,7 @@ export function LibraryClient({ initialTopics, totalProblems }: Props) {
   const [total,     setTotal]     = useState(0)
   const [page,      setPage]      = useState(1)
   const [loading,   setLoading]   = useState(false)
+  const [resetting, setResetting] = useState(false)
   const [hasMore,   setHasMore]   = useState(false)
 
   // ── Мобильная панель фильтров ─────────────────────────────────────────────
@@ -95,6 +94,7 @@ export function LibraryClient({ initialTopics, totalProblems }: Props) {
   // ── Загрузка задач ────────────────────────────────────────────────────────
   const fetchProblems = useCallback(async (p: number, reset = false) => {
     setLoading(true)
+    if (reset) setResetting(true)
     try {
       const params = new URLSearchParams()
       params.set('page', String(p))
@@ -108,7 +108,6 @@ export function LibraryClient({ initialTopics, totalProblems }: Props) {
       if (hasAnswer === 'no')  params.set('has_answer', 'false')
       if (siteDomain) params.set('site_domain', siteDomain)
       if (sourceId.trim()) params.set('source_id', sourceId.trim())
-      else if (query.trim()) params.set('q', query.trim())
 
       const res  = await fetch(`/api/library/problems?${params}`)
       const json = await res.json()
@@ -119,8 +118,9 @@ export function LibraryClient({ initialTopics, totalProblems }: Props) {
       setPage(p)
     } finally {
       setLoading(false)
+      setResetting(false)
     }
-  }, [source, subject, examType, grade, topicIds, sourceId, query, hasAnswer, siteDomain])
+  }, [source, subject, examType, grade, topicIds, sourceId, hasAnswer, siteDomain])
 
   // Сброс и перезагрузка при изменении фильтров
   useEffect(() => {
@@ -139,11 +139,11 @@ export function LibraryClient({ initialTopics, totalProblems }: Props) {
     return () => io.disconnect()
   }, [hasMore, loading, page, fetchProblems])
 
-  const hasFilters = !!(source !== 'all' || subject || examType || grade || topicIds.length || sourceId || query || hasAnswer !== 'all' || siteDomain)
+  const hasFilters = !!(source !== 'all' || subject || examType || grade || topicIds.length || sourceId || hasAnswer !== 'all' || siteDomain)
 
   const resetFilters = () => {
     setSource('all'); setSubject(''); setExamType(''); setGrade('')
-    setTopicIds([]); setSourceId(''); setQuery(''); setTopicSearch('')
+    setTopicIds([]); setSourceId(''); setTopicSearch('')
     setHasAnswer('all'); setSiteDomain('')
   }
 
@@ -161,7 +161,7 @@ export function LibraryClient({ initialTopics, totalProblems }: Props) {
             <input type="radio" name="source" value={s} checked={source === s}
               onChange={() => setSource(s)} className="accent-primary" />
             <span className="text-sm">
-              {s === 'all' ? 'Все' : s === 'verified' ? 'Верифицированные' : 'Мои задачи'}
+              {s === 'all' ? 'Все' : s === 'verified' ? 'Глобальные' : 'Мои задачи'}
             </span>
           </label>
         ))}
@@ -277,22 +277,6 @@ export function LibraryClient({ initialTopics, totalProblems }: Props) {
         </div>
       )}
 
-      {/* Поиск по ID */}
-      <div className="space-y-1.5">
-        <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          Поиск по ID задачи
-        </Label>
-        <div className="relative">
-          <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">#</span>
-          <Input
-            placeholder="ФИЗ-02210 или 311672"
-            value={sourceId}
-            onChange={e => setSourceId(e.target.value)}
-            className="h-8 text-sm pl-6"
-          />
-        </div>
-      </div>
-
       {/* Сброс */}
       {hasFilters && (
         <Button variant="ghost" size="sm" onClick={resetFilters} className="w-full text-xs h-7">
@@ -320,16 +304,21 @@ export function LibraryClient({ initialTopics, totalProblems }: Props) {
         </Button>
       </div>
 
-      {/* Строка поиска */}
+      {/* Строка поиска по ID задачи */}
       <div className="relative">
         <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
         <Input
-          placeholder="Поиск по тексту задания..."
-          value={query}
-          onChange={e => setQuery(e.target.value)}
-          className="pl-8"
-          disabled={!!sourceId}
+          placeholder="Поиск по ID задачи: ФИЗ-02210 или 311672"
+          value={sourceId}
+          onChange={e => setSourceId(e.target.value)}
+          className="pl-8 pr-8"
         />
+        {sourceId && (
+          <button onClick={() => setSourceId('')}
+            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+            <X className="h-4 w-4" />
+          </button>
+        )}
       </div>
 
       <div className="flex gap-6 items-start">
@@ -359,7 +348,14 @@ export function LibraryClient({ initialTopics, totalProblems }: Props) {
         )}
 
         {/* Список задач */}
-        <div className="flex-1 min-w-0 space-y-3">
+        <div className="flex-1 min-w-0 space-y-3 relative">
+          {/* Оверлей при смене фильтров */}
+          {resetting && loading && (
+            <div className="absolute inset-0 bg-background/70 backdrop-blur-[1px] flex items-start justify-center pt-16 z-10 rounded-lg">
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            </div>
+          )}
+
           {/* Счётчик результатов */}
           <div className="flex items-center justify-between text-sm text-muted-foreground">
             <span>
