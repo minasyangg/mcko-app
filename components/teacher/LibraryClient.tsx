@@ -325,7 +325,7 @@ export function LibraryClient({ initialTopics, totalProblems }: Props) {
           'hidden md:block',
           filtersOpen && 'block!'
         )}>
-          <FilterPanel />
+          {FilterPanel()}
         </aside>
 
         {/* Мобильная панель */}
@@ -339,7 +339,7 @@ export function LibraryClient({ initialTopics, totalProblems }: Props) {
                   <X className="h-4 w-4" />
                 </Button>
               </div>
-              <FilterPanel />
+              {FilterPanel()}
             </div>
           </div>
         )}
