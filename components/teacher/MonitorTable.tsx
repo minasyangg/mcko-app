@@ -176,7 +176,7 @@ export function MonitorTable({ initialAttempts }: Props) {
 
   const active = attempts.filter((a) => ['not_started', 'in_progress'].includes(a.status))
   const review = attempts.filter((a) => ['submitted', 'under_review'].includes(a.status))
-  const checked = attempts.filter((a) => a.status === 'checked')
+  const checked = attempts.filter((a) => ['checked', 'completed'].includes(a.status))
 
   const tabs: { key: Tab; label: string; count: number }[] = [
     { key: 'active', label: 'В процессе', count: active.length },
