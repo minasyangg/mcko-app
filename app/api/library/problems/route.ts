@@ -19,7 +19,8 @@ export async function GET(request: NextRequest) {
   const topicIds  = sp.getAll('topic_id').filter(Boolean)
   const source    = sp.get('source')         // 'all' | 'verified' | 'custom'
   const sourceId  = sp.get('source_id')      // точный поиск по sdamgia ID
-  const hasAnswer = sp.get('has_answer')     // 'true' | 'false' | null
+  const hasAnswer  = sp.get('has_answer')     // 'true' | 'false' | null
+  const siteDomain = sp.get('site_domain')   // 'fipi' | 'sdamgia' | null
   const q         = sp.get('q')?.trim()
   const page      = Math.max(1, parseInt(sp.get('page') ?? '1'))
   const perPage   = Math.min(50, Math.max(1, parseInt(sp.get('per_page') ?? '20')))
@@ -64,10 +65,19 @@ export async function GET(request: NextRequest) {
   if (topicIds.length > 0) query = query.in('topic_id', topicIds)
   if (hasAnswer === 'true')  query = query.eq('has_answer', true)
   if (hasAnswer === 'false') query = query.eq('has_answer', false)
+  if (siteDomain === 'fipi')    query = query.eq('source_domain', 'fipi.ru')
+  if (siteDomain === 'sdamgia') query = query.ilike('source_domain', '%sdamgia%')
 
-  // Поиск по source_id (точный, приоритетный)
+  // Поиск по коду задачи: library_code (ФИЗ-02210) или source_id (311672)
   if (sourceId?.trim()) {
-    query = query.eq('source_id', sourceId.trim())
+    const code = sourceId.trim()
+    if (/[^\d]/.test(code)) {
+      // Содержит буквы — ищем по library_code
+      query = query.ilike('library_code', `%${code}%`)
+    } else {
+      // Только цифры — ищем по source_id
+      query = query.eq('source_id', code)
+    }
   } else if (q) {
     query = query.textSearch('prompt_text', q, { config: 'russian' })
   }

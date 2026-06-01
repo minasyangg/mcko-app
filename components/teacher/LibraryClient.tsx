@@ -66,6 +66,7 @@ export function LibraryClient({ initialTopics, totalProblems }: Props) {
   const [query,      setQuery]     = useState('')
   const [topicSearch, setTopicSearch] = useState('')
   const [hasAnswer,  setHasAnswer] = useState<'all' | 'yes' | 'no'>('all')
+  const [siteDomain, setSiteDomain] = useState<'' | 'fipi' | 'sdamgia'>('')
 
   // ── Данные ────────────────────────────────────────────────────────────────
   const [problems,  setProblems]  = useState<Problem[]>([])
@@ -105,6 +106,7 @@ export function LibraryClient({ initialTopics, totalProblems }: Props) {
       topicIds.forEach(id => params.append('topic_id', id))
       if (hasAnswer === 'yes') params.set('has_answer', 'true')
       if (hasAnswer === 'no')  params.set('has_answer', 'false')
+      if (siteDomain) params.set('site_domain', siteDomain)
       if (sourceId.trim()) params.set('source_id', sourceId.trim())
       else if (query.trim()) params.set('q', query.trim())
 
@@ -118,7 +120,7 @@ export function LibraryClient({ initialTopics, totalProblems }: Props) {
     } finally {
       setLoading(false)
     }
-  }, [source, subject, examType, grade, topicIds, sourceId, query, hasAnswer])
+  }, [source, subject, examType, grade, topicIds, sourceId, query, hasAnswer, siteDomain])
 
   // Сброс и перезагрузка при изменении фильтров
   useEffect(() => {
@@ -137,12 +139,12 @@ export function LibraryClient({ initialTopics, totalProblems }: Props) {
     return () => io.disconnect()
   }, [hasMore, loading, page, fetchProblems])
 
-  const hasFilters = !!(source !== 'all' || subject || examType || grade || topicIds.length || sourceId || query || hasAnswer !== 'all')
+  const hasFilters = !!(source !== 'all' || subject || examType || grade || topicIds.length || sourceId || query || hasAnswer !== 'all' || siteDomain)
 
   const resetFilters = () => {
     setSource('all'); setSubject(''); setExamType(''); setGrade('')
     setTopicIds([]); setSourceId(''); setQuery(''); setTopicSearch('')
-    setHasAnswer('all')
+    setHasAnswer('all'); setSiteDomain('')
   }
 
   const toggleTopic = (id: string) =>
@@ -172,6 +174,18 @@ export function LibraryClient({ initialTopics, totalProblems }: Props) {
           <label key={val} className="flex items-center gap-2 cursor-pointer">
             <input type="radio" name="hasAnswer" value={val} checked={hasAnswer === val}
               onChange={() => setHasAnswer(val)} className="accent-primary" />
+            <span className="text-sm">{label}</span>
+          </label>
+        ))}
+      </div>
+
+      {/* Сайт-источник */}
+      <div className="space-y-2">
+        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Сайт</p>
+        {([['', 'Все сайты'], ['fipi', 'ФИПИ (fipi.ru)'], ['sdamgia', 'Сдамгиа']] as const).map(([val, label]) => (
+          <label key={val} className="flex items-center gap-2 cursor-pointer">
+            <input type="radio" name="siteDomain" value={val} checked={siteDomain === val}
+              onChange={() => setSiteDomain(val)} className="accent-primary" />
             <span className="text-sm">{label}</span>
           </label>
         ))}
@@ -271,9 +285,9 @@ export function LibraryClient({ initialTopics, totalProblems }: Props) {
         <div className="relative">
           <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">#</span>
           <Input
-            placeholder="311672"
+            placeholder="ФИЗ-02210 или 311672"
             value={sourceId}
-            onChange={e => setSourceId(e.target.value.replace(/\D/g, ''))}
+            onChange={e => setSourceId(e.target.value)}
             className="h-8 text-sm pl-6"
           />
         </div>
