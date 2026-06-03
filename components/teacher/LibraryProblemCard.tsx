@@ -45,6 +45,7 @@ export function LibraryProblemCard({ problem }: Props) {
   const [ansInput,    setAnsInput]    = useState('')
   const [localAnswer, setLocalAnswer] = useState<unknown>(problem.correct_answer)
   const [saving,      setSaving]      = useState(false)
+  const [saveError,   setSaveError]   = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
   const topic     = problem.canonical_topic
@@ -64,10 +65,12 @@ export function LibraryProblemCard({ problem }: Props) {
   const cancelEditing = () => {
     setEditingAns(false)
     setAnsInput('')
+    setSaveError(null)
   }
 
   const saveAnswer = async () => {
     setSaving(true)
+    setSaveError(null)
     try {
       const res = await fetch(`/api/library/problems/${problem.id}`, {
         method: 'PATCH',
@@ -77,7 +80,12 @@ export function LibraryProblemCard({ problem }: Props) {
       if (res.ok) {
         setLocalAnswer(ansInput.trim() === '' ? null : ansInput.trim())
         setEditingAns(false)
+      } else {
+        const d = await res.json().catch(() => ({}))
+        setSaveError(d.error ?? 'Ошибка сохранения')
       }
+    } catch {
+      setSaveError('Ошибка соединения')
     } finally {
       setSaving(false)
     }
@@ -150,25 +158,28 @@ export function LibraryProblemCard({ problem }: Props) {
 
         {/* Ответ */}
         {editingAns ? (
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-muted-foreground shrink-0">Ответ:</span>
-            <Input
-              ref={inputRef}
-              value={ansInput}
-              onChange={e => setAnsInput(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') saveAnswer(); if (e.key === 'Escape') cancelEditing() }}
-              className="h-7 text-sm flex-1"
-              placeholder="Введите ответ..."
-              disabled={saving}
-            />
-            <button onClick={saveAnswer} disabled={saving}
-              className="text-green-600 hover:text-green-700 disabled:opacity-50">
-              <Check className="h-4 w-4" />
-            </button>
-            <button onClick={cancelEditing} disabled={saving}
-              className="text-muted-foreground hover:text-foreground">
-              <X className="h-4 w-4" />
-            </button>
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-muted-foreground shrink-0">Ответ:</span>
+              <Input
+                ref={inputRef}
+                value={ansInput}
+                onChange={e => setAnsInput(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') saveAnswer(); if (e.key === 'Escape') cancelEditing() }}
+                className="h-7 text-sm flex-1"
+                placeholder="Введите ответ..."
+                disabled={saving}
+              />
+              <button onClick={saveAnswer} disabled={saving}
+                className="text-green-600 hover:text-green-700 disabled:opacity-50">
+                <Check className="h-4 w-4" />
+              </button>
+              <button onClick={cancelEditing} disabled={saving}
+                className="text-muted-foreground hover:text-foreground">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            {saveError && <p className="text-xs text-destructive">{saveError}</p>}
           </div>
         ) : hasAns ? (
           <div className="flex items-center gap-2 group">

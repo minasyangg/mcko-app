@@ -138,6 +138,15 @@ const gradingMethodLabel: Record<string, string> = {
   manual: 'Ручная проверка',
 }
 
+const defaultGradingMethod: Record<string, string> = {
+  single_choice:   'exact',
+  multiple_choice: 'set_match',
+  numeric:         'numeric_tolerance',
+  short_text:      'normalized',
+  manual_review:   'manual',
+  composite:       'exact',
+}
+
 // ─── Inline Task Edit Form ─────────────────────────────────────────────────────
 
 interface EditTaskFormProps {
@@ -326,7 +335,7 @@ function EditTaskForm({ task, onSave, onCancel }: EditTaskFormProps) {
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-1">
           <Label className="text-xs">Тип задачи</Label>
-          <Select value={taskType} onValueChange={setTaskType}>
+          <Select value={taskType} onValueChange={(v) => { setTaskType(v); setGradingMethod(defaultGradingMethod[v] ?? 'exact') }}>
             <SelectTrigger className="h-8 text-sm">
               <SelectValue />
             </SelectTrigger>
@@ -572,7 +581,7 @@ function InlineTaskForm({ versionId, nextTaskNumber, onCreated, onCancel }: Inli
   const [maxScore, setMaxScore] = useState('1')
   const [answerFormatHint, setAnswerFormatHint] = useState('')
   const [correctAnswer, setCorrectAnswer] = useState('')
-  const [gradingMethod, setGradingMethod] = useState('exact')
+  const [gradingMethod, setGradingMethod] = useState('normalized')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -721,7 +730,7 @@ function InlineTaskForm({ versionId, nextTaskNumber, onCreated, onCancel }: Inli
             </div>
             <div className="space-y-1">
               <Label className="text-xs">Тип задачи</Label>
-              <Select value={taskType} onValueChange={setTaskType}>
+              <Select value={taskType} onValueChange={(v) => { setTaskType(v); setGradingMethod(defaultGradingMethod[v] ?? 'exact') }}>
                 <SelectTrigger className="h-8 text-sm">
                   <SelectValue />
                 </SelectTrigger>
