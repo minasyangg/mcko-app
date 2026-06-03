@@ -168,6 +168,18 @@ export function LibraryClient({ initialTopics, totalProblems }: Props) {
   const toggleTopic = (id: string) =>
     setTopicIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])
 
+  // Клик по разделу — переключает раздел + все его подтемы разом
+  const toggleSectionGroup = (sectionId: string) => {
+    const childIds = initialTopics.filter(t => t.parent_id === sectionId).map(t => t.id)
+    const allIds = [sectionId, ...childIds]
+    const anySelected = allIds.some(id => topicIds.includes(id))
+    if (anySelected) {
+      setTopicIds(prev => prev.filter(id => !allIds.includes(id)))
+    } else {
+      setTopicIds(prev => [...new Set([...prev, ...allIds])])
+    }
+  }
+
   // Активные чипы фильтров
   const activeChips: { label: string; onRemove: () => void }[] = []
   if (subject)          activeChips.push({ label: subject,   onRemove: () => { setSubject('');   setTopicIds([]) } })
@@ -175,9 +187,18 @@ export function LibraryClient({ initialTopics, totalProblems }: Props) {
   if (source !== 'all') activeChips.push({ label: source === 'verified' ? 'Глобальные' : 'Мои задачи', onRemove: () => setSource('all') })
   if (hasAnswer !== 'all') activeChips.push({ label: hasAnswer === 'yes' ? 'С ответом' : 'Без ответа', onRemove: () => setHasAnswer('all') })
   if (siteDomain !== 'all') activeChips.push({ label: siteDomain === 'fipi' ? 'ФИПИ' : 'Сдамгиа', onRemove: () => setSiteDomain('all') })
+  // Чипы тем: если раздел выбран — показываем раздел, его подтемы скрываем
+  const selectedSectionIds = new Set(
+    topicIds.filter(id => initialTopics.find(t => t.id === id)?.parent_id === null)
+  )
   for (const id of topicIds) {
     const t = initialTopics.find(x => x.id === id)
-    if (t) activeChips.push({ label: t.fipicod ? `${t.fipicod} ${t.name}` : t.name, onRemove: () => toggleTopic(id) })
+    if (!t) continue
+    if (t.parent_id && selectedSectionIds.has(t.parent_id)) continue // скрыто под чипом раздела
+    activeChips.push({
+      label: t.fipicod ? `${t.fipicod} ${t.name}` : t.name,
+      onRemove: () => t.parent_id === null ? toggleSectionGroup(t.id) : toggleTopic(id),
+    })
   }
 
   const FilterPanel = () => (
@@ -249,9 +270,10 @@ export function LibraryClient({ initialTopics, totalProblems }: Props) {
           />
           <div className="space-y-0.5 max-h-72 overflow-y-auto pr-1">
             {sections.map(sec => {
+              const allSubs = initialTopics.filter(t => t.parent_id === sec.id)
               const subs = subtopicsOf(sec.id)
               const isExpanded = !!expandedSections[sec.id] || !!topicSearch
-              const anySelected = [sec.id, ...subs.map(s => s.id)].some(id => topicIds.includes(id))
+              const anySelected = [sec.id, ...allSubs.map(s => s.id)].some(id => topicIds.includes(id))
 
               return (
                 <div key={sec.id}>
@@ -270,8 +292,8 @@ export function LibraryClient({ initialTopics, totalProblems }: Props) {
                       <input
                         type="checkbox"
                         className="accent-primary h-3.5 w-3.5 cursor-pointer shrink-0"
-                        checked={topicIds.includes(sec.id)}
-                        onChange={() => toggleTopic(sec.id)}
+                        checked={anySelected}
+                        onChange={() => toggleSectionGroup(sec.id)}
                       />
                       <span className={cn('text-xs font-medium leading-tight truncate', anySelected && 'text-primary')}>
                         {sec.fipicod ? `${sec.fipicod}. ` : ''}{sec.name}
