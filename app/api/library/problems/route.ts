@@ -16,7 +16,7 @@ export async function GET(request: NextRequest) {
   const subject   = sp.get('subject')
   const exam_type = sp.get('exam_type')
   const grade     = sp.get('grade')
-  const topicIds  = sp.getAll('topic_id').filter(Boolean)
+  const topicIds  = sp.getAll('canonical_topic_id').filter(Boolean)
   const source    = sp.get('source')         // 'all' | 'verified' | 'custom'
   const sourceId  = sp.get('source_id')      // точный поиск по sdamgia ID
   const hasAnswer  = sp.get('has_answer')     // 'true' | 'false' | null
@@ -62,7 +62,7 @@ export async function GET(request: NextRequest) {
   if (subject)   query = query.eq('subject', subject)
   if (exam_type) query = query.eq('exam_type', exam_type)
   if (grade)     query = query.eq('grade', grade)
-  if (topicIds.length > 0) query = query.in('topic_id', topicIds)
+  if (topicIds.length > 0) query = query.in('canonical_topic_id', topicIds)
   if (hasAnswer === 'true')  query = query.eq('has_answer', true)
   if (hasAnswer === 'false') query = query.eq('has_answer', false)
   if (siteDomain === 'fipi')    query = query.eq('source_domain', 'fipi.ru')

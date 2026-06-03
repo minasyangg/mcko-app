@@ -1,4 +1,4 @@
-export type Json =
+﻿export type Json =
   | string
   | number
   | boolean
@@ -513,6 +513,7 @@ export type Database = {
       library_problems: {
         Row: {
           answer_source: string
+          canonical_topic_id: string | null
           correct_answer: Json | null
           created_at: string | null
           criteria_html: string | null
@@ -522,7 +523,7 @@ export type Database = {
           grade: string | null
           grading_config: Json | null
           grading_method: string
-          has_answer: boolean
+          has_answer: boolean | null
           id: string
           is_active: boolean | null
           library_code: string | null
@@ -547,6 +548,7 @@ export type Database = {
         }
         Insert: {
           answer_source?: string
+          canonical_topic_id?: string | null
           correct_answer?: Json | null
           created_at?: string | null
           criteria_html?: string | null
@@ -556,6 +558,7 @@ export type Database = {
           grade?: string | null
           grading_config?: Json | null
           grading_method?: string
+          has_answer?: boolean | null
           id?: string
           is_active?: boolean | null
           library_code?: string | null
@@ -580,6 +583,7 @@ export type Database = {
         }
         Update: {
           answer_source?: string
+          canonical_topic_id?: string | null
           correct_answer?: Json | null
           created_at?: string | null
           criteria_html?: string | null
@@ -589,6 +593,7 @@ export type Database = {
           grade?: string | null
           grading_config?: Json | null
           grading_method?: string
+          has_answer?: boolean | null
           id?: string
           is_active?: boolean | null
           library_code?: string | null
@@ -613,6 +618,13 @@ export type Database = {
         }
         Relationships: [
           {
+            foreignKeyName: "library_problems_canonical_topic_id_fkey"
+            columns: ["canonical_topic_id"]
+            isOneToOne: false
+            referencedRelation: "library_topics"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "library_problems_organization_id_fkey"
             columns: ["organization_id"]
             isOneToOne: false
@@ -636,6 +648,7 @@ export type Database = {
           fipicod: string | null
           grade: string | null
           id: string
+          is_canonical: boolean
           name: string
           parent_id: string | null
           sort_order: number | null
@@ -648,6 +661,7 @@ export type Database = {
           fipicod?: string | null
           grade?: string | null
           id?: string
+          is_canonical?: boolean
           name: string
           parent_id?: string | null
           sort_order?: number | null
@@ -660,6 +674,7 @@ export type Database = {
           fipicod?: string | null
           grade?: string | null
           id?: string
+          is_canonical?: boolean
           name?: string
           parent_id?: string | null
           sort_order?: number | null
@@ -1749,3 +1764,4 @@ export const Constants = {
     Enums: {},
   },
 } as const
+
