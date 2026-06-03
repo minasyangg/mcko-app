@@ -31,14 +31,10 @@ export async function GET(request: NextRequest) {
     .from('library_problems')
     .select(`
       id, source_id, source_domain, source_url,
-      exam_type, subject, grade,
-      task_number_type, prompt_text, prompt_html, task_type,
-      correct_answer, grading_method, default_max_score,
-      has_answer, answer_source,
-      organization_id,
-      solution_html,
-      topic_id, library_code,
-      library_topics ( id, fipicod, name )
+      exam_type, task_number_type,
+      prompt_text, prompt_html,
+      correct_answer, solution_html, library_code,
+      canonical_topic:library_topics!canonical_topic_id ( id, fipicod, name )
     `, { count: 'exact' })
     .eq('is_active', true)
     .order('used_count', { ascending: true })

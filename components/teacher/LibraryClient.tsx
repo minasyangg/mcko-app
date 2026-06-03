@@ -26,22 +26,13 @@ interface Problem {
   source_domain: string | null
   source_url: string | null
   exam_type: string
-  subject: string
-  grade: string | null
   task_number_type: string | null
   prompt_text: string
   prompt_html: string | null
-  task_type: string
   correct_answer: unknown
-  has_answer: boolean
-  answer_source: string
-  grading_method: string
-  default_max_score: number
-  organization_id: string | null
   solution_html: string | null
   library_code: string | null
-  topic_id: string | null
-  library_topics: { id: string; fipicod: string | null; name: string } | null
+  canonical_topic: { id: string; fipicod: string | null; name: string } | null
 }
 
 interface Props {
@@ -143,9 +134,9 @@ export function LibraryClient({ initialTopics, totalProblems }: Props) {
       const res  = await fetch(`/api/library/problems?${params}`)
       const json = await res.json()
 
-      setProblems(prev => reset ? json.data : [...prev, ...json.data])
-      setTotal(json.total)
-      setHasMore(p < json.total_pages)
+      setProblems(prev => reset ? (json.data ?? []) : [...prev, ...(json.data ?? [])])
+      setTotal(json.total ?? 0)
+      setHasMore(p < (json.total_pages ?? 1))
       setPage(p)
     } finally {
       setLoading(false)

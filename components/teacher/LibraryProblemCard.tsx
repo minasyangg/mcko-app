@@ -14,22 +14,13 @@ interface Problem {
   source_domain: string | null
   source_url: string | null
   exam_type: string
-  subject: string
-  grade: string | null
   task_number_type: string | null
   prompt_text: string
   prompt_html: string | null
-  task_type: string
   correct_answer: unknown
-  has_answer: boolean
-  answer_source: string
-  grading_method: string
-  default_max_score: number
-  organization_id: string | null
   solution_html: string | null
-  topic_id: string | null
   library_code: string | null
-  library_topics: { id: string; fipicod: string | null; name: string } | null
+  canonical_topic: { id: string; fipicod: string | null; name: string } | null
 }
 
 interface Props {
@@ -56,11 +47,13 @@ export function LibraryProblemCard({ problem }: Props) {
   const [saving,      setSaving]      = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
-  const topic      = problem.library_topics
-  const hasAns     = !!localAnswer && answerText(localAnswer) !== ''
-  const hasSol     = !!problem.solution_html
-  const sdamgiaUrl = problem.source_url
-  const codeLabel  = problem.library_code ?? (problem.source_id ? `#${problem.source_id}` : null)
+  const topic     = problem.canonical_topic
+  const hasAns    = !!localAnswer && answerText(localAnswer) !== ''
+  const hasSol    = !!problem.solution_html
+  const codeLabel = problem.library_code ?? (problem.source_id ? `#${problem.source_id}` : null)
+  const sourceName = problem.source_domain
+    ? problem.source_domain.replace(/^https?:\/\//, '').replace(/^www\./, '')
+    : 'источнике'
 
   const startEditing = () => {
     setAnsInput(hasAns ? answerText(localAnswer) : '')
@@ -112,7 +105,7 @@ export function LibraryProblemCard({ problem }: Props) {
               {problem.task_number_type ? ` · ${problem.task_number_type}` : ''}
             </Badge>
 
-            {/* Тема */}
+            {/* Тема (canonical) */}
             {topic && (
               <span className="text-xs text-muted-foreground truncate">
                 {topic.fipicod ? `${topic.fipicod} · ` : ''}{topic.name}
@@ -121,22 +114,24 @@ export function LibraryProblemCard({ problem }: Props) {
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
-            {/* Статусы */}
-            {hasAns && (
-              <CheckCircle2 className="h-3.5 w-3.5 text-green-500" aria-label="Есть ответ" />
-            )}
-            {!hasAns && (
-              <CheckCircle2 className="h-3.5 w-3.5 text-muted-foreground/30" aria-label="Нет ответа" />
-            )}
+            {/* Статус ответа */}
+            <CheckCircle2
+              className={cn('h-3.5 w-3.5', hasAns ? 'text-green-500' : 'text-muted-foreground/30')}
+              aria-label={hasAns ? 'Есть ответ' : 'Нет ответа'}
+            />
+            {/* Статус решения */}
             {hasSol && (
               <BookOpen className="h-3.5 w-3.5 text-blue-400" aria-label="Есть решение" />
             )}
-
             {/* Ссылка на источник */}
-            {sdamgiaUrl && (
-              <a href={sdamgiaUrl} target="_blank" rel="noopener noreferrer"
+            {problem.source_url && (
+              <a
+                href={problem.source_url}
+                target="_blank"
+                rel="noopener noreferrer"
                 className="text-muted-foreground hover:text-foreground transition-colors"
-                title="Открыть на sdamgia.ru">
+                title={`Открыть на ${sourceName}`}
+              >
                 <ExternalLink className="h-3.5 w-3.5" />
               </a>
             )}
