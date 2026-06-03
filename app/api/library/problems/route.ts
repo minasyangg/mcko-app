@@ -37,7 +37,7 @@ export async function GET(request: NextRequest) {
       canonical_topic:library_topics!canonical_topic_id ( id, fipicod, name )
     `, { count: 'exact' })
     .eq('is_active', true)
-    .order('used_count', { ascending: true })
+    .order('scraped_at', { ascending: false, nullsFirst: false })
     .order('source_id', { ascending: true })
     .range(from, to)
 
