@@ -89,13 +89,9 @@ export function TestPlayer({
   )
 
   const flushPending = useCallback(async () => {
-    const pending = { ...pendingRef.current }
-    const entries = Object.entries(pending)
+    const entries = Object.entries(pendingRef.current)
     if (entries.length === 0) return
-    // Save all pending answers sequentially
-    for (const [taskId, answerJson] of entries) {
-      await saveAnswer(taskId, answerJson)
-    }
+    await Promise.all(entries.map(([taskId, answerJson]) => saveAnswer(taskId, answerJson)))
   }, [saveAnswer])
 
   function handleAnswerChange(taskId: string, answerJson: Json) {
@@ -125,14 +121,18 @@ export function TestPlayer({
   // Heartbeat
   useEffect(() => {
     async function sendHeartbeat() {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) return
-      await supabase.from('presence_events').insert({
-        attempt_id: attemptId,
-        student_id: user.id,
-        event_type: 'heartbeat',
-        current_task_number: tasks[currentIdx]?.task_number ?? 1,
-      })
+      try {
+        const { data: { user } } = await supabase.auth.getUser()
+        if (!user) return
+        await supabase.from('presence_events').insert({
+          attempt_id: attemptId,
+          student_id: user.id,
+          event_type: 'heartbeat',
+          current_task_number: tasks[currentIdx]?.task_number ?? 1,
+        })
+      } catch {
+        // Heartbeat failure is non-critical — attempt continues
+      }
     }
 
     const interval = setInterval(sendHeartbeat, HEARTBEAT_MS)
