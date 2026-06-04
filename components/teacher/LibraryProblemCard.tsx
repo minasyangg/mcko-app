@@ -1,10 +1,12 @@
 'use client'
 
-import { useState } from 'react'
-import { ChevronDown, ChevronUp, ExternalLink, CheckCircle2, BookOpen } from 'lucide-react'
+import { useState, useRef } from 'react'
+import { ChevronDown, ChevronUp, ExternalLink, CheckCircle2, BookOpen, Pencil, Check, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
+import MarkdownContent from '@/components/shared/MarkdownContent'
 
 interface Problem {
   id: string
@@ -12,19 +14,13 @@ interface Problem {
   source_domain: string | null
   source_url: string | null
   exam_type: string
-  subject: string
-  grade: string | null
   task_number_type: string | null
   prompt_text: string
   prompt_html: string | null
-  task_type: string
   correct_answer: unknown
-  grading_method: string
-  default_max_score: number
-  organization_id: string | null
   solution_html: string | null
-  topic_id: string | null
-  library_topics: { id: string; fipicod: string | null; name: string } | null
+  library_code: string | null
+  canonical_topic: { id: string; fipicod: string | null; name: string } | null
 }
 
 interface Props {
@@ -44,13 +40,56 @@ function answerText(answer: unknown): string {
 }
 
 export function LibraryProblemCard({ problem }: Props) {
-  const [expanded, setExpanded] = useState(false)
+  const [expanded,    setExpanded]    = useState(false)
+  const [editingAns,  setEditingAns]  = useState(false)
+  const [ansInput,    setAnsInput]    = useState('')
+  const [localAnswer, setLocalAnswer] = useState<unknown>(problem.correct_answer)
+  const [saving,      setSaving]      = useState(false)
+  const [saveError,   setSaveError]   = useState<string | null>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
 
-  const topic   = problem.library_topics
-  const hasAns  = !!problem.correct_answer && answerText(problem.correct_answer) !== ''
-  const hasSol  = !!problem.solution_html
-  const isVerif = problem.organization_id === null
-  const sdamgiaUrl = problem.source_url
+  const topic     = problem.canonical_topic
+  const hasAns    = !!localAnswer && answerText(localAnswer) !== ''
+  const hasSol    = !!problem.solution_html
+  const codeLabel = problem.library_code ?? (problem.source_id ? `#${problem.source_id}` : null)
+  const sourceName = problem.source_domain
+    ? problem.source_domain.replace(/^https?:\/\//, '').replace(/^www\./, '')
+    : 'источнике'
+
+  const startEditing = () => {
+    setAnsInput(hasAns ? answerText(localAnswer) : '')
+    setEditingAns(true)
+    setTimeout(() => inputRef.current?.focus(), 0)
+  }
+
+  const cancelEditing = () => {
+    setEditingAns(false)
+    setAnsInput('')
+    setSaveError(null)
+  }
+
+  const saveAnswer = async () => {
+    setSaving(true)
+    setSaveError(null)
+    try {
+      const res = await fetch(`/api/library/problems/${problem.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ correct_answer: ansInput }),
+      })
+      if (res.ok) {
+        setLocalAnswer(ansInput.trim() === '' ? null : ansInput.trim())
+        setEditingAns(false)
+      } else {
+        const d = await res.json().catch(() => ({}))
+        setSaveError(d.error ?? 'Ошибка сохранения')
+      }
+    } catch {
+      setSaveError('Ошибка соединения')
+    } finally {
+      setSaving(false)
+    }
+  }
 
   return (
     <div className={cn(
@@ -61,21 +100,20 @@ export function LibraryProblemCard({ problem }: Props) {
         {/* Заголовок */}
         <div className="flex items-start justify-between gap-3">
           <div className="flex flex-wrap items-center gap-2 min-w-0">
-            {/* ID задачи */}
-            {problem.source_id && (
+            {/* Код задачи */}
+            {codeLabel && (
               <span className="text-xs font-mono text-muted-foreground shrink-0">
-                #{problem.source_id}
+                {codeLabel}
               </span>
             )}
 
-            {/* Тип задачи */}
-            {problem.task_number_type && (
-              <Badge variant="secondary" className="text-xs shrink-0">
-                {problem.task_number_type}
-              </Badge>
-            )}
+            {/* Экзамен + тип задачи */}
+            <Badge variant="secondary" className="text-xs shrink-0">
+              {problem.exam_type}
+              {problem.task_number_type ? ` · ${problem.task_number_type}` : ''}
+            </Badge>
 
-            {/* Тема */}
+            {/* Тема (canonical) */}
             {topic && (
               <span className="text-xs text-muted-foreground truncate">
                 {topic.fipicod ? `${topic.fipicod} · ` : ''}{topic.name}
@@ -84,24 +122,24 @@ export function LibraryProblemCard({ problem }: Props) {
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
-            {/* Макс. балл */}
-            <span className="text-xs text-muted-foreground whitespace-nowrap">
-              {problem.default_max_score} б.
-            </span>
-
-            {/* Статусы */}
-            {hasAns && (
-              <CheckCircle2 className="h-3.5 w-3.5 text-green-500" title="Есть ответ" />
-            )}
+            {/* Статус ответа */}
+            <CheckCircle2
+              className={cn('h-3.5 w-3.5', hasAns ? 'text-green-500' : 'text-muted-foreground/30')}
+              aria-label={hasAns ? 'Есть ответ' : 'Нет ответа'}
+            />
+            {/* Статус решения */}
             {hasSol && (
-              <BookOpen className="h-3.5 w-3.5 text-blue-400" title="Есть решение" />
+              <BookOpen className="h-3.5 w-3.5 text-blue-400" aria-label="Есть решение" />
             )}
-
             {/* Ссылка на источник */}
-            {sdamgiaUrl && (
-              <a href={sdamgiaUrl} target="_blank" rel="noopener noreferrer"
+            {problem.source_url && (
+              <a
+                href={problem.source_url}
+                target="_blank"
+                rel="noopener noreferrer"
                 className="text-muted-foreground hover:text-foreground transition-colors"
-                title="Открыть на sdamgia.ru">
+                title={`Открыть на ${sourceName}`}
+              >
                 <ExternalLink className="h-3.5 w-3.5" />
               </a>
             )}
@@ -109,33 +147,64 @@ export function LibraryProblemCard({ problem }: Props) {
         </div>
 
         {/* Текст условия */}
-        {expanded && problem.prompt_html ? (
-          <div
-            className="text-sm prose prose-sm max-w-none dark:prose-invert"
-            dangerouslySetInnerHTML={{ __html: problem.prompt_html }}
-          />
+        {expanded ? (
+          <MarkdownContent content={problem.prompt_html ?? problem.prompt_text} />
         ) : (
-          <p className="text-sm text-foreground line-clamp-3 leading-relaxed">
-            {problem.prompt_text}
-          </p>
+          <div className="max-h-28 overflow-hidden relative text-sm leading-relaxed">
+            <MarkdownContent content={problem.prompt_html ?? problem.prompt_text} />
+            <div className="absolute bottom-0 left-0 right-0 h-8 bg-linear-to-t from-card to-transparent pointer-events-none" />
+          </div>
         )}
 
         {/* Ответ */}
-        {hasAns && (
-          <p className="text-sm">
-            <span className="text-muted-foreground">Ответ: </span>
-            <span className="font-medium">{answerText(problem.correct_answer)}</span>
-          </p>
+        {editingAns ? (
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-muted-foreground shrink-0">Ответ:</span>
+              <Input
+                ref={inputRef}
+                value={ansInput}
+                onChange={e => setAnsInput(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') saveAnswer(); if (e.key === 'Escape') cancelEditing() }}
+                className="h-7 text-sm flex-1"
+                placeholder="Введите ответ..."
+                disabled={saving}
+              />
+              <button onClick={saveAnswer} disabled={saving}
+                className="text-green-600 hover:text-green-700 disabled:opacity-50">
+                <Check className="h-4 w-4" />
+              </button>
+              <button onClick={cancelEditing} disabled={saving}
+                className="text-muted-foreground hover:text-foreground">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            {saveError && <p className="text-xs text-destructive">{saveError}</p>}
+          </div>
+        ) : hasAns ? (
+          <div className="flex items-center gap-2 group">
+            <p className="text-sm">
+              <span className="text-muted-foreground">Ответ: </span>
+              <span className="font-medium">{answerText(localAnswer)}</span>
+            </p>
+            <button onClick={startEditing}
+              className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-foreground">
+              <Pencil className="h-3 w-3" />
+            </button>
+          </div>
+        ) : (
+          <button onClick={startEditing}
+            className="text-xs text-muted-foreground hover:text-primary transition-colors flex items-center gap-1">
+            <Pencil className="h-3 w-3" />
+            Добавить ответ
+          </button>
         )}
 
         {/* Решение (когда раскрыто) */}
         {expanded && hasSol && (
           <div className="mt-3 pt-3 border-t space-y-1">
             <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Решение</p>
-            <div
-              className="text-sm prose prose-sm max-w-none dark:prose-invert"
-              dangerouslySetInnerHTML={{ __html: problem.solution_html! }}
-            />
+            <MarkdownContent content={problem.solution_html!.replace(/style="[^"]*display\s*:\s*none[^"]*"/gi, '')} />
           </div>
         )}
 

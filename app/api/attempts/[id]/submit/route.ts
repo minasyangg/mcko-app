@@ -188,7 +188,7 @@ export async function POST(
     }
 
     const isManual = effectiveMethod === 'manual'
-    const isTextTask = ['short_text', 'manual_review', 'composite', 'free_response'].includes(task.task_type)
+    const isTextTask = ['short_text', 'manual_review', 'composite'].includes(task.task_type)
 
     // For manual_review tasks with a correct_answer: try AI semantic check
     if (isManual && isTextTask) {

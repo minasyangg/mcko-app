@@ -111,13 +111,24 @@ const statusVariant: Record<string, 'secondary' | 'default' | 'outline' | 'destr
   archived: 'outline',
 }
 
+// All DB-valid task types (for display in badges/labels)
 const taskTypeLabel: Record<string, string> = {
-  single_choice: 'Один ответ',
+  single_choice:  'Один ответ',
   multiple_choice: 'Несколько ответов',
-  free_response: 'Свободный ответ',
-  numeric: 'Числовой',
-  matching: 'Соответствие',
+  short_text:     'Краткий ответ',
+  numeric:        'Числовой',
+  composite:      'Составной',
+  manual_review:  'Развёрнутый ответ',
 }
+
+// Subset for form dropdowns (composite is parser-only, not manually selectable)
+const TASK_TYPE_FORM_OPTIONS: [string, string][] = [
+  ['short_text',     'Краткий ответ'],
+  ['numeric',        'Числовой'],
+  ['single_choice',  'Один ответ'],
+  ['multiple_choice','Несколько ответов'],
+  ['manual_review',  'Развёрнутый ответ'],
+]
 
 const gradingMethodLabel: Record<string, string> = {
   exact: 'Точное совпадение',
@@ -125,6 +136,15 @@ const gradingMethodLabel: Record<string, string> = {
   numeric_tolerance: 'Числовое (допуск)',
   set_match: 'Совпадение набора',
   manual: 'Ручная проверка',
+}
+
+const defaultGradingMethod: Record<string, string> = {
+  single_choice:   'exact',
+  multiple_choice: 'set_match',
+  numeric:         'numeric_tolerance',
+  short_text:      'normalized',
+  manual_review:   'manual',
+  composite:       'exact',
 }
 
 // ─── Inline Task Edit Form ─────────────────────────────────────────────────────
@@ -315,12 +335,12 @@ function EditTaskForm({ task, onSave, onCancel }: EditTaskFormProps) {
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-1">
           <Label className="text-xs">Тип задачи</Label>
-          <Select value={taskType} onValueChange={setTaskType}>
+          <Select value={taskType} onValueChange={(v) => { setTaskType(v); setGradingMethod(defaultGradingMethod[v] ?? 'exact') }}>
             <SelectTrigger className="h-8 text-sm">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {Object.entries(taskTypeLabel).map(([v, l]) => (
+              {TASK_TYPE_FORM_OPTIONS.map(([v, l]) => (
                 <SelectItem key={v} value={v}>{l}</SelectItem>
               ))}
             </SelectContent>
@@ -557,13 +577,44 @@ interface InlineTaskFormProps {
 function InlineTaskForm({ versionId, nextTaskNumber, onCreated, onCancel }: InlineTaskFormProps) {
   const [taskNumber, setTaskNumber] = useState(String(nextTaskNumber))
   const [promptText, setPromptText] = useState('')
-  const [taskType, setTaskType] = useState('free_response')
+  const [taskType, setTaskType] = useState('short_text')
   const [maxScore, setMaxScore] = useState('1')
   const [answerFormatHint, setAnswerFormatHint] = useState('')
   const [correctAnswer, setCorrectAnswer] = useState('')
-  const [gradingMethod, setGradingMethod] = useState('exact')
+  const [gradingMethod, setGradingMethod] = useState('normalized')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // Phase 2: image upload after task is created
+  const [createdTask, setCreatedTask] = useState<TestTask | null>(null)
+  type GalleryImg = { id: string; signedUrl: string; sort_order: number; alt_text: null }
+  const [images, setImages] = useState<GalleryImg[]>([])
+  const [uploading, setUploading] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const handleFile = useCallback(async (file: File) => {
+    if (!createdTask) return
+    if (!file.type.startsWith('image/')) { setError('Только изображения'); return }
+    setUploading(true)
+    setError(null)
+    try {
+      const form = new FormData()
+      form.append('file', file)
+      const res = await fetch(`/api/tasks/${createdTask.id}/media`, { method: 'POST', body: form })
+      if (!res.ok) { setError('Ошибка загрузки изображения'); return }
+      const data = await res.json()
+      setImages(prev => [...prev, { id: data.id, signedUrl: data.signedUrl, sort_order: prev.length, alt_text: null }])
+    } finally {
+      setUploading(false)
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    }
+  }, [createdTask])
+
+  const handleImageDelete = async (mediaId: string) => {
+    if (!createdTask) return
+    const res = await fetch(`/api/tasks/${createdTask.id}/media/${mediaId}`, { method: 'DELETE' })
+    if (res.ok) setImages(prev => prev.filter(img => img.id !== mediaId))
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -590,12 +641,77 @@ function InlineTaskForm({ versionId, nextTaskNumber, onCreated, onCancel }: Inli
         return
       }
       const created: TestTask = await res.json()
-      onCreated(created)
+      setCreatedTask(created)
     } finally {
       setSaving(false)
     }
   }
 
+  const handlePasteInline = useCallback(async (e: React.ClipboardEvent) => {
+    const items = e.clipboardData?.items
+    if (!items) return
+    for (const item of Array.from(items)) {
+      if (item.type.startsWith('image/')) {
+        e.preventDefault()
+        const file = item.getAsFile()
+        if (file) await handleFile(file)
+        break
+      }
+    }
+  }, [handleFile])
+
+  // Phase 2: image upload after task created
+  if (createdTask) {
+    return (
+      <Card className="border-dashed border-2 border-green-500/40" onPaste={handlePasteInline}>
+        <CardContent className="p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-green-700 dark:text-green-400">
+              Задача #{createdTask.task_number} создана
+            </h3>
+            <span className="text-xs text-muted-foreground">Добавьте изображения (необязательно)</span>
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Изображения к заданию</Label>
+            <p className="text-xs text-muted-foreground">Вставьте из буфера (Ctrl+V) или выберите файл</p>
+            <ImageGallery
+              images={images.map(img => ({ id: img.id, signedUrl: img.signedUrl, sort_order: img.sort_order, alt: img.alt_text }))}
+              onDelete={handleImageDelete}
+              uploading={uploading}
+              uploadSlot={
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploading}
+                  className="flex h-24 w-24 flex-col items-center justify-center gap-1 rounded border-2 border-dashed border-muted-foreground/30 text-muted-foreground hover:border-primary hover:text-primary disabled:opacity-50 transition-colors"
+                >
+                  <ImagePlus className="h-5 w-5" />
+                  <span className="text-[10px]">{uploading ? 'Загрузка...' : 'Добавить'}</span>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f) }}
+                  />
+                </button>
+              }
+            />
+          </div>
+          {error && <p className="text-sm text-destructive">{error}</p>}
+          <Button
+            size="sm"
+            onClick={() => onCreated({ ...createdTask, images: images as unknown as import('@/types/domain').TaskMediaWithUrl[] })}
+            disabled={uploading}
+          >
+            Готово
+          </Button>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  // Phase 1: fill task details
   return (
     <Card className="border-dashed border-2">
       <CardContent className="p-4">
@@ -614,12 +730,12 @@ function InlineTaskForm({ versionId, nextTaskNumber, onCreated, onCancel }: Inli
             </div>
             <div className="space-y-1">
               <Label className="text-xs">Тип задачи</Label>
-              <Select value={taskType} onValueChange={setTaskType}>
+              <Select value={taskType} onValueChange={(v) => { setTaskType(v); setGradingMethod(defaultGradingMethod[v] ?? 'exact') }}>
                 <SelectTrigger className="h-8 text-sm">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {Object.entries(taskTypeLabel).map(([v, l]) => (
+                  {TASK_TYPE_FORM_OPTIONS.map(([v, l]) => (
                     <SelectItem key={v} value={v}>{l}</SelectItem>
                   ))}
                 </SelectContent>
@@ -684,7 +800,7 @@ function InlineTaskForm({ versionId, nextTaskNumber, onCreated, onCancel }: Inli
           {error && <p className="text-sm text-destructive">{error}</p>}
           <div className="flex gap-2">
             <Button type="submit" size="sm" disabled={saving}>
-              {saving ? 'Добавление...' : 'Добавить задачу'}
+              {saving ? 'Создание...' : 'Создать задачу'}
             </Button>
             <Button type="button" size="sm" variant="outline" onClick={onCancel} disabled={saving}>
               Отмена

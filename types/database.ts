@@ -1,4 +1,4 @@
-export type Json =
+﻿export type Json =
   | string
   | number
   | boolean
@@ -512,6 +512,8 @@ export type Database = {
       }
       library_problems: {
         Row: {
+          answer_source: string
+          canonical_topic_id: string | null
           correct_answer: Json | null
           created_at: string | null
           criteria_html: string | null
@@ -521,8 +523,10 @@ export type Database = {
           grade: string | null
           grading_config: Json | null
           grading_method: string
+          has_answer: boolean | null
           id: string
           is_active: boolean | null
+          library_code: string | null
           options: Json | null
           organization_id: string | null
           prompt_html: string | null
@@ -543,6 +547,8 @@ export type Database = {
           used_count: number | null
         }
         Insert: {
+          answer_source?: string
+          canonical_topic_id?: string | null
           correct_answer?: Json | null
           created_at?: string | null
           criteria_html?: string | null
@@ -552,8 +558,10 @@ export type Database = {
           grade?: string | null
           grading_config?: Json | null
           grading_method?: string
+          has_answer?: boolean | null
           id?: string
           is_active?: boolean | null
+          library_code?: string | null
           options?: Json | null
           organization_id?: string | null
           prompt_html?: string | null
@@ -574,6 +582,8 @@ export type Database = {
           used_count?: number | null
         }
         Update: {
+          answer_source?: string
+          canonical_topic_id?: string | null
           correct_answer?: Json | null
           created_at?: string | null
           criteria_html?: string | null
@@ -583,8 +593,10 @@ export type Database = {
           grade?: string | null
           grading_config?: Json | null
           grading_method?: string
+          has_answer?: boolean | null
           id?: string
           is_active?: boolean | null
+          library_code?: string | null
           options?: Json | null
           organization_id?: string | null
           prompt_html?: string | null
@@ -605,6 +617,13 @@ export type Database = {
           used_count?: number | null
         }
         Relationships: [
+          {
+            foreignKeyName: "library_problems_canonical_topic_id_fkey"
+            columns: ["canonical_topic_id"]
+            isOneToOne: false
+            referencedRelation: "library_topics"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "library_problems_organization_id_fkey"
             columns: ["organization_id"]
@@ -629,6 +648,7 @@ export type Database = {
           fipicod: string | null
           grade: string | null
           id: string
+          is_canonical: boolean
           name: string
           parent_id: string | null
           sort_order: number | null
@@ -641,6 +661,7 @@ export type Database = {
           fipicod?: string | null
           grade?: string | null
           id?: string
+          is_canonical?: boolean
           name: string
           parent_id?: string | null
           sort_order?: number | null
@@ -653,6 +674,7 @@ export type Database = {
           fipicod?: string | null
           grade?: string | null
           id?: string
+          is_canonical?: boolean
           name?: string
           parent_id?: string | null
           sort_order?: number | null
@@ -1742,3 +1764,4 @@ export const Constants = {
     Enums: {},
   },
 } as const
+

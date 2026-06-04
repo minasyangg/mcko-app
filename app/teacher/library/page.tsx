@@ -7,11 +7,12 @@ export default async function LibraryPage() {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  // Загружаем иерархию тем: сначала разделы (parent_id IS NULL), потом подтемы
+  // Загружаем только канонические темы (ФИПИ КЭС) для фильтрации
   const { data: allTopics } = await supabase
     .from('library_topics')
     .select('id, exam_type, subject, grade, fipicod, name, parent_id, sort_order')
-    .order('exam_type').order('subject').order('sort_order').order('name')
+    .eq('is_canonical', true)
+    .order('exam_type').order('subject').order('sort_order').order('fipicod')
 
   // Считаем общее число задач
   const { count: totalProblems } = await supabase

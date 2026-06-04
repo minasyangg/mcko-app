@@ -128,3 +128,19 @@
     @apply font-sans;
   }
 }
+
+/* sdamgia HTML classes rendered inside library problem cards */
+.flex-img {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+  margin: 8px 0;
+}
+.flex-math {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 8px 0;
+  align-items: center;
+}
