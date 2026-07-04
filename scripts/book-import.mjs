@@ -276,26 +276,54 @@ for (const pr of uniqueProblems) {
 
 // ── Ответы ───────────────────────────────────────────────────────────────────
 
+// Номера ответов в книге идут строго по возрастанию. Числа внутри самих
+// ответов ("г) 1. ", "…г) 25. 202.") дают ложные позиции — отбрасываем их,
+// оставляя наибольшую возрастающую подпоследовательность номеров.
+function longestIncreasingByNum(items) {
+  const n = items.length
+  const dp = new Array(n).fill(1)
+  const prev = new Array(n).fill(-1)
+  let best = 0
+  for (let i = 0; i < n; i++) {
+    for (let j = 0; j < i; j++) {
+      if (items[j].num < items[i].num && dp[j] + 1 > dp[i]) { dp[i] = dp[j] + 1; prev[i] = j }
+    }
+    if (dp[i] > dp[best]) best = i
+  }
+  const out = []
+  for (let i = best; i >= 0; i = prev[i]) { out.push(items[i]); if (prev[i] === -1) break }
+  return out.reverse()
+}
+
+// Маркеры подпунктов внутри строки ответа: "a) … 6) … r)" → "а) … б) … г)"
+function normalizeInlineMarkers(s) {
+  return s.replace(/(^|[\s;(])([a-zA-Z6Γ])\)\s/g, (m, pre, ch) => `${pre}${LETTER_MAP[ch] ?? ch}) `)
+}
+
 let answersFound = 0
 if (answersStart !== null) {
   let text = pages.slice(answersStart, answersEnd + 1).map(p => p.markdown).join('\n')
   text = text
     .replace(/^#{1,6}\s.*$/gm, ' ')                 // заголовки (ОТВЕТЫ, Глава N)
-    .replace(/К (параграфу|дополнительным упражнениям)[^.]*\./g, ' ')
+    // "К параграфу 5." / "K параграфу 5." (OCR: латинская K) / "К главе 3."
+    .replace(/[КK]\s+(параграфу|дополнительным упражнениям|главе)[^.]*\./gi, ' ')
 
-  const positions = []
-  const numRe = /(^|[\s;])(\d{1,4})\.\s/g
+  const rawPositions = []
+  // lookbehind/lookahead: матч не поглощает границу следующего номера
+  const numRe = /(?<=^|[\s;])(\d{1,4})\.(?=\s)/g
   let am
   while ((am = numRe.exec(text)) !== null) {
-    positions.push({ num: parseInt(am[2]), at: am.index + am[1].length, contentAt: am.index + am[0].length })
+    rawPositions.push({ num: parseInt(am[1]), at: am.index, contentAt: am.index + am[0].length })
   }
+  const positions = longestIncreasingByNum(rawPositions)
+
   const byNumber = new Map(uniqueProblems.map(pr => [pr.taskNumberSort, pr]))
   for (let i = 0; i < positions.length; i++) {
     const { num, contentAt } = positions[i]
-    const end = i + 1 < positions.length ? positions[i + 1].at : Math.min(text.length, contentAt + 600)
-    const answer = text.slice(contentAt, end).trim().replace(/\s+/g, ' ')
+    const end = i + 1 < positions.length ? positions[i + 1].at : Math.min(text.length, contentAt + 800)
+    const answer = normalizeInlineMarkers(text.slice(contentAt, end).trim().replace(/\s+/g, ' '))
     const pr = byNumber.get(num)
-    if (!pr || pr.correctAnswer || !answer || answer.length > 600) continue
+    if (!pr || pr.correctAnswer || !answer || answer.length > 800) continue
     pr.correctAnswer = { text: answer }
     pr.answerSource = 'book_answers'
     // простой короткий ответ без подпунктов → автопроверка
@@ -403,6 +431,7 @@ const bookRow = {
   level: meta.level,
   cover_image_path: meta.coverImage,
   page_count: meta.pageCount,
+  created_by: flag('created-by') ?? null,
   import_meta: {
     source_file: path.basename(file),
     problems: uniqueProblems.length,
@@ -469,6 +498,22 @@ const { createClient } = await import('@supabase/supabase-js')
 const db = createClient(url, key)
 
 console.log('\nЗапись в БД...')
+
+// --replace: удалить прежний импорт этой же книги (каскадом уйдут разделы/страницы/задания)
+if (args.includes('--replace')) {
+  const { data: existing, error } = await db
+    .from('books')
+    .select('id, title')
+    .eq('title', meta.title)
+    .eq('subject', meta.subject)
+  if (error) { console.error('books lookup:', error.message); process.exit(1) }
+  for (const b of existing ?? []) {
+    const { error: delErr } = await db.from('books').delete().eq('id', b.id)
+    if (delErr) { console.error('books delete:', delErr.message); process.exit(1) }
+    console.log(`Удалён прежний импорт: ${b.id}`)
+  }
+}
+
 {
   const { error } = await db.from('books').insert(bookRow)
   if (error) { console.error('books:', error.message); process.exit(1) }

@@ -51,7 +51,9 @@ export function AddToTestDialog({ open, onClose, addUrl, problemLabel }: AddToTe
     const supabase = createClient()
     supabase
       .from('tests')
-      .select('id, title, test_versions(id, status, version_number)')
+      // !test_id — между tests и test_versions две FK-связи (вторая через
+      // current_published_version_id), без уточнения PostgREST вернёт 400
+      .select('id, title, test_versions!test_id(id, status, version_number)')
       .order('created_at', { ascending: false })
       .then(({ data }) => {
         const editable: EditableTest[] = []

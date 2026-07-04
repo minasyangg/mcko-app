@@ -14,12 +14,21 @@ export default async function BookPage({
 
   const { data: book } = await supabase
     .from('books')
-    .select('id, title, authors, book_type, subject, grade, level, page_count')
+    .select('id, title, authors, book_type, subject, grade, level, page_count, created_by')
     .eq('id', id)
     .eq('is_active', true)
     .single()
 
   if (!book) notFound()
+
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('role')
+    .eq('id', user.id)
+    .single()
+
+  // Править книгу может только загрузивший её пользователь или администратор
+  const canEdit = profile?.role === 'admin' || book.created_by === user.id
 
   const { data: sections } = await supabase
     .from('book_sections')
@@ -27,5 +36,5 @@ export default async function BookPage({
     .eq('book_id', id)
     .order('sort_order')
 
-  return <BookReader book={book} sections={sections ?? []} />
+  return <BookReader book={book} sections={sections ?? []} canEdit={canEdit} />
 }

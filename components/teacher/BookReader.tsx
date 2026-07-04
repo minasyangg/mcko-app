@@ -2,15 +2,25 @@
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import Link from 'next/link'
+import { toast } from 'sonner'
 import MarkdownContent from '@/components/shared/MarkdownContent'
 import { AddToTestDialog } from '@/components/teacher/AddToTestDialog'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Textarea } from '@/components/ui/textarea'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import {
   ArrowLeft, ChevronRight, ChevronDown, Plus, Search, X,
-  CheckCircle2, Flame, BookOpen,
+  CheckCircle2, Flame, BookOpen, Pencil,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -50,10 +60,22 @@ interface ProblemAnchor {
   page_index: number
   md_start: number | null
   md_end: number | null
+  prompt_md: string
+  correct_answer: { text?: string } | null
   answer_source: string
   difficulty: string
   grading_method: string
   used_count: number
+}
+
+// Методы автопроверки для ответов из книги (тот же набор, что в тестах)
+const gradingMethodLabel: Record<string, string> = {
+  normalized: 'Нормализованное сравнение',
+  exact: 'Точное совпадение',
+  numeric_tolerance: 'Числовой (допуск)',
+  sequence: 'Последовательность цифр (соответствие)',
+  set_match: 'Совпадение набора',
+  manual: 'Ручная проверка',
 }
 
 interface SearchResult {
@@ -130,16 +152,204 @@ function TocItem({
   )
 }
 
+// ─── Формы редактирования (по образцу EditTaskForm из тестов) ─────────────────
+
+function ProblemEditForm({
+  problem, onSaved, onCancel,
+}: {
+  problem: ProblemAnchor
+  onSaved: () => void
+  onCancel: () => void
+}) {
+  const [promptMd, setPromptMd] = useState(problem.prompt_md)
+  const [showPreview, setShowPreview] = useState(false)
+  const [answer, setAnswer] = useState(problem.correct_answer?.text ?? '')
+  const [gradingMethod, setGradingMethod] = useState(problem.grading_method)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function handleSave() {
+    setSaving(true)
+    setError(null)
+    try {
+      const res = await fetch(`/api/books/problems/${problem.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt_md: promptMd,
+          correct_answer: answer,
+          grading_method: gradingMethod,
+        }),
+      })
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}))
+        setError(d.error ?? 'Ошибка сохранения')
+        return
+      }
+      toast.success(`Задание № ${problem.task_number} сохранено`)
+      onSaved()
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="space-y-3 mt-2 pt-3 border-t" onClick={(e) => e.stopPropagation()}>
+      <div className="space-y-1">
+        <div className="flex items-center justify-between">
+          <Label className="text-xs">Текст задания (поддерживает LaTeX: $формула$)</Label>
+          <button
+            type="button"
+            onClick={() => setShowPreview(v => !v)}
+            className="text-xs text-muted-foreground hover:text-foreground underline"
+          >
+            {showPreview ? 'Редактировать' : 'Предпросмотр'}
+          </button>
+        </div>
+        {showPreview ? (
+          <div className="min-h-24 rounded-md border bg-muted/20 px-3 py-2">
+            <MarkdownContent content={promptMd} />
+          </div>
+        ) : (
+          <Textarea
+            value={promptMd}
+            onChange={(e) => setPromptMd(e.target.value)}
+            rows={6}
+            className="text-sm font-mono"
+            placeholder="Текст задания. Формулы: $\sqrt{x}$ или $$\frac{a}{b}$$"
+          />
+        )}
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div className="space-y-1">
+          <Label className="text-xs">Правильный ответ {problem.correct_answer ? '' : '(отсутствует — можно добавить)'}</Label>
+          <Input
+            value={answer}
+            onChange={(e) => setAnswer(e.target.value)}
+            className="h-8 text-sm"
+            placeholder="Пусто = без ответа (ручная проверка)"
+          />
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs">Метод автопроверки</Label>
+          <Select value={gradingMethod} onValueChange={setGradingMethod}>
+            <SelectTrigger className="h-8 text-sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {Object.entries(gradingMethodLabel).map(([v, l]) => (
+                <SelectItem key={v} value={v}>{l}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+      {error && <p className="text-sm text-destructive">{error}</p>}
+      <div className="flex gap-2">
+        <Button size="sm" onClick={handleSave} disabled={saving || !promptMd.trim()}>
+          {saving ? 'Сохранение...' : 'Сохранить'}
+        </Button>
+        <Button size="sm" variant="outline" onClick={onCancel} disabled={saving}>
+          Отмена
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+function PageEditForm({
+  bookId, page, onSaved, onCancel,
+}: {
+  bookId: string
+  page: PageData
+  onSaved: () => void
+  onCancel: () => void
+}) {
+  const [md, setMd] = useState(page.markdown)
+  const [showPreview, setShowPreview] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function handleSave() {
+    setSaving(true)
+    setError(null)
+    try {
+      const res = await fetch(`/api/books/${bookId}/pages/${page.page_index}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ markdown: md }),
+      })
+      const d = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setError(d.error ?? 'Ошибка сохранения')
+        return
+      }
+      if (d.anchors_lost > 0) {
+        toast.warning(`Страница сохранена, но ${d.anchors_lost} заданий потеряли привязку (номер исчез из текста)`)
+      } else {
+        toast.success('Страница сохранена')
+      }
+      onSaved()
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="space-y-3 my-4 rounded-lg border-2 border-dashed p-4">
+      <div className="flex items-center justify-between">
+        <Label className="text-xs">
+          Текст страницы{page.printed_page !== null ? ` ${page.printed_page}` : ''} (LaTeX: $формула$).
+          Не удаляйте номера заданий в начале строк — по ним строится привязка.
+        </Label>
+        <button
+          type="button"
+          onClick={() => setShowPreview(v => !v)}
+          className="text-xs text-muted-foreground hover:text-foreground underline shrink-0 ml-2"
+        >
+          {showPreview ? 'Редактировать' : 'Предпросмотр'}
+        </button>
+      </div>
+      {showPreview ? (
+        <div className="min-h-32 rounded-md border bg-muted/20 px-3 py-2">
+          <MarkdownContent content={md} />
+        </div>
+      ) : (
+        <Textarea
+          value={md}
+          onChange={(e) => setMd(e.target.value)}
+          rows={16}
+          className="text-sm font-mono"
+        />
+      )}
+      {error && <p className="text-sm text-destructive">{error}</p>}
+      <div className="flex gap-2">
+        <Button size="sm" onClick={handleSave} disabled={saving || !md.trim()}>
+          {saving ? 'Сохранение...' : 'Сохранить страницу'}
+        </Button>
+        <Button size="sm" variant="outline" onClick={onCancel} disabled={saving}>
+          Отмена
+        </Button>
+      </div>
+    </div>
+  )
+}
+
 // ─── Page renderer: текст страницы с интерактивными врезками заданий ──────────
 
 function PageBlock({
-  page, problems, onAdd, highlightId,
+  page, problems, onAdd, highlightId, canEdit, bookId, onChanged,
 }: {
   page: PageData
   problems: ProblemAnchor[]
   onAdd: (p: ProblemAnchor) => void
   highlightId: string | null
+  canEdit: boolean
+  bookId: string
+  onChanged: () => void
 }) {
+  const [editingPage, setEditingPage] = useState(false)
+  const [editingProblemId, setEditingProblemId] = useState<string | null>(null)
   // Разбиваем markdown страницы на сегменты: обычный текст / задание
   const segments = useMemo(() => {
     const md = page.markdown
@@ -157,15 +367,36 @@ function PageBlock({
     return out
   }, [page.markdown, problems])
 
+  if (editingPage) {
+    return (
+      <PageEditForm
+        bookId={bookId}
+        page={page}
+        onSaved={() => { setEditingPage(false); onChanged() }}
+        onCancel={() => setEditingPage(false)}
+      />
+    )
+  }
+
   return (
     <div className="relative">
-      {page.printed_page !== null && (
-        <div className="flex items-center gap-3 my-4 select-none">
-          <div className="h-px bg-border flex-1" />
-          <span className="text-[11px] text-muted-foreground">стр. {page.printed_page}</span>
-          <div className="h-px bg-border flex-1" />
-        </div>
-      )}
+      <div className="flex items-center gap-3 my-4 select-none">
+        <div className="h-px bg-border flex-1" />
+        <span className="text-[11px] text-muted-foreground">
+          {page.printed_page !== null ? `стр. ${page.printed_page}` : '···'}
+        </span>
+        {canEdit && (
+          <button
+            type="button"
+            onClick={() => setEditingPage(true)}
+            title="Редактировать текст страницы"
+            className="text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <Pencil className="h-3 w-3" />
+          </button>
+        )}
+        <div className="h-px bg-border flex-1" />
+      </div>
       {segments.map((seg, i) =>
         seg.type === 'text' ? (
           seg.md.trim() ? <MarkdownContent key={i} content={seg.md} /> : null
@@ -197,15 +428,35 @@ function PageBlock({
               )}
             </div>
             <MarkdownContent content={seg.md} />
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => onAdd(seg.problem)}
-              title="Добавить в тест"
-              className="absolute right-2 top-2 h-7 w-7 p-0 rounded-full opacity-60 group-hover:opacity-100 hover:bg-primary hover:text-primary-foreground transition-all"
-            >
-              <Plus className="h-4 w-4" />
-            </Button>
+            {editingProblemId === seg.problem.id && (
+              <ProblemEditForm
+                problem={seg.problem}
+                onSaved={() => { setEditingProblemId(null); onChanged() }}
+                onCancel={() => setEditingProblemId(null)}
+              />
+            )}
+            <div className="absolute right-2 top-2 flex flex-col gap-1">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => onAdd(seg.problem)}
+                title="Добавить в тест"
+                className="h-7 w-7 p-0 rounded-full opacity-60 group-hover:opacity-100 hover:bg-primary hover:text-primary-foreground transition-all"
+              >
+                <Plus className="h-4 w-4" />
+              </Button>
+              {canEdit && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setEditingProblemId(editingProblemId === seg.problem.id ? null : seg.problem.id)}
+                  title="Редактировать задание"
+                  className="h-7 w-7 p-0 rounded-full opacity-60 group-hover:opacity-100 transition-all"
+                >
+                  <Pencil className="h-3.5 w-3.5" />
+                </Button>
+              )}
+            </div>
           </div>
         )
       )}
@@ -215,7 +466,7 @@ function PageBlock({
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
-export function BookReader({ book, sections }: { book: Book; sections: Section[] }) {
+export function BookReader({ book, sections, canEdit = false }: { book: Book; sections: Section[]; canEdit?: boolean }) {
   const tree = useMemo(() => buildTree(sections), [sections])
   const sectionById = useMemo(() => new Map(sections.map(s => [s.id, s])), [sections])
 
@@ -432,6 +683,9 @@ export function BookReader({ book, sections }: { book: Book; sections: Section[]
                 problems={problems.filter(p => p.page_index === page.page_index)}
                 onAdd={setDialogProblem}
                 highlightId={highlightId}
+                canEdit={canEdit}
+                bookId={book.id}
+                onChanged={() => { if (selected) loadSection(selected) }}
               />
             ))}
           </div>
