@@ -1,10 +1,12 @@
 'use client'
 
+import { useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import rehypeRaw from 'rehype-raw'
 import rehypeSanitize, { defaultSchema } from 'rehype-sanitize'
 import remarkGfm from 'remark-gfm'
 import katex from 'katex'
+import { ImageOff } from 'lucide-react'
 import 'katex/dist/katex.min.css'
 
 // rehype-sanitize schema: allow HTML tables (PaddleOCR) + KaTeX output
@@ -147,6 +149,33 @@ function prerenderMath(content: string): string {
     .replace(/\$([^$\n]+?)\$/g, (_, m) => render(m, false))
 }
 
+// Правило проекта: контентные изображения — только lazy load;
+// при пустом src или ошибке загрузки вместо картинки выводится заглушка.
+function MarkdownImg({
+  node: _node, src, alt, ...rest
+}: React.ImgHTMLAttributes<HTMLImageElement> & { node?: unknown }) {
+  const [failed, setFailed] = useState(false)
+  if (!src || failed) {
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-md border border-dashed bg-muted/30 px-2.5 py-1.5 text-xs text-muted-foreground select-none align-middle my-1">
+        <ImageOff className="h-3.5 w-3.5 shrink-0" aria-hidden />
+        изображение недоступно
+      </span>
+    )
+  }
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      {...rest}
+      src={src}
+      alt={alt ?? ''}
+      loading="lazy"
+      decoding="async"
+      onError={() => setFailed(true)}
+    />
+  )
+}
+
 export default function MarkdownContent({ content }: { content: string }) {
   const processed = prerenderMath(reformatMatchingTask(content))
   return (
@@ -175,6 +204,7 @@ export default function MarkdownContent({ content }: { content: string }) {
           [rehypeSanitize, sanitizeSchema],
         ]}
         remarkRehypeOptions={{ allowDangerousHtml: true }}
+        components={{ img: MarkdownImg }}
       >
         {processed}
       </ReactMarkdown>

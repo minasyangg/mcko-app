@@ -19,7 +19,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import {
-  ArrowLeft, ChevronRight, ChevronDown, Plus, Search, X,
+  ArrowLeft, ChevronRight, ChevronDown, ChevronUp, Plus, Search, X,
   CheckCircle2, Flame, BookOpen, Pencil,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -335,6 +335,57 @@ function PageEditForm({
   )
 }
 
+// ─── Свёртка теории ────────────────────────────────────────────────────────────
+// Учитель работает с заданиями; теорию показываем свёрнутой: первые ~6 предложений,
+// остальное — по кнопке. Скрытая часть не рендерится вовсе (картинки не грузятся).
+
+const THEORY_SENTENCE_LIMIT = 6
+const THEORY_TAIL_MIN = 250 // не сворачиваем, если скрылось бы меньше символов
+
+// Позиция конца N-го предложения. Формулы, теги и таблицы маскируем символами
+// той же длины, чтобы точки внутри них не считались и разрез не попал внутрь.
+function findTheoryCut(md: string): number | null {
+  const mask = (s: string, re: RegExp) => s.replace(re, m => '\x00'.repeat(m.length))
+  let masked = mask(md, /<table[\s\S]*?<\/table>/gi)
+  masked = mask(masked, /\$\$[\s\S]*?\$\$/g)
+  masked = mask(masked, /\$[^$\n]*?\$/g)
+  masked = mask(masked, /!\[[^\]]*\]\([^)]*\)/g)
+  masked = mask(masked, /<[^>]+>/g)
+  const re = /[.!?…](?=\s|$)/g
+  let count = 0
+  let m: RegExpExecArray | null
+  while ((m = re.exec(masked)) !== null) {
+    count++
+    if (count >= THEORY_SENTENCE_LIMIT) {
+      const cut = m.index + 1
+      return md.length - cut < THEORY_TAIL_MIN ? null : cut
+    }
+  }
+  return null
+}
+
+function TheoryBlock({ md }: { md: string }) {
+  const [expanded, setExpanded] = useState(false)
+  const cut = useMemo(() => findTheoryCut(md), [md])
+
+  if (cut === null) return <MarkdownContent content={md} />
+
+  return (
+    <div>
+      <MarkdownContent content={expanded ? md : md.slice(0, cut)} />
+      <button
+        type="button"
+        onClick={() => setExpanded(v => !v)}
+        className="mt-1 mb-2 inline-flex items-center gap-1 text-xs text-primary hover:underline"
+      >
+        {expanded
+          ? <><ChevronUp className="h-3.5 w-3.5" /> Свернуть теорию</>
+          : <><ChevronDown className="h-3.5 w-3.5" /> Показать полностью</>}
+      </button>
+    </div>
+  )
+}
+
 // ─── Page renderer: текст страницы с интерактивными врезками заданий ──────────
 
 function PageBlock({
@@ -399,7 +450,7 @@ function PageBlock({
       </div>
       {segments.map((seg, i) =>
         seg.type === 'text' ? (
-          seg.md.trim() ? <MarkdownContent key={i} content={seg.md} /> : null
+          seg.md.trim() ? <TheoryBlock key={i} md={seg.md} /> : null
         ) : (
           <div
             key={i}

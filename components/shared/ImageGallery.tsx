@@ -40,6 +40,8 @@ export function ImageGallery({ images, onDelete, uploadSlot }: Props) {
               <img
                 src={img.signedUrl}
                 alt={img.alt ?? `Изображение ${idx + 1}`}
+                loading="lazy"
+                decoding="async"
                 className={`rounded border object-contain bg-white ${isMany ? 'h-24 w-auto max-w-[140px]' : 'h-36 w-auto max-w-xs'}`}
               />
               <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
