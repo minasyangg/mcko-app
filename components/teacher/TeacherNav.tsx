@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { LogoutButton } from '@/components/shared/LogoutButton'
-import { BookOpen, Users, Monitor, FileText, ClipboardList, BarChart2, TrendingUp, Menu, X, ListChecks, Library } from 'lucide-react'
+import { BookOpen, BookMarked, Users, Monitor, FileText, ClipboardList, BarChart2, TrendingUp, Menu, X, ListChecks, Library } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
 
@@ -12,6 +12,7 @@ const navItems = [
   { href: '/teacher', label: 'Дашборд', icon: BarChart2, exact: true },
   { href: '/teacher/tests', label: 'Тесты', icon: BookOpen },
   { href: '/teacher/library', label: 'Библиотека', icon: Library },
+  { href: '/teacher/books', label: 'Книги', icon: BookMarked },
   { href: '/teacher/assignments', label: 'Назначения', icon: ClipboardList },
   { href: '/teacher/monitor', label: 'Мониторинг', icon: Monitor },
   { href: '/teacher/results', label: 'Результаты', icon: TrendingUp },

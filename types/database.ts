@@ -1,4 +1,4 @@
-﻿export type Json =
+export type Json =
   | string
   | number
   | boolean
@@ -279,33 +279,293 @@ export type Database = {
           },
         ]
       }
+      book_pages: {
+        Row: {
+          book_id: string
+          id: string
+          markdown: string
+          page_index: number
+          printed_page: number | null
+        }
+        Insert: {
+          book_id: string
+          id?: string
+          markdown: string
+          page_index: number
+          printed_page?: number | null
+        }
+        Update: {
+          book_id?: string
+          id?: string
+          markdown?: string
+          page_index?: number
+          printed_page?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "book_pages_book_id_fkey"
+            columns: ["book_id"]
+            isOneToOne: false
+            referencedRelation: "books"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      book_problems: {
+        Row: {
+          answer_source: string
+          book_id: string
+          correct_answer: Json | null
+          created_at: string | null
+          difficulty: string
+          grading_method: string
+          has_images: boolean
+          id: string
+          is_active: boolean
+          md_end: number | null
+          md_start: number | null
+          options: Json | null
+          page_index: number
+          prompt_md: string
+          section_id: string | null
+          task_number: string
+          task_number_sort: number | null
+          task_type: string
+          updated_at: string | null
+          used_count: number
+        }
+        Insert: {
+          answer_source?: string
+          book_id: string
+          correct_answer?: Json | null
+          created_at?: string | null
+          difficulty?: string
+          grading_method?: string
+          has_images?: boolean
+          id?: string
+          is_active?: boolean
+          md_end?: number | null
+          md_start?: number | null
+          options?: Json | null
+          page_index: number
+          prompt_md: string
+          section_id?: string | null
+          task_number: string
+          task_number_sort?: number | null
+          task_type?: string
+          updated_at?: string | null
+          used_count?: number
+        }
+        Update: {
+          answer_source?: string
+          book_id?: string
+          correct_answer?: Json | null
+          created_at?: string | null
+          difficulty?: string
+          grading_method?: string
+          has_images?: boolean
+          id?: string
+          is_active?: boolean
+          md_end?: number | null
+          md_start?: number | null
+          options?: Json | null
+          page_index?: number
+          prompt_md?: string
+          section_id?: string | null
+          task_number?: string
+          task_number_sort?: number | null
+          task_type?: string
+          updated_at?: string | null
+          used_count?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "book_problems_book_id_fkey"
+            columns: ["book_id"]
+            isOneToOne: false
+            referencedRelation: "books"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "book_problems_section_id_fkey"
+            columns: ["section_id"]
+            isOneToOne: false
+            referencedRelation: "book_sections"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      book_sections: {
+        Row: {
+          book_id: string
+          created_at: string | null
+          id: string
+          kind: string
+          number: string | null
+          page_end: number | null
+          page_start: number | null
+          parent_id: string | null
+          sort_order: number
+          title: string
+        }
+        Insert: {
+          book_id: string
+          created_at?: string | null
+          id?: string
+          kind?: string
+          number?: string | null
+          page_end?: number | null
+          page_start?: number | null
+          parent_id?: string | null
+          sort_order?: number
+          title: string
+        }
+        Update: {
+          book_id?: string
+          created_at?: string | null
+          id?: string
+          kind?: string
+          number?: string | null
+          page_end?: number | null
+          page_start?: number | null
+          parent_id?: string | null
+          sort_order?: number
+          title?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "book_sections_book_id_fkey"
+            columns: ["book_id"]
+            isOneToOne: false
+            referencedRelation: "books"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "book_sections_parent_id_fkey"
+            columns: ["parent_id"]
+            isOneToOne: false
+            referencedRelation: "book_sections"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      books: {
+        Row: {
+          authors: string | null
+          book_type: string
+          cover_image_path: string | null
+          created_at: string | null
+          created_by: string | null
+          description: string | null
+          grade: string | null
+          id: string
+          import_meta: Json | null
+          is_active: boolean
+          isbn: string | null
+          level: string | null
+          organization_id: string | null
+          page_count: number | null
+          publication_year: number | null
+          publisher: string | null
+          subject: string
+          title: string
+          updated_at: string | null
+        }
+        Insert: {
+          authors?: string | null
+          book_type?: string
+          cover_image_path?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          description?: string | null
+          grade?: string | null
+          id?: string
+          import_meta?: Json | null
+          is_active?: boolean
+          isbn?: string | null
+          level?: string | null
+          organization_id?: string | null
+          page_count?: number | null
+          publication_year?: number | null
+          publisher?: string | null
+          subject: string
+          title: string
+          updated_at?: string | null
+        }
+        Update: {
+          authors?: string | null
+          book_type?: string
+          cover_image_path?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          description?: string | null
+          grade?: string | null
+          id?: string
+          import_meta?: Json | null
+          is_active?: boolean
+          isbn?: string | null
+          level?: string | null
+          organization_id?: string | null
+          page_count?: number | null
+          publication_year?: number | null
+          publisher?: string | null
+          subject?: string
+          title?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "books_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "books_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       exam_blueprint_sections: {
         Row: {
           blueprint_id: string
           count: number
           id: string
           max_score: number | null
+          note: string | null
           sort_order: number | null
+          task_number: number | null
           task_number_type: string | null
           topic_id: string | null
+          topic_ids: string[]
         }
         Insert: {
           blueprint_id: string
           count?: number
           id?: string
           max_score?: number | null
+          note?: string | null
           sort_order?: number | null
+          task_number?: number | null
           task_number_type?: string | null
           topic_id?: string | null
+          topic_ids?: string[]
         }
         Update: {
           blueprint_id?: string
           count?: number
           id?: string
           max_score?: number | null
+          note?: string | null
           sort_order?: number | null
+          task_number?: number | null
           task_number_type?: string | null
           topic_id?: string | null
+          topic_ids?: string[]
         }
         Relationships: [
           {
@@ -332,10 +592,12 @@ export type Database = {
           exam_type: string
           grade: string | null
           id: string
+          max_score: number | null
           name: string
           organization_id: string
           scoring_rule_id: string | null
           subject: string
+          total_time_minutes: number | null
           updated_at: string | null
         }
         Insert: {
@@ -345,10 +607,12 @@ export type Database = {
           exam_type: string
           grade?: string | null
           id?: string
+          max_score?: number | null
           name: string
           organization_id: string
           scoring_rule_id?: string | null
           subject: string
+          total_time_minutes?: number | null
           updated_at?: string | null
         }
         Update: {
@@ -358,10 +622,12 @@ export type Database = {
           exam_type?: string
           grade?: string | null
           id?: string
+          max_score?: number | null
           name?: string
           organization_id?: string
           scoring_rule_id?: string | null
           subject?: string
+          total_time_minutes?: number | null
           updated_at?: string | null
         }
         Relationships: [
@@ -1364,6 +1630,7 @@ export type Database = {
         Row: {
           answer_format_hint: string | null
           answer_parts: Json | null
+          book_problem_id: string | null
           created_at: string | null
           grading_method: string
           has_images: boolean | null
@@ -1388,6 +1655,7 @@ export type Database = {
         Insert: {
           answer_format_hint?: string | null
           answer_parts?: Json | null
+          book_problem_id?: string | null
           created_at?: string | null
           grading_method?: string
           has_images?: boolean | null
@@ -1412,6 +1680,7 @@ export type Database = {
         Update: {
           answer_format_hint?: string | null
           answer_parts?: Json | null
+          book_problem_id?: string | null
           created_at?: string | null
           grading_method?: string
           has_images?: boolean | null
@@ -1434,6 +1703,13 @@ export type Database = {
           title?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "test_tasks_book_problem_id_fkey"
+            columns: ["book_problem_id"]
+            isOneToOne: false
+            referencedRelation: "book_problems"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "test_tasks_library_problem_id_fkey"
             columns: ["library_problem_id"]
@@ -1764,4 +2040,3 @@ export const Constants = {
     Enums: {},
   },
 } as const
-
