@@ -86,9 +86,17 @@ export async function PATCH(
           ? problem.prompt_md.slice(inPageLen).trim()
           : ''
 
+        // Заменяемый диапазон включает разделитель перед следующим заданием,
+        // а newPrompt приходит без него — сохраняем перенос строки, иначе
+        // номер следующего задания приклеится к тексту и потеряет якорь
+        const trailingWs = page.markdown.slice(problem.md_start, problem.md_end).match(/\s*$/)?.[0] ?? ''
+        const sep = problem.md_end >= page.markdown.length
+          ? trailingWs
+          : trailingWs.includes('\n') ? trailingWs : '\n\n'
+
         const newPageMd =
           page.markdown.slice(0, problem.md_start) +
-          newPrompt +
+          newPrompt + sep +
           page.markdown.slice(problem.md_end)
 
         // Задание продолжалось на следующей странице — убираем там старый хвост,
