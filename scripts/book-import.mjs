@@ -442,9 +442,15 @@ const DKR_HEAD_RE = /ДОМ[А-ЯЁ]+\s+КОНТРОЛЬН[А-ЯЁ]*\s+РАБО�
 const VARIANT_RE = /^#{0,6}\s*[БВ][а-яёa-z]{4,9}\s+(\d)\s*$/gim
 
 const problems = []
-let lastNum = 0            // plain-схема и «Итоговое повторение»
+let lastNum = 0            // максимальный принятый сквозной номер (plain/повторение)
 let lastPara = 0, lastSub = 0  // composite-схема
 
+// Фаза 1: сбор кандидатов по страницам. Композитные номера фильтруются
+// монотонным окном сразу; сквозные (plain-схема, «Итоговое повторение»)
+// откладываются — их отберёт LIS во второй фазе: длиннейшая возрастающая
+// подпоследовательность сама выкидывает OCR-галлюцинации («1260. Exposure
+// to…» между 1238 и 1239), дубли и рестарты «Контрольных вопросов».
+const pageEntries = []
 for (const p of pages) {
   if (answersStart !== null && p.index >= answersStart) break // ответы и дальше — не задания
   if (p.contentBlocks.length > 0) continue // страницы оглавления
@@ -460,45 +466,33 @@ for (const p of pages) {
     dkrFrom = p.index === dkrSec.pageStart ? (hm ? hm.index : 0) : 0
   }
 
+  const entry = { p, md, accepted: [], plain: [] }
   const usePlain = scheme === 'plain' || inRepetition(p.index)
   // composite-книга вне повторения: plain-номера («П.1» в приложении) —
   // не задания основной нумерации
   const re = usePlain ? PLAIN_RE : COMPOSITE_RE
 
-  const starts = []
   let m
   re.lastIndex = 0
   while ((m = re.exec(md)) !== null) {
     if (dkrFrom !== null && m.index >= dkrFrom) continue // ДКР-зона — ниже отдельно
-    starts.push(usePlain
-      ? { glyph: m[1] ?? null, num: parseInt(m[2]), at: m.index }
-      : { glyph: m[1] ?? null, para: parseInt(m[2]), num: parseInt(m[3]), at: m.index })
-  }
-  const accepted = []
-  for (const s of starts) {
     if (usePlain) {
-      // сквозная нумерация: отбрасываем рестарты («Контрольные вопросы» нумеруются заново с 1)
-      if (s.num <= lastNum - 5 || s.num > lastNum + 60) {
-        warnings.push(`стр.${p.index}: пропущен номер ${s.num} (вне последовательности, последний ${lastNum})`)
-        continue
-      }
-      lastNum = Math.max(lastNum, s.num)
-      s.taskNumber = String(s.num)
-      s.sort = inRepetition(p.index) ? 1_000_000 + s.num : s.num
-    } else {
-      const ok =
-        (s.para === lastPara && s.num > lastSub && s.num - lastSub <= 40) ||
-        (s.para > lastPara && s.para - lastPara <= 3 && s.num >= 1 && s.num <= 40)
-      if (!ok) {
-        warnings.push(`стр.${p.index}: пропущен номер ${s.para}.${s.num} (вне последовательности, последний ${lastPara}.${lastSub})`)
-        continue
-      }
-      lastPara = s.para
-      lastSub = s.num
-      s.taskNumber = `${s.para}.${s.num}`
-      s.sort = s.para * 1000 + s.num
+      entry.plain.push({ glyph: m[1] ?? null, num: parseInt(m[2]), at: m.index, rep: inRepetition(p.index) })
+      continue
     }
-    accepted.push(s)
+    const s = { glyph: m[1] ?? null, para: parseInt(m[2]), num: parseInt(m[3]), at: m.index }
+    const ok =
+      (s.para === lastPara && s.num > lastSub && s.num - lastSub <= 40) ||
+      (s.para > lastPara && s.para - lastPara <= 3 && s.num >= 1 && s.num <= 40)
+    if (!ok) {
+      warnings.push(`стр.${p.index}: пропущен номер ${s.para}.${s.num} (вне последовательности, последний ${lastPara}.${lastSub})`)
+      continue
+    }
+    lastPara = s.para
+    lastSub = s.num
+    s.taskNumber = `${s.para}.${s.num}`
+    s.sort = s.para * 1000 + s.num
+    entry.accepted.push(s)
   }
 
   // ДКР-зона: локальная нумерация 1..N в каждом варианте
@@ -524,15 +518,41 @@ for (const p of pages) {
         continue
       }
       dkrSec.dkrLastNum = num
-      accepted.push({
+      entry.accepted.push({
         glyph: m[1] ?? null,
         at: m.index,
         taskNumber: `к${dkrSec.dkrNo}.${dkrSec.dkrVariant}.${num}`,
         sort: 2_000_000 + dkrSec.dkrNo * 10_000 + dkrSec.dkrVariant * 1000 + num,
       })
     }
-    accepted.sort((a, b) => a.at - b.at)
   }
+  pageEntries.push(entry)
+}
+
+// Фаза 2: LIS-отбор сквозных номеров (основной поток книги и повторение — отдельно)
+for (const rep of [false, true]) {
+  const stream = []
+  for (const e of pageEntries) for (const c of e.plain) if (c.rep === rep) stream.push({ e, c })
+  if (stream.length === 0) continue
+  const kept = new Set(
+    longestIncreasingByNum(stream.map((x, i) => ({ num: x.c.num, idx: i }))).map(k => k.idx)
+  )
+  stream.forEach((x, i) => {
+    if (kept.has(i)) {
+      x.c.taskNumber = String(x.c.num)
+      x.c.sort = rep ? 1_000_000 + x.c.num : x.c.num
+      lastNum = Math.max(lastNum, x.c.num)
+      x.e.accepted.push(x.c)
+    } else {
+      warnings.push(`стр.${x.e.p.index}: пропущен номер ${x.c.num} (вне возрастающей последовательности)`)
+    }
+  })
+}
+
+// Фаза 3: тексты заданий
+for (const e of pageEntries) {
+  const { p, md, accepted } = e
+  accepted.sort((a, b) => a.at - b.at)
 
   for (let i = 0; i < accepted.length; i++) {
     const s = accepted[i]
@@ -671,7 +691,8 @@ function parseAnswersBlock(text, mode) {
       })
     }
   } else {
-    const numRe = /(?<=^|[\s;])(\d{1,4})\.(?=\s)/g
+    // после точки допускаем цифру: OCR теряет пробел («120.0,187»)
+    const numRe = /(?<=^|[\s;])(\d{1,4})\.(?=\s|\d)/g
     while ((am = numRe.exec(text)) !== null) {
       rawPositions.push({
         num: parseInt(am[1]), taskNumber: am[1],

@@ -503,27 +503,63 @@ function PageBlock({
             key={i}
             id={`problem-${seg.problem.task_number}`}
             className={cn(
-              'group relative my-3 rounded-lg border pl-3 pr-10 py-2 transition-colors',
+              'group my-3 rounded-lg border px-3 py-2 transition-colors',
               highlightId === seg.problem.id
                 ? 'border-primary bg-primary/5 ring-2 ring-primary/30'
                 : 'border-border hover:border-primary/40 hover:bg-muted/30',
             )}
           >
-            <div className="flex items-center gap-2 flex-wrap mb-1">
-              <span className="text-xs font-semibold text-primary">{taskNumberLabel(seg.problem.task_number)}</span>
-              {seg.problem.answer_source !== 'none' && (
-                <Badge variant="outline" className="text-[10px] h-4.5 gap-1 text-green-700 border-green-300">
-                  <CheckCircle2 className="h-3 w-3" /> ответ
-                </Badge>
-              )}
-              {seg.problem.difficulty === 'advanced' && (
-                <Badge variant="outline" className="text-[10px] h-4.5 gap-1 text-orange-600 border-orange-300">
-                  <Flame className="h-3 w-3" /> повышенная
-                </Badge>
-              )}
-              {seg.problem.used_count > 0 && (
-                <span className="text-[10px] text-muted-foreground">в тестах: {seg.problem.used_count}</span>
-              )}
+            {/* Шапка: бейджи слева, кнопки справа — в потоке, за рамку не выходят */}
+            <div className="flex items-start justify-between gap-2 mb-1">
+              <div className="flex items-center gap-2 flex-wrap min-w-0 pt-1">
+                <span className="text-xs font-semibold text-primary">{taskNumberLabel(seg.problem.task_number)}</span>
+                {seg.problem.answer_source !== 'none' && (
+                  <Badge variant="outline" className="text-[10px] h-4.5 gap-1 text-green-700 border-green-300">
+                    <CheckCircle2 className="h-3 w-3" /> ответ
+                  </Badge>
+                )}
+                {seg.problem.difficulty === 'advanced' && (
+                  <Badge variant="outline" className="text-[10px] h-4.5 gap-1 text-orange-600 border-orange-300">
+                    <Flame className="h-3 w-3" /> повышенная
+                  </Badge>
+                )}
+                {seg.problem.used_count > 0 && (
+                  <span className="text-[10px] text-muted-foreground">в тестах: {seg.problem.used_count}</span>
+                )}
+              </div>
+              <div className="flex gap-1 shrink-0">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => onAdd(seg.problem)}
+                  title="Добавить в тест"
+                  className="h-7 w-7 p-0 rounded-full opacity-60 group-hover:opacity-100 hover:bg-primary hover:text-primary-foreground transition-all"
+                >
+                  <Plus className="h-4 w-4" />
+                </Button>
+                {canEdit && (
+                  <>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setEditingProblemId(editingProblemId === seg.problem.id ? null : seg.problem.id)}
+                      title="Редактировать задание"
+                      className="h-7 w-7 p-0 rounded-full opacity-60 group-hover:opacity-100 transition-all"
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setDeletingProblem(seg.problem)}
+                      title="Удалить задание из книги"
+                      className="h-7 w-7 p-0 rounded-full opacity-60 group-hover:opacity-100 hover:bg-destructive hover:text-destructive-foreground transition-all"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </>
+                )}
+              </div>
             </div>
             <MarkdownContent content={stripTaskNumber(seg.md, seg.problem.task_number)} />
             {editingProblemId === seg.problem.id && (
@@ -533,39 +569,6 @@ function PageBlock({
                 onCancel={() => setEditingProblemId(null)}
               />
             )}
-            <div className="absolute right-2 top-2 flex flex-col gap-1">
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => onAdd(seg.problem)}
-                title="Добавить в тест"
-                className="h-7 w-7 p-0 rounded-full opacity-60 group-hover:opacity-100 hover:bg-primary hover:text-primary-foreground transition-all"
-              >
-                <Plus className="h-4 w-4" />
-              </Button>
-              {canEdit && (
-                <>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => setEditingProblemId(editingProblemId === seg.problem.id ? null : seg.problem.id)}
-                    title="Редактировать задание"
-                    className="h-7 w-7 p-0 rounded-full opacity-60 group-hover:opacity-100 transition-all"
-                  >
-                    <Pencil className="h-3.5 w-3.5" />
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => setDeletingProblem(seg.problem)}
-                    title="Удалить задание из книги"
-                    className="h-7 w-7 p-0 rounded-full opacity-60 group-hover:opacity-100 hover:bg-destructive hover:text-destructive-foreground transition-all"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </Button>
-                </>
-              )}
-            </div>
           </div>
         )
       )}
