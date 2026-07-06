@@ -26,7 +26,9 @@ export async function GET(
     // точный номер задания: «735» или «5.30» (нумерация по параграфам)
     query = query.eq('task_number', q)
   } else {
-    query = query.textSearch('prompt_md', q, { config: 'russian' })
+    // websearch: произвольный пользовательский ввод без синтаксиса tsquery
+    // (спецсимволы &|!() в plain-режиме дают ошибку PostgREST)
+    query = query.textSearch('prompt_md', q, { config: 'russian', type: 'websearch' })
   }
 
   const { data, error } = await query

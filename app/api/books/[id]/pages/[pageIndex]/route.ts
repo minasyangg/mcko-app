@@ -41,6 +41,9 @@ export async function PATCH(
   if (typeof body.markdown !== 'string' || body.markdown.trim() === '') {
     return Response.json({ error: 'markdown required' }, { status: 400 })
   }
+  if (body.markdown.length > 100_000) {
+    return Response.json({ error: 'Слишком длинный текст страницы' }, { status: 400 })
+  }
   const newMd = body.markdown
 
   const { data: page } = await admin

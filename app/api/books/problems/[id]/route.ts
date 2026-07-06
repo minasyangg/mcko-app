@@ -46,6 +46,9 @@ export async function PATCH(
     correct_answer?: string | null
     grading_method?: string
   }
+  if ((body.prompt_md?.length ?? 0) > 20_000 || (body.correct_answer?.length ?? 0) > 2_000) {
+    return Response.json({ error: 'Слишком длинный текст' }, { status: 400 })
+  }
 
   const update: BookProblemUpdate = {}
 

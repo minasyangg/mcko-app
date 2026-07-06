@@ -284,6 +284,127 @@ function ProblemEditForm({
   )
 }
 
+// Ручное создание задания: OCR иногда объединяет несколько задач в один атом —
+// учитель вырезает текст из соседнего задания и создаёт пропущенное здесь.
+function ProblemCreateForm({
+  bookId, pageIndex, onSaved, onCancel,
+}: {
+  bookId: string
+  pageIndex: number
+  onSaved: () => void
+  onCancel: () => void
+}) {
+  const [taskNumber, setTaskNumber] = useState('')
+  const [promptMd, setPromptMd] = useState('')
+  const [showPreview, setShowPreview] = useState(false)
+  const [answer, setAnswer] = useState('')
+  const [gradingMethod, setGradingMethod] = useState('manual')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function handleSave() {
+    setSaving(true)
+    setError(null)
+    try {
+      const res = await fetch(`/api/books/${bookId}/problems`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          page_index: pageIndex,
+          task_number: taskNumber.trim(),
+          prompt_md: promptMd,
+          correct_answer: answer,
+          grading_method: gradingMethod,
+        }),
+      })
+      const d = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setError(d.error ?? 'Ошибка создания')
+        return
+      }
+      toast.success(`Задание № ${taskNumber.trim()} создано`)
+      onSaved()
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="space-y-3 my-4 rounded-lg border-2 border-dashed border-primary/40 p-4">
+      <p className="text-sm font-medium">Новое задание на этой странице</p>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div className="space-y-1">
+          <Label className="text-xs">Номер задания («736» или «5.31»)</Label>
+          <Input
+            value={taskNumber}
+            onChange={(e) => setTaskNumber(e.target.value)}
+            className="h-8 text-sm"
+            placeholder="Как в книге"
+          />
+        </div>
+      </div>
+      <div className="space-y-1">
+        <div className="flex items-center justify-between">
+          <Label className="text-xs">Текст задания без номера (LaTeX: $формула$)</Label>
+          <button
+            type="button"
+            onClick={() => setShowPreview(v => !v)}
+            className="text-xs text-muted-foreground hover:text-foreground underline"
+          >
+            {showPreview ? 'Редактировать' : 'Предпросмотр'}
+          </button>
+        </div>
+        {showPreview ? (
+          <div className="min-h-24 rounded-md border bg-muted/20 px-3 py-2">
+            <MarkdownContent content={promptMd} />
+          </div>
+        ) : (
+          <Textarea
+            value={promptMd}
+            onChange={(e) => setPromptMd(e.target.value)}
+            rows={5}
+            className="text-sm font-mono"
+            placeholder="Вставьте текст задания, вырезанный из соседнего атома"
+          />
+        )}
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div className="space-y-1">
+          <Label className="text-xs">Правильный ответ (необязательно)</Label>
+          <Input
+            value={answer}
+            onChange={(e) => setAnswer(e.target.value)}
+            className="h-8 text-sm"
+            placeholder="Пусто = без ответа"
+          />
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs">Метод автопроверки</Label>
+          <Select value={gradingMethod} onValueChange={setGradingMethod}>
+            <SelectTrigger className="h-8 text-sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {Object.entries(gradingMethodLabel).map(([v, l]) => (
+                <SelectItem key={v} value={v}>{l}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+      {error && <p className="text-sm text-destructive">{error}</p>}
+      <div className="flex gap-2">
+        <Button size="sm" onClick={handleSave} disabled={saving || !promptMd.trim() || !taskNumber.trim()}>
+          {saving ? 'Создание...' : 'Создать задание'}
+        </Button>
+        <Button size="sm" variant="outline" onClick={onCancel} disabled={saving}>
+          Отмена
+        </Button>
+      </div>
+    </div>
+  )
+}
+
 function PageEditForm({
   bookId, page, onSaved, onCancel,
 }: {
@@ -427,6 +548,7 @@ function PageBlock({
   onChanged: () => void
 }) {
   const [editingPage, setEditingPage] = useState(false)
+  const [creatingTask, setCreatingTask] = useState(false)
   const [editingProblemId, setEditingProblemId] = useState<string | null>(null)
   const [deletingProblem, setDeletingProblem] = useState<ProblemAnchor | null>(null)
   const [deleting, setDeleting] = useState(false)
@@ -484,17 +606,35 @@ function PageBlock({
           {page.printed_page !== null ? `стр. ${page.printed_page}` : '···'}
         </span>
         {canEdit && (
-          <button
-            type="button"
-            onClick={() => setEditingPage(true)}
-            title="Редактировать текст страницы"
-            className="text-muted-foreground hover:text-foreground transition-colors"
-          >
-            <Pencil className="h-3 w-3" />
-          </button>
+          <>
+            <button
+              type="button"
+              onClick={() => setEditingPage(true)}
+              title="Редактировать текст страницы"
+              className="text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <Pencil className="h-3 w-3" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setCreatingTask(true)}
+              title="Создать задание на этой странице (если OCR склеил задачи)"
+              className="text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <Plus className="h-3.5 w-3.5" />
+            </button>
+          </>
         )}
         <div className="h-px bg-border flex-1" />
       </div>
+      {creatingTask && (
+        <ProblemCreateForm
+          bookId={bookId}
+          pageIndex={page.page_index}
+          onSaved={() => { setCreatingTask(false); onChanged() }}
+          onCancel={() => setCreatingTask(false)}
+        />
+      )}
       {segments.map((seg, i) =>
         seg.type === 'text' ? (
           seg.md.trim() ? <TheoryBlock key={i} md={seg.md} /> : null
