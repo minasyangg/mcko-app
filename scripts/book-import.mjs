@@ -52,14 +52,148 @@ const pages = raw.map((p, idx) => {
 
 // ── Normalization ────────────────────────────────────────────────────────────
 
-// OCR-артефакты подпунктов: латиница/цифры вместо кириллицы в маркерах "а) б) в) г) д) е)"
-// Только в начале строки — безопасно (теория маркеры так же использует, замена эквивалентна).
-const LETTER_MAP = { a: 'а', '6': 'б', b: 'б', B: 'в', c: 'в', d: 'г', r: 'г', 'Γ': 'г', D: 'д', e: 'е', f: 'е' }
+// OCR-артефакты подпунктов: латиница/цифры вместо кириллицы в маркерах "а) б) в) г) д) е)".
+// Одна и та же латинская буква в разных книгах означает разные кириллические
+// (b→б у Макарычева, b→в у Мордковича, где б распознан как 6), поэтому маркеры
+// нормализуются ЦЕПОЧКОЙ: следующий маркер должен продолжать а→б→в→г→д→е,
+// и буква интерпретируется по позиции в цепочке, а не по одиночной карте.
+const CHAIN = ['а', 'б', 'в', 'г', 'д', 'е']
+// Возможные кириллические буквы для каждого OCR-символа маркера
+const POSSIBLE = {
+  a: ['а'], 'а': ['а'],
+  '6': ['б'], 'б': ['б'],
+  b: ['б', 'в'], B: ['б', 'в'],
+  'в': ['в'], c: ['в'], s: ['в'], S: ['в'], v: ['в'],
+  r: ['г'], 'Γ': ['г'], 'г': ['г'], g: ['г'],
+  d: ['г', 'д'], D: ['д'], 'д': ['д'],
+  e: ['е'], E: ['е'], f: ['е'], 'е': ['е'],
+}
+// Маркер = буква + ")" в начале строки или после ; : . — по границам перечисления.
+const MARKER_RE = /(^[ \t]*|[;:.]\s+)([a-zA-Zа-е6Γ])\)(?=[ \t]|$)/gm
+
+// Подпункты одного задания образуют кластер из букв а..е, но порядок в OCR
+// может отличаться от алфавитного (двухколоночная вёрстка читается как
+// а, в, б, г). Буквы назначаем методом исключения: сначала однозначные
+// символы (6→б, r→г, a→а), затем неоднозначные (b — б или в) получают
+// оставшиеся буквы кластера.
+function chainNormalizeMarkers(text) {
+  const cands = []
+  let m
+  MARKER_RE.lastIndex = 0
+  while ((m = MARKER_RE.exec(text)) !== null) {
+    if (POSSIBLE[m[2]]) cands.push({ at: m.index + m[1].length, ch: m[2] })
+  }
+
+  const clusters = []
+  let cur = null
+  for (const c of cands) {
+    const isA = POSSIBLE[c.ch].length === 1 && POSSIBLE[c.ch][0] === 'а'
+    if (isA || !cur || c.at - cur[cur.length - 1].at > 600 || cur.length >= CHAIN.length) {
+      if (cur) clusters.push(cur)
+      cur = isA ? [c] : null // кластер начинается только с "а)"; одиночные маркеры вне кластера не трогаем
+    } else {
+      cur.push(c)
+    }
+  }
+  if (cur) clusters.push(cur)
+
+  const repl = [] // {at, letter}
+  for (const cluster of clusters) {
+    if (cluster.length < 2) continue
+    const letters = CHAIN.slice(0, cluster.length)
+    const assigned = new Array(cluster.length).fill(null)
+    const used = new Set()
+    let changed = true
+    while (changed) {
+      changed = false
+      for (let i = 0; i < cluster.length; i++) {
+        if (assigned[i]) continue
+        const opts = POSSIBLE[cluster[i].ch].filter(l => letters.includes(l) && !used.has(l))
+        if (opts.length === 1) { assigned[i] = opts[0]; used.add(opts[0]); changed = true }
+      }
+    }
+    for (let i = 0; i < cluster.length; i++) { // остаток — первая свободная из возможных
+      if (assigned[i]) continue
+      const pick = POSSIBLE[cluster[i].ch].find(l => !used.has(l))
+      if (pick) { assigned[i] = pick; used.add(pick) }
+    }
+    for (let i = 0; i < cluster.length; i++) {
+      if (assigned[i] && assigned[i] !== cluster[i].ch) repl.push({ at: cluster[i].at, letter: assigned[i] })
+    }
+  }
+  if (repl.length === 0) return text
+
+  repl.sort((x, y) => x.at - y.at)
+  let out = ''
+  let pos = 0
+  for (const { at, letter } of repl) {
+    out += text.slice(pos, at) + letter
+    pos = at + 1 // маркер — ровно один символ
+  }
+  return out + text.slice(pos)
+}
+
 function normalizeMarkers(md) {
-  return md
-    // " $ \Gamma $ " как маркер г)
-    .replace(/^\s*\$\s*\\Gamma\s*\$\s*/gm, 'г) ')
-    .replace(/^([a-zA-Z6Γ])\)\s/gm, (m, ch) => (LETTER_MAP[ch] ?? ch) + ') ')
+  // " $ \Gamma $ " как маркер г)
+  return chainNormalizeMarkers(md.replace(/^\s*\$\s*\\Gamma\s*\$\s*/gm, 'г) '))
+}
+
+// OCR местами заворачивает строку задания целиком в LaTeX:
+// "$$\circ\mathbf{12.2.a)}\begin{cases}y=1-7x,\\4x-y=32;\end{cases}$$"
+// Распутываем: номер и маркеры подпунктов наружу, формулы обратно в $...$.
+function unwrapMathTaskLine(line) {
+  let t = line
+  for (let i = 0; i < 5; i++) {
+    const b = t
+    t = t.replace(/\\(?:mathbf|mathrm|mathtt|mathit|boldsymbol|operatorname|text)\s*\{([^{}]*)\}/g, '$1')
+    if (t === b) break
+  }
+  t = t
+    .replace(/\\circ/g, '○').replace(/\\infty/g, '∞')
+    .replace(/\\[:;,!]|\\quad|\\qquad/g, ' ')
+    .replace(/~/g, ' ')
+    .replace(/\$\$?/g, ' ')
+
+  const pm = t.match(/^\s*([○∞oOоОοΟ0])?\s*(\d{1,2})\.(\d{1,3})\.\s*/)
+  if (!pm) return line // номер не в начале строки — не рискуем
+  const rest = t.slice(pm[0].length)
+
+  // сегмент математики → $...$; текст и голые числа не оборачиваем
+  const wrap = (s) => {
+    s = (s ?? '').trim()
+    if (!s) return ''
+    const m2 = s.match(/^(.*?)([;.,]*)$/s)
+    const body = m2[1].trim()
+    if (!body) return m2[2]
+    if (/[А-Яа-яЁё]{2,}/.test(body) || !/[\\^_{}=<>+]|\d\s*[-/]\s*\d/.test(body)) return s
+    return `$${body}$${m2[2]}`
+  }
+
+  // подпункты: маркер = буква+")" в начале либо после ; или }
+  const markers = [...rest.matchAll(/(^|[;}]\s*)([а-еa-z6ΓB])\)\s*/g)]
+  let out = `${pm[1] ?? ''}${pm[2]}.${pm[3]}. `
+  if (markers.length === 0) {
+    out += wrap(rest)
+  } else {
+    let pos = 0
+    for (let i = 0; i < markers.length; i++) {
+      const m = markers[i]
+      const lead = rest.slice(pos, m.index + m[1].length).trim()
+      if (lead) out += wrap(lead) + ' '
+      const contentEnd = i + 1 < markers.length ? markers[i + 1].index + markers[i + 1][1].length : rest.length
+      out += `${m[2]}) ${wrap(rest.slice(m.index + m[0].length, contentEnd))} `
+      pos = contentEnd
+    }
+  }
+  return out.trimEnd()
+}
+
+function unwrapMathTasks(md) {
+  return md.split('\n').map(line => {
+    if (!/\d{1,2}\.\d{1,3}\./.test(line.slice(0, 80))) return line
+    if (!/\\(?:circ|mathbf|mathrm|mathtt|boldsymbol)/.test(line)) return line
+    return unwrapMathTaskLine(line)
+  }).join('\n')
 }
 
 function rewriteImages(md, images) {
@@ -71,7 +205,7 @@ function rewriteImages(md, images) {
 }
 
 for (const p of pages) {
-  p.markdown = rewriteImages(normalizeMarkers(p.markdown), p.images)
+  p.markdown = rewriteImages(normalizeMarkers(unwrapMathTasks(p.markdown)), p.images)
 }
 
 // printed page → scan index
@@ -82,7 +216,9 @@ for (const p of pages) {
 
 // ── TOC (печатное оглавление из content-блоков) ──────────────────────────────
 
+// OCR иногда превращает "Глава N." в греческую кашу ("Για να δ.")
 const tocText = pages.flatMap(p => p.contentBlocks).join('\n')
+  .replace(/^Γ[ιi]α\s*να\s*δ[.,]?\s*/gim, 'Глава ')
 const warnings = []
 
 function parseToc(text) {
@@ -95,22 +231,31 @@ function parseToc(text) {
   let pending = '' // обрезанный переносом заголовок без номера страницы
   for (let i = 0; i < lines.length; i++) {
     let line = lines[i]
-    // "Глава N" на отдельной строке — заголовок главы идёт следующей строкой
-    const chapterMatch = line.match(/^(?:Глава|Плава|Гл\s*ава)\s*(\d+)?\s*$/i)
+    // "Глава N" — заголовок либо на той же строке (Мордкович:
+    // "Глава 1. МАТЕМАТИЧЕСКИЙ ЯЗЫК"), либо на следующей (Макарычев)
+    const chapterMatch = line.match(/^(?:Глава|Плава|Гл\s*ава)(?![а-яё])\s*(\d+)?\s*[.:]?\s*(.*)$/i)
     if (chapterMatch) {
       pending = ''
-      const titleLine = lines[i + 1] ?? ''
-      const tm = titleLine.match(/^(.*?)\s*\.{2,}\s*(\d+|—)\s*$/)
-      chapter = {
-        kind: 'chapter', number: chapterMatch[1] ?? String(sections.filter(s => s.kind === 'chapter').length + 1),
-        title: tm ? tm[1].trim() : titleLine.trim(),
-        printedPage: tm && tm[2] !== '—' ? parseInt(tm[2]) : null,
-        children: [],
+      const number = chapterMatch[1] ?? String(sections.filter(s => s.kind === 'chapter').length + 1)
+      let title = chapterMatch[2].trim()
+      let printedPage = null
+      if (title) {
+        const tm = title.match(/^(.*?)\s*\.{2,}\s*(\d+|—)\s*$/)
+        if (tm) {
+          title = tm[1].trim()
+          printedPage = tm[2] !== '—' ? parseInt(tm[2]) : null
+        }
+      } else {
+        const titleLine = lines[i + 1] ?? ''
+        const tm = titleLine.match(/^(.*?)\s*\.{2,}\s*(\d+|—)\s*$/)
+        title = tm ? tm[1].trim() : titleLine.trim()
+        printedPage = tm && tm[2] !== '—' ? parseInt(tm[2]) : null
+        if (tm) i++ // заголовок главы поглощён
       }
+      chapter = { kind: 'chapter', number, title, printedPage, children: [] }
       if (chapter.printedPage) lastPage = chapter.printedPage
       sections.push(chapter)
       paragraph = null
-      if (tm) i++ // заголовок главы поглощён
       continue
     }
     const m = line.match(/^(.*?)\s*\.{2,}\s*(\d+|—)\s*$/)
@@ -137,7 +282,7 @@ function parseToc(text) {
       ;(chapter?.children ?? sections).push(paragraph)
     } else if (punkt && paragraph) {
       paragraph.children.push({ kind: 'punkt', number: punkt[1], title: punkt[2], printedPage: page, children: [] })
-    } else if (/^Дополнительные упражнения/i.test(title)) {
+    } else if (/^Дополнительные упражнения/i.test(title) || /^Домашн[а-яё]*\s+контрольн/i.test(title)) {
       ;(chapter?.children ?? sections).push({ kind: 'extra', number: null, title, printedPage: page, children: [] })
       paragraph = null
     } else {
@@ -187,40 +332,101 @@ for (let i = 0; i < flatSections.length; i++) {
 // Диапазон страниц с ответами (исключаем из поиска заданий) + оглавление
 const answersSection = flatSections.find(s => /^(ответы|otbet)/i.test(s.title))
 const answersStart = answersSection?.pageStart ?? null
-const indexSection = flatSections.find(s => /предметный указатель/i.test(s.title))
-const answersEnd = indexSection?.pageStart != null ? indexSection.pageStart - 1 : pages.length - 1
+// конец ответов = начало следующего раздела книги (Предметный указатель,
+// Справочный материал...) либо конец книги
+const afterAnswersStarts = answersStart !== null
+  ? flatSections.filter(s => s.pageStart !== null && s.pageStart > answersStart && s !== answersSection).map(s => s.pageStart)
+  : []
+const answersEnd = afterAnswersStarts.length > 0 ? Math.min(...afterAnswersStarts) - 1 : pages.length - 1
 const advancedSection = flatSections.find(s => /повышенной трудности/i.test(s.title))
+// «Итоговое повторение» (Мордкович): глава с собственной сквозной нумерацией 1..N
+const repetitionSection = flatSections.find(s => /итогов[а-яё]*\s+повторени/i.test(s.title))
 
-const TASK_RE = /^(\d{1,4})\.[ \t]/gm
+// Две схемы нумерации (автодетект):
+//  plain     — сквозная «735.» (Макарычев)
+//  composite — по параграфам «5.30.» (Мордкович); внутри такой книги раздел
+//              «Итоговое повторение» нумеруется отдельно сквозными «78.»
+// Перед номером допускается значок: ∞/⑤ (повышенная трудность) или кружок
+// «задание с ответом», который OCR читает как o/O/о/О/ο/Ο.
+const PREFIX = `[ \\t]*(?:([^0-9A-Za-zА-Яа-яЁё#<\\s$([{]|[oOоОοΟ0])[ \\t]{0,2})?`
+// после точки — пробел либо сразу маркер подпункта ("o11.10.a)")
+const AFTER = `(?:[ \\t]|(?=[а-еa-z6ΓB]\\)))`
+const COMPOSITE_RE = new RegExp(`^${PREFIX}(\\d{1,2})\\.(\\d{1,3})\\.${AFTER}`, 'gm')
+const PLAIN_RE = new RegExp(`^${PREFIX}(\\d{1,4})\\.${AFTER}`, 'gm')
+
+function countMatches(re, s) { re.lastIndex = 0; let n = 0; while (re.exec(s) !== null) n++; return n }
+let compositeTotal = 0
+for (const p of pages) {
+  if (p.contentBlocks.length > 0) continue
+  if (answersStart !== null && p.index >= answersStart) break
+  compositeTotal += countMatches(COMPOSITE_RE, p.markdown)
+}
+const scheme = compositeTotal >= 100 ? 'composite' : 'plain'
+
+const inRepetition = (idx) =>
+  scheme === 'composite' && repetitionSection?.pageStart != null &&
+  idx >= repetitionSection.pageStart && idx <= (repetitionSection.pageEnd ?? -1)
+
 const problems = []
-let lastNum = 0
+let lastNum = 0            // plain-схема и «Итоговое повторение»
+let lastPara = 0, lastSub = 0  // composite-схема
 
 for (const p of pages) {
   if (answersStart !== null && p.index >= answersStart) break // ответы и дальше — не задания
   if (p.contentBlocks.length > 0) continue // страницы оглавления
 
   const md = p.markdown
+  const usePlain = scheme === 'plain' || inRepetition(p.index)
+  // composite-книга вне повторения: plain-номера («1.» в контрольных работах,
+  // «П.1» в приложении) — не задания основной нумерации, пропускаем страницу
+  const re = usePlain ? PLAIN_RE : COMPOSITE_RE
+
   const starts = []
   let m
-  TASK_RE.lastIndex = 0
-  while ((m = TASK_RE.exec(md)) !== null) {
-    starts.push({ num: parseInt(m[1]), at: m.index })
+  re.lastIndex = 0
+  while ((m = re.exec(md)) !== null) {
+    starts.push(usePlain
+      ? { glyph: m[1] ?? null, num: parseInt(m[2]), at: m.index }
+      : { glyph: m[1] ?? null, para: parseInt(m[2]), num: parseInt(m[3]), at: m.index })
   }
-  for (let i = 0; i < starts.length; i++) {
-    const { num, at } = starts[i]
-    // сквозная нумерация: отбрасываем рестарты («Контрольные вопросы» нумеруются заново с 1)
-    if (num <= lastNum - 5 || num > lastNum + 60) {
-      warnings.push(`стр.${p.index}: пропущен номер ${num} (вне последовательности, последний ${lastNum})`)
-      continue
+  const accepted = []
+  for (const s of starts) {
+    if (usePlain) {
+      // сквозная нумерация: отбрасываем рестарты («Контрольные вопросы» нумеруются заново с 1)
+      if (s.num <= lastNum - 5 || s.num > lastNum + 60) {
+        warnings.push(`стр.${p.index}: пропущен номер ${s.num} (вне последовательности, последний ${lastNum})`)
+        continue
+      }
+      lastNum = Math.max(lastNum, s.num)
+      s.taskNumber = String(s.num)
+      s.sort = inRepetition(p.index) ? 1_000_000 + s.num : s.num
+    } else {
+      const ok =
+        (s.para === lastPara && s.num > lastSub && s.num - lastSub <= 40) ||
+        (s.para > lastPara && s.para - lastPara <= 3 && s.num >= 1 && s.num <= 40)
+      if (!ok) {
+        warnings.push(`стр.${p.index}: пропущен номер ${s.para}.${s.num} (вне последовательности, последний ${lastPara}.${lastSub})`)
+        continue
+      }
+      lastPara = s.para
+      lastSub = s.num
+      s.taskNumber = `${s.para}.${s.num}`
+      s.sort = s.para * 1000 + s.num
     }
-    const end = i + 1 < starts.length ? starts[i + 1].at : md.length
-    let prompt = md.slice(at, end).trim()
+    accepted.push(s)
+  }
+
+  for (let i = 0; i < accepted.length; i++) {
+    const s = accepted[i]
+    const end = i + 1 < accepted.length ? accepted[i + 1].at : md.length
+    let prompt = md.slice(s.at, end).trim()
 
     // перенос на следующую страницу: если следующая страница начинается не с задания/заголовка
-    if (i === starts.length - 1 && p.index + 1 < pages.length) {
+    if (i === accepted.length - 1 && p.index + 1 < pages.length) {
       const nextMd = pages[p.index + 1]?.markdown ?? ''
-      TASK_RE.lastIndex = 0
-      const nextTask = TASK_RE.exec(nextMd)
+      const nextRe = scheme === 'plain' || inRepetition(p.index + 1) ? PLAIN_RE : COMPOSITE_RE
+      nextRe.lastIndex = 0
+      const nextTask = nextRe.exec(nextMd)
       const nextHeading = nextMd.search(/^#{1,6}\s/m)
       let cut = nextMd.length
       if (nextTask) cut = Math.min(cut, nextTask.index)
@@ -231,18 +437,18 @@ for (const p of pages) {
       }
     }
 
-    lastNum = Math.max(lastNum, num)
     problems.push({
-      taskNumber: String(num),
-      taskNumberSort: num,
+      taskNumber: s.taskNumber,
+      taskNumberSort: s.sort,
       pageIndex: p.index,
-      mdStart: at,
+      mdStart: s.at,
       mdEnd: end,
       promptMd: prompt,
       hasImages: /<img\s/.test(prompt),
       difficulty:
-        advancedSection && advancedSection.pageStart !== null &&
-        p.index >= advancedSection.pageStart && p.index <= (advancedSection.pageEnd ?? -1)
+        (s.glyph && /[∞⑤]/.test(s.glyph)) ||
+        (advancedSection && advancedSection.pageStart !== null &&
+          p.index >= advancedSection.pageStart && p.index <= (advancedSection.pageEnd ?? -1))
           ? 'advanced' : 'standard',
     })
   }
@@ -295,45 +501,98 @@ function longestIncreasingByNum(items) {
   return out.reverse()
 }
 
-// Маркеры подпунктов внутри строки ответа: "a) … 6) … r)" → "а) … б) … г)"
-function normalizeInlineMarkers(s) {
-  return s.replace(/(^|[\s;(])([a-zA-Z6Γ])\)\s/g, (m, pre, ch) => `${pre}${LETTER_MAP[ch] ?? ch}) `)
+// OCR местами превращает строки ответов в display-math с \mathbf-обёртками:
+// "$$ \mathbf{31.19.a})\:-\mathbf{2};… $$" → распутываем в обычный текст
+function normalizeAnswersOcr(text) {
+  let t = text
+  for (let i = 0; i < 5; i++) {
+    const before = t
+    t = t.replace(/\\(?:mathbf|mathrm|mathtt|mathit|boldsymbol|operatorname|text)\s*\{([^{}]*)\}/g, '$1')
+    if (t === before) break
+  }
+  return t
+    .replace(/\$\$/g, ' ')
+    .replace(/\\[:;,!]|\\quad|\\qquad|\\ /g, ' ')
+    .replace(/\\S\b/g, '§')
+    .replace(/_\{\s*\}/g, '')
 }
 
+// Назначение найденного ответа заданию + эвристика метода автопроверки
+const byTaskNumber = new Map(uniqueProblems.map(pr => [pr.taskNumber, pr]))
 let answersFound = 0
+function assignAnswer(taskNumber, rawAnswer) {
+  const answer = chainNormalizeMarkers(rawAnswer.trim().replace(/\s+/g, ' '))
+  const pr = byTaskNumber.get(taskNumber)
+  if (!pr || pr.correctAnswer || !answer || answer.length > 800) return
+  pr.correctAnswer = { text: answer }
+  pr.answerSource = 'book_answers'
+  // простой короткий ответ без подпунктов → автопроверка
+  if (!/[абвгде]\)/.test(answer) && answer.length <= 24) {
+    pr.gradingMethod = /^-?\d[\d\s.,/]*\.?$/.test(answer) ? 'numeric_tolerance' : 'normalized'
+  } else {
+    pr.gradingMethod = 'manual'
+  }
+  answersFound++
+}
+
+// Парсинг блока ответов: candidates → LIS (номера в книге строго возрастают,
+// ложные позиции из чисел внутри самих ответов отсеиваются) → назначение
+function parseAnswersBlock(text, mode) {
+  const rawPositions = []
+  let am
+  if (mode === 'composite') {
+    // "1.6. a) 35" / "31,22, a)" (запятые от OCR) / "3.33.353 квартиры" (потерян пробел)
+    const numRe = /(?<=^|[\s;().,])(\d{1,2})[.,](\d{1,3})[.,]/g
+    while ((am = numRe.exec(text)) !== null) {
+      const para = parseInt(am[1]), sub = parseInt(am[2])
+      if (para < 1 || sub < 1) continue
+      rawPositions.push({
+        num: para * 1000 + sub, taskNumber: `${para}.${sub}`,
+        at: am.index, contentAt: am.index + am[0].length,
+      })
+    }
+  } else {
+    const numRe = /(?<=^|[\s;])(\d{1,4})\.(?=\s)/g
+    while ((am = numRe.exec(text)) !== null) {
+      rawPositions.push({
+        num: parseInt(am[1]), taskNumber: am[1],
+        at: am.index, contentAt: am.index + am[0].length,
+      })
+    }
+  }
+  const positions = longestIncreasingByNum(rawPositions)
+  for (let i = 0; i < positions.length; i++) {
+    const end = i + 1 < positions.length ? positions[i + 1].at : Math.min(text.length, positions[i].contentAt + 800)
+    assignAnswer(positions[i].taskNumber, text.slice(positions[i].contentAt, end))
+  }
+}
+
 if (answersStart !== null) {
   let text = pages.slice(answersStart, answersEnd + 1).map(p => p.markdown).join('\n')
-  text = text
+
+  // Отрезаем ответы «Итогового повторения» (заголовок «ГЛАВА <номер повторения>»)
+  // и приложения — у них собственная сквозная нумерация
+  let repetitionText = null
+  if (scheme === 'composite' && repetitionSection) {
+    const repHeader = new RegExp(`^#{1,6}\\s*ГЛАВА\\s*${repetitionSection.number ?? ''}\\s*$`, 'mi')
+    const appHeader = /^#{1,6}\s*ПРИЛОЖЕНИЕ\s*$/mi
+    const repAt = text.search(repHeader)
+    const appAt = text.search(appHeader)
+    if (repAt >= 0) {
+      repetitionText = text.slice(repAt, appAt > repAt ? appAt : undefined)
+      text = text.slice(0, repAt)
+    } else if (appAt >= 0) {
+      text = text.slice(0, appAt)
+    }
+  }
+
+  const clean = (t) => normalizeAnswersOcr(t)
     .replace(/^#{1,6}\s.*$/gm, ' ')                 // заголовки (ОТВЕТЫ, Глава N)
     // "К параграфу 5." / "K параграфу 5." (OCR: латинская K) / "К главе 3."
     .replace(/[КK]\s+(параграфу|дополнительным упражнениям|главе)[^.]*\./gi, ' ')
 
-  const rawPositions = []
-  // lookbehind/lookahead: матч не поглощает границу следующего номера
-  const numRe = /(?<=^|[\s;])(\d{1,4})\.(?=\s)/g
-  let am
-  while ((am = numRe.exec(text)) !== null) {
-    rawPositions.push({ num: parseInt(am[1]), at: am.index, contentAt: am.index + am[0].length })
-  }
-  const positions = longestIncreasingByNum(rawPositions)
-
-  const byNumber = new Map(uniqueProblems.map(pr => [pr.taskNumberSort, pr]))
-  for (let i = 0; i < positions.length; i++) {
-    const { num, contentAt } = positions[i]
-    const end = i + 1 < positions.length ? positions[i + 1].at : Math.min(text.length, contentAt + 800)
-    const answer = normalizeInlineMarkers(text.slice(contentAt, end).trim().replace(/\s+/g, ' '))
-    const pr = byNumber.get(num)
-    if (!pr || pr.correctAnswer || !answer || answer.length > 800) continue
-    pr.correctAnswer = { text: answer }
-    pr.answerSource = 'book_answers'
-    // простой короткий ответ без подпунктов → автопроверка
-    if (!/[абвгде]\)/.test(answer) && answer.length <= 24) {
-      pr.gradingMethod = /^-?\d[\d\s.,/]*\.?$/.test(answer) ? 'numeric_tolerance' : 'normalized'
-    } else {
-      pr.gradingMethod = 'manual'
-    }
-    answersFound++
-  }
+  parseAnswersBlock(clean(text), scheme)
+  if (repetitionText) parseAnswersBlock(clean(repetitionText), 'plain')
 }
 
 // ── Мета ─────────────────────────────────────────────────────────────────────
@@ -366,7 +625,8 @@ console.log('════════ СОДЕРЖАНИЕ ═══════
 })(toc, 0)
 console.log()
 console.log('════════ СТАТИСТИКА ════════')
-console.log(`Заданий: ${uniqueProblems.length} (макс. номер: ${lastNum})`)
+console.log(`Схема нумерации: ${scheme}${scheme === 'composite' ? ` (макс: ${lastPara}.${lastSub}${repetitionSection ? `, повторение до ${lastNum}` : ''})` : ` (макс. номер: ${lastNum})`}`)
+console.log(`Заданий: ${uniqueProblems.length}`)
 console.log(`  с ответами из книги: ${answersFound}`)
 console.log(`  с автопроверкой:     ${uniqueProblems.filter(p => p.gradingMethod && p.gradingMethod !== 'manual').length}`)
 console.log(`  с картинками:        ${uniqueProblems.filter(p => p.hasImages).length}`)

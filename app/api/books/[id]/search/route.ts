@@ -22,8 +22,8 @@ export async function GET(
     .eq('is_active', true)
     .limit(30)
 
-  if (/^\d{1,4}$/.test(q)) {
-    // точный номер задания
+  if (/^\d{1,4}(\.\d{1,3})?$/.test(q)) {
+    // точный номер задания: «735» или «5.30» (нумерация по параграфам)
     query = query.eq('task_number', q)
   } else {
     query = query.textSearch('prompt_md', q, { config: 'russian' })
