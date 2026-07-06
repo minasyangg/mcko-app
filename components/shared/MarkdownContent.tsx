@@ -180,7 +180,7 @@ export default function MarkdownContent({ content }: { content: string }) {
   const processed = prerenderMath(reformatMatchingTask(content))
   return (
     <div className="
-      max-w-none overflow-x-auto text-sm leading-relaxed
+      max-w-none text-sm leading-relaxed
       [&_p]:my-1.5
       [&_ol]:list-decimal [&_ol]:pl-5 [&_ol]:my-2
       [&_ul]:list-disc [&_ul]:pl-5 [&_ul]:my-2
@@ -193,6 +193,7 @@ export default function MarkdownContent({ content }: { content: string }) {
       [&_code]:bg-muted [&_code]:px-1 [&_code]:rounded [&_code]:text-xs [&_code]:font-mono
       [&_.katex]:text-base [&_.katex-display]:overflow-x-auto [&_.katex-display]:my-2
       [&_table]:border-collapse [&_table]:text-sm [&_table]:my-2
+      [&_table]:block [&_table]:w-fit [&_table]:max-w-full [&_table]:overflow-x-auto
       [&_th]:border [&_th]:border-border [&_th]:px-3 [&_th]:py-1.5 [&_th]:bg-muted/50 [&_th]:font-medium [&_th]:text-center
       [&_td]:border [&_td]:border-border [&_td]:px-3 [&_td]:py-1.5 [&_td]:min-w-10
       [&_tr:nth-child(even)_td]:bg-muted/20

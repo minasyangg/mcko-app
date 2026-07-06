@@ -1,6 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { computeAnchors } from '@/lib/books/anchors'
+import { computeAnchors, visibleTaskNumber } from '@/lib/books/anchors'
 import { NextRequest } from 'next/server'
 import type { Database } from '@/types/database'
 
@@ -72,7 +72,9 @@ export async function PATCH(
   // строятся привязки и поиск); сервер восстанавливает номер сам,
   // сохраняя значок перед ним (○/∞/⑤) из текущего текста страницы.
   if (typeof body.prompt_md === 'string' && body.prompt_md.trim() !== '') {
-    const esc = problem.task_number.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    // в тексте книги ДКР-задание напечатано видимым номером («3.»), а не «к1.2.3»
+    const visible = visibleTaskNumber(problem.task_number)
+    const esc = visible.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
     const headRe = new RegExp(`^[ \\t]*([^0-9A-Za-zА-Яа-яЁё#<\\s$([{]|[oOоОοΟ0])?[ \\t]*${esc}\\.[ \\t]*`)
     const bodyText = body.prompt_md.trim().replace(headRe, '')
     if (bodyText === '') return Response.json({ error: 'Текст задания пуст' }, { status: 400 })
@@ -92,7 +94,7 @@ export async function PATCH(
       ? page.markdown.slice(problem.md_start, problem.md_end)
       : ''
     const glyph = curSlice.match(headRe)?.[1] ?? ''
-    const newPrompt = `${glyph}${problem.task_number}. ${bodyText}`
+    const newPrompt = `${glyph}${visible}. ${bodyText}`
     update.prompt_md = newPrompt
 
     if (problem.md_start !== null && problem.md_end !== null) {
@@ -162,6 +164,80 @@ export async function PATCH(
 
   const { error: updErr } = await admin.from('book_problems').update(update).eq('id', id)
   if (updErr) return Response.json({ error: updErr.message }, { status: 500 })
+
+  return Response.json({ ok: true })
+}
+
+// DELETE /api/books/problems/[id]
+// Полное удаление атома: текст вырезается из страницы читалки, строка — из БД.
+// Только владелец книги или admin. В тестах, куда задание уже добавлено,
+// его копия сохраняется (test_tasks.book_problem_id → set null).
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const { id } = await params
+  const supabase = await createClient()
+
+  const { data: { user }, error: authError } = await supabase.auth.getUser()
+  if (authError || !user) return Response.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const { data: profile } = await supabase
+    .from('profiles').select('role').eq('id', user.id).single()
+  if (!profile || !['teacher', 'admin'].includes(profile.role)) {
+    return Response.json({ error: 'Forbidden' }, { status: 403 })
+  }
+
+  const admin = createAdminClient()
+  const { data: problem } = await admin
+    .from('book_problems')
+    .select('*, books!book_id(created_by)')
+    .eq('id', id)
+    .single()
+  if (!problem) return Response.json({ error: 'Not found' }, { status: 404 })
+
+  const bookOwner = (problem.books as unknown as { created_by: string | null } | null)?.created_by
+  if (profile.role !== 'admin' && bookOwner !== user.id) {
+    return Response.json({ error: 'Удалять может только владелец книги или администратор' }, { status: 403 })
+  }
+
+  // вырезаем текст задания из страницы (диапазон включает разделитель
+  // до следующего задания — вырез чистый) и пересчитываем якоря остальных
+  if (problem.md_start !== null && problem.md_end !== null) {
+    const { data: page } = await admin
+      .from('book_pages')
+      .select('id, markdown')
+      .eq('book_id', problem.book_id)
+      .eq('page_index', problem.page_index)
+      .single()
+
+    if (page && problem.md_end <= page.markdown.length) {
+      const newPageMd =
+        page.markdown.slice(0, problem.md_start) +
+        page.markdown.slice(problem.md_end)
+      const { error: pageErr } = await admin
+        .from('book_pages').update({ markdown: newPageMd }).eq('id', page.id)
+      if (pageErr) return Response.json({ error: pageErr.message }, { status: 500 })
+
+      const { data: pageProblems } = await admin
+        .from('book_problems')
+        .select('id, task_number')
+        .eq('book_id', problem.book_id)
+        .eq('page_index', problem.page_index)
+        .neq('id', id)
+      const anchors = computeAnchors(newPageMd, (pageProblems ?? []).map(p => p.task_number))
+      for (const p of pageProblems ?? []) {
+        const a = anchors.get(p.task_number) ?? null
+        await admin.from('book_problems').update({
+          md_start: a?.start ?? null,
+          md_end: a?.end ?? null,
+        }).eq('id', p.id)
+      }
+    }
+  }
+
+  const { error: delErr } = await admin.from('book_problems').delete().eq('id', id)
+  if (delErr) return Response.json({ error: delErr.message }, { status: 500 })
 
   return Response.json({ ok: true })
 }

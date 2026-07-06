@@ -19,10 +19,21 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
+import {
   ArrowLeft, ChevronRight, ChevronDown, ChevronUp, Plus, Search, X,
-  CheckCircle2, Flame, BookOpen, Pencil,
+  CheckCircle2, Flame, BookOpen, Pencil, Trash2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { visibleTaskNumber, taskNumberLabel } from '@/lib/books/anchors'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -159,7 +170,8 @@ function TocItem({
 // сохранении сервер восстанавливает его сам.
 
 function stripTaskNumber(md: string, taskNumber: string): string {
-  const esc = taskNumber.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  // ДКР-задание «к1.2.3» в тексте напечатано видимым номером «3.»
+  const esc = visibleTaskNumber(taskNumber).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   return md.replace(
     new RegExp(`^[ \\t]*(?:[^0-9A-Za-zА-Яа-яЁё#<\\s$([{]|[oOоОοΟ0])?[ \\t]*${esc}\\.[ \\t]*`),
     '',
@@ -201,7 +213,7 @@ function ProblemEditForm({
         setError(d.error ?? 'Ошибка сохранения')
         return
       }
-      toast.success(`Задание № ${problem.task_number} сохранено`)
+      toast.success(`Задание ${taskNumberLabel(problem.task_number)} сохранено`)
       onSaved()
     } finally {
       setSaving(false)
@@ -416,6 +428,26 @@ function PageBlock({
 }) {
   const [editingPage, setEditingPage] = useState(false)
   const [editingProblemId, setEditingProblemId] = useState<string | null>(null)
+  const [deletingProblem, setDeletingProblem] = useState<ProblemAnchor | null>(null)
+  const [deleting, setDeleting] = useState(false)
+
+  async function handleDelete() {
+    if (!deletingProblem) return
+    setDeleting(true)
+    try {
+      const res = await fetch(`/api/books/problems/${deletingProblem.id}`, { method: 'DELETE' })
+      const d = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        toast.error(d.error ?? 'Ошибка удаления')
+        return
+      }
+      toast.success(`Задание ${taskNumberLabel(deletingProblem.task_number)} удалено`)
+      setDeletingProblem(null)
+      onChanged()
+    } finally {
+      setDeleting(false)
+    }
+  }
   // Разбиваем markdown страницы на сегменты: обычный текст / задание
   const segments = useMemo(() => {
     const md = page.markdown
@@ -478,7 +510,7 @@ function PageBlock({
             )}
           >
             <div className="flex items-center gap-2 flex-wrap mb-1">
-              <span className="text-xs font-semibold text-primary">№ {seg.problem.task_number}</span>
+              <span className="text-xs font-semibold text-primary">{taskNumberLabel(seg.problem.task_number)}</span>
               {seg.problem.answer_source !== 'none' && (
                 <Badge variant="outline" className="text-[10px] h-4.5 gap-1 text-green-700 border-green-300">
                   <CheckCircle2 className="h-3 w-3" /> ответ
@@ -512,20 +544,56 @@ function PageBlock({
                 <Plus className="h-4 w-4" />
               </Button>
               {canEdit && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => setEditingProblemId(editingProblemId === seg.problem.id ? null : seg.problem.id)}
-                  title="Редактировать задание"
-                  className="h-7 w-7 p-0 rounded-full opacity-60 group-hover:opacity-100 transition-all"
-                >
-                  <Pencil className="h-3.5 w-3.5" />
-                </Button>
+                <>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setEditingProblemId(editingProblemId === seg.problem.id ? null : seg.problem.id)}
+                    title="Редактировать задание"
+                    className="h-7 w-7 p-0 rounded-full opacity-60 group-hover:opacity-100 transition-all"
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setDeletingProblem(seg.problem)}
+                    title="Удалить задание из книги"
+                    className="h-7 w-7 p-0 rounded-full opacity-60 group-hover:opacity-100 hover:bg-destructive hover:text-destructive-foreground transition-all"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                </>
               )}
             </div>
           </div>
         )
       )}
+
+      <AlertDialog open={deletingProblem !== null} onOpenChange={(open) => { if (!open) setDeletingProblem(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Удалить задание {deletingProblem ? taskNumberLabel(deletingProblem.task_number) : ''}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Задание будет удалено из книги и из базы безвозвратно: текст исчезнет
+              со страницы, поиск его больше не найдёт. В тестах, куда оно уже
+              добавлено, копия задания сохранится.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Отмена</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => { e.preventDefault(); handleDelete() }}
+              disabled={deleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleting ? 'Удаление...' : 'Удалить'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }
@@ -686,7 +754,7 @@ export function BookReader({ book, sections, canEdit = false }: { book: Book; se
                   className="w-full text-left px-4 py-2.5 hover:bg-muted border-b last:border-0 transition-colors"
                 >
                   <div className="flex items-center gap-2">
-                    <span className="text-sm font-semibold text-primary shrink-0">№ {r.task_number}</span>
+                    <span className="text-sm font-semibold text-primary shrink-0">{taskNumberLabel(r.task_number)}</span>
                     {r.answer_source !== 'none' && (
                       <CheckCircle2 className="h-3.5 w-3.5 text-green-600 shrink-0" />
                     )}

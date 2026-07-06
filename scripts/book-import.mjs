@@ -188,11 +188,66 @@ function unwrapMathTaskLine(line) {
   return out.trimEnd()
 }
 
+// Продолжение задания, завёрнутое в display-math без номера:
+// "$$\mathbf{6})2\frac{1}{2}+…;\qquad\mathbf{r})…$$" → "б) $…$; г) $…$"
+// (та же распаковка, но без номерного префикса)
+function unwrapMathMarkerLine(line) {
+  let t = line
+  for (let i = 0; i < 5; i++) {
+    const b = t
+    t = t.replace(/\\(?:mathbf|mathrm|mathtt|mathit|boldsymbol|operatorname|text)\s*\{([^{}]*)\}/g, '$1')
+    if (t === b) break
+  }
+  t = t
+    .replace(/\\circ/g, '○').replace(/\\infty/g, '∞')
+    .replace(/\\[:;,!]|\\quad|\\qquad/g, ' ')
+    .replace(/~/g, ' ')
+    .replace(/\$\$?/g, ' ')
+
+  const wrap = (s) => {
+    s = (s ?? '').trim()
+    if (!s) return ''
+    const m2 = s.match(/^(.*?)([;.,]*)$/s)
+    const body = m2[1].trim()
+    if (!body) return m2[2]
+    if (/[А-Яа-яЁё]{2,}/.test(body) || !/[\\^_{}=<>+]|\d\s*[-/]\s*\d/.test(body)) return s
+    return `$${body}$${m2[2]}`
+  }
+  const markers = [...t.matchAll(/(^\s*|[;}]\s*)([а-еa-z6ΓB])\)\s*/g)]
+  if (markers.length === 0) return line // маркеров нет — не наш случай
+  let out = ''
+  let pos = 0
+  for (let i = 0; i < markers.length; i++) {
+    const m = markers[i]
+    const lead = t.slice(pos, m.index + m[1].length).trim()
+    if (lead) out += wrap(lead) + ' '
+    const contentEnd = i + 1 < markers.length ? markers[i + 1].index + markers[i + 1][1].length : t.length
+    out += `${m[2]}) ${wrap(t.slice(m.index + m[0].length, contentEnd))} `
+    pos = contentEnd
+  }
+  return out.trimEnd()
+}
+
+// Правило проекта: структуру учебника не воспроизводим дословно — упрощаем
+// до читаемого вида. Короткие display-формулы без переносов → инлайн $…$,
+// чтобы они не растягивали строку и не давали горизонтальный скролл.
+function inlineShortDisplayMath(md) {
+  return md.replace(/\$\$\s*([^$]+?)\s*\$\$/g, (m, body) => {
+    if (body.length > 110 || /\\begin|\\\\|\n/.test(body)) return m
+    return `$${body}$`
+  })
+}
+
 function unwrapMathTasks(md) {
   return md.split('\n').map(line => {
-    if (!/\d{1,2}\.\d{1,3}\./.test(line.slice(0, 80))) return line
-    if (!/\\(?:circ|mathbf|mathrm|mathtt|boldsymbol)/.test(line)) return line
-    return unwrapMathTaskLine(line)
+    const hasWrapper = /\\(?:circ|mathbf|mathrm|mathtt|boldsymbol)/.test(line)
+    if (!hasWrapper) return line
+    if (/\d{1,2}\.\d{1,3}\./.test(line.slice(0, 80))) return unwrapMathTaskLine(line)
+    // display-math строка с маркерами подпунктов, но без номера задания
+    if (/^\s*\$\$?/.test(line) && /\\math\w+\{?\s*[а-еa-z6ΓB]\s*\}?\s*\)/.test(line)) {
+      return unwrapMathMarkerLine(line)
+    }
+    return line
   }).join('\n')
 }
 
@@ -205,7 +260,7 @@ function rewriteImages(md, images) {
 }
 
 for (const p of pages) {
-  p.markdown = rewriteImages(normalizeMarkers(unwrapMathTasks(p.markdown)), p.images)
+  p.markdown = rewriteImages(normalizeMarkers(inlineShortDisplayMath(unwrapMathTasks(p.markdown))), p.images)
 }
 
 // printed page → scan index
@@ -367,6 +422,25 @@ const inRepetition = (idx) =>
   scheme === 'composite' && repetitionSection?.pageStart != null &&
   idx >= repetitionSection.pageStart && idx <= (repetitionSection.pageEnd ?? -1)
 
+// «Домашние контрольные работы»: задания извлекаются как отдельные атомы
+// с уникальным номером «к<ДКР>.<вариант>.<номер>» (в тексте книги — «3.»,
+// нумерация в каждом варианте начинается заново)
+const dkrSections = scheme === 'composite'
+  ? flatSections.filter(s => /домашн[а-яё]*\s+контрольн/i.test(s.title) && s.pageStart !== null)
+  : []
+dkrSections.forEach((s, i) => {
+  s.dkrNo = parseInt(s.title.match(/№\s*(\d+)/)?.[1] ?? String(i + 1))
+  s.dkrVariant = 1
+  s.dkrLastNum = 0
+})
+const dkrByPage = new Map()
+for (const s of dkrSections) {
+  for (let i = s.pageStart; i <= (s.pageEnd ?? s.pageStart); i++) dkrByPage.set(i, s)
+}
+const DKR_HEAD_RE = /ДОМ[А-ЯЁ]+\s+КОНТРОЛЬН[А-ЯЁ]*\s+РАБОТ/i
+// «Вариант 1» и его OCR-искажения: Бармант, Вармонят, Бермант, Варимят…
+const VARIANT_RE = /^#{0,6}\s*[БВ][а-яёa-z]{4,9}\s+(\d)\s*$/gim
+
 const problems = []
 let lastNum = 0            // plain-схема и «Итоговое повторение»
 let lastPara = 0, lastSub = 0  // composite-схема
@@ -376,15 +450,26 @@ for (const p of pages) {
   if (p.contentBlocks.length > 0) continue // страницы оглавления
 
   const md = p.markdown
+
+  // граница ДКР-зоны на странице: на первой странице ДКР до заголовка
+  // ещё идут задания параграфа (композитные)
+  const dkrSec = dkrByPage.get(p.index) ?? null
+  let dkrFrom = null
+  if (dkrSec) {
+    const hm = p.index === dkrSec.pageStart ? md.match(DKR_HEAD_RE) : null
+    dkrFrom = p.index === dkrSec.pageStart ? (hm ? hm.index : 0) : 0
+  }
+
   const usePlain = scheme === 'plain' || inRepetition(p.index)
-  // composite-книга вне повторения: plain-номера («1.» в контрольных работах,
-  // «П.1» в приложении) — не задания основной нумерации, пропускаем страницу
+  // composite-книга вне повторения: plain-номера («П.1» в приложении) —
+  // не задания основной нумерации
   const re = usePlain ? PLAIN_RE : COMPOSITE_RE
 
   const starts = []
   let m
   re.lastIndex = 0
   while ((m = re.exec(md)) !== null) {
+    if (dkrFrom !== null && m.index >= dkrFrom) continue // ДКР-зона — ниже отдельно
     starts.push(usePlain
       ? { glyph: m[1] ?? null, num: parseInt(m[2]), at: m.index }
       : { glyph: m[1] ?? null, para: parseInt(m[2]), num: parseInt(m[3]), at: m.index })
@@ -416,6 +501,39 @@ for (const p of pages) {
     accepted.push(s)
   }
 
+  // ДКР-зона: локальная нумерация 1..N в каждом варианте
+  if (dkrSec) {
+    const variants = []
+    VARIANT_RE.lastIndex = 0
+    while ((m = VARIANT_RE.exec(md)) !== null) variants.push({ at: m.index, v: parseInt(m[1]) })
+    PLAIN_RE.lastIndex = 0
+    while ((m = PLAIN_RE.exec(md)) !== null) {
+      if (m.index < dkrFrom) continue
+      const num = parseInt(m[2])
+      const vh = variants.filter(v => v.at < m.index).pop()
+      if (vh && vh.v !== dkrSec.dkrVariant) {
+        dkrSec.dkrVariant = vh.v
+        dkrSec.dkrLastNum = 0
+      } else if (!vh && num <= 2 && dkrSec.dkrLastNum >= 4) {
+        // заголовок варианта потерян OCR — рестарт нумерации выдаёт его
+        dkrSec.dkrVariant++
+        dkrSec.dkrLastNum = 0
+      }
+      if (num <= dkrSec.dkrLastNum || num > dkrSec.dkrLastNum + 6 || num > 15) {
+        warnings.push(`стр.${p.index}: пропущен номер ДКР${dkrSec.dkrNo} ${num} (вариант ${dkrSec.dkrVariant}, последний ${dkrSec.dkrLastNum})`)
+        continue
+      }
+      dkrSec.dkrLastNum = num
+      accepted.push({
+        glyph: m[1] ?? null,
+        at: m.index,
+        taskNumber: `к${dkrSec.dkrNo}.${dkrSec.dkrVariant}.${num}`,
+        sort: 2_000_000 + dkrSec.dkrNo * 10_000 + dkrSec.dkrVariant * 1000 + num,
+      })
+    }
+    accepted.sort((a, b) => a.at - b.at)
+  }
+
   for (let i = 0; i < accepted.length; i++) {
     const s = accepted[i]
     const end = i + 1 < accepted.length ? accepted[i + 1].at : md.length
@@ -424,7 +542,8 @@ for (const p of pages) {
     // перенос на следующую страницу: если следующая страница начинается не с задания/заголовка
     if (i === accepted.length - 1 && p.index + 1 < pages.length) {
       const nextMd = pages[p.index + 1]?.markdown ?? ''
-      const nextRe = scheme === 'plain' || inRepetition(p.index + 1) ? PLAIN_RE : COMPOSITE_RE
+      const nextRe = scheme === 'plain' || inRepetition(p.index + 1) || dkrByPage.has(p.index + 1)
+        ? PLAIN_RE : COMPOSITE_RE
       nextRe.lastIndex = 0
       const nextTask = nextRe.exec(nextMd)
       const nextHeading = nextMd.search(/^#{1,6}\s/m)
@@ -627,6 +746,7 @@ console.log()
 console.log('════════ СТАТИСТИКА ════════')
 console.log(`Схема нумерации: ${scheme}${scheme === 'composite' ? ` (макс: ${lastPara}.${lastSub}${repetitionSection ? `, повторение до ${lastNum}` : ''})` : ` (макс. номер: ${lastNum})`}`)
 console.log(`Заданий: ${uniqueProblems.length}`)
+console.log(`  из домашних контрольных: ${uniqueProblems.filter(p => p.taskNumber.startsWith('к')).length}`)
 console.log(`  с ответами из книги: ${answersFound}`)
 console.log(`  с автопроверкой:     ${uniqueProblems.filter(p => p.gradingMethod && p.gradingMethod !== 'manual').length}`)
 console.log(`  с картинками:        ${uniqueProblems.filter(p => p.hasImages).length}`)
