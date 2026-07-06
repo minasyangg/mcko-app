@@ -152,6 +152,20 @@ function TocItem({
   )
 }
 
+// ─── Номер задания ────────────────────────────────────────────────────────────
+// В markdown страницы номер обязан оставаться (по нему строятся привязки и
+// поиск), но пользователю он показывается только бейджем рамки. Из текста
+// задания перед отображением и редактированием номер вырезается; при
+// сохранении сервер восстанавливает его сам.
+
+function stripTaskNumber(md: string, taskNumber: string): string {
+  const esc = taskNumber.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  return md.replace(
+    new RegExp(`^[ \\t]*(?:[^0-9A-Za-zА-Яа-яЁё#<\\s$([{]|[oOоОοΟ0])?[ \\t]*${esc}\\.[ \\t]*`),
+    '',
+  )
+}
+
 // ─── Формы редактирования (по образцу EditTaskForm из тестов) ─────────────────
 
 function ProblemEditForm({
@@ -161,7 +175,8 @@ function ProblemEditForm({
   onSaved: () => void
   onCancel: () => void
 }) {
-  const [promptMd, setPromptMd] = useState(problem.prompt_md)
+  // номер задания в форму не попадает — им управляет сервер
+  const [promptMd, setPromptMd] = useState(() => stripTaskNumber(problem.prompt_md, problem.task_number))
   const [showPreview, setShowPreview] = useState(false)
   const [answer, setAnswer] = useState(problem.correct_answer?.text ?? '')
   const [gradingMethod, setGradingMethod] = useState(problem.grading_method)
@@ -478,7 +493,7 @@ function PageBlock({
                 <span className="text-[10px] text-muted-foreground">в тестах: {seg.problem.used_count}</span>
               )}
             </div>
-            <MarkdownContent content={seg.md} />
+            <MarkdownContent content={stripTaskNumber(seg.md, seg.problem.task_number)} />
             {editingProblemId === seg.problem.id && (
               <ProblemEditForm
                 problem={seg.problem}

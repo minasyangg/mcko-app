@@ -67,19 +67,35 @@ export async function PATCH(
     }
   }
 
-  // Правка текста задания: пишем в prompt_md и в markdown страницы
+  // Правка текста задания: пишем в prompt_md и в markdown страницы.
+  // Клиент присылает текст БЕЗ номера (номер не редактируется — по нему
+  // строятся привязки и поиск); сервер восстанавливает номер сам,
+  // сохраняя значок перед ним (○/∞/⑤) из текущего текста страницы.
   if (typeof body.prompt_md === 'string' && body.prompt_md.trim() !== '') {
-    const newPrompt = body.prompt_md.trim()
-    update.prompt_md = newPrompt
+    const esc = problem.task_number.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const headRe = new RegExp(`^[ \\t]*([^0-9A-Za-zА-Яа-яЁё#<\\s$([{]|[oOоОοΟ0])?[ \\t]*${esc}\\.[ \\t]*`)
+    const bodyText = body.prompt_md.trim().replace(headRe, '')
+    if (bodyText === '') return Response.json({ error: 'Текст задания пуст' }, { status: 400 })
 
+    let page: { id: string; markdown: string } | null = null
     if (problem.md_start !== null && problem.md_end !== null) {
-      const { data: page } = await admin
+      const res = await admin
         .from('book_pages')
         .select('id, markdown')
         .eq('book_id', problem.book_id)
         .eq('page_index', problem.page_index)
         .single()
+      page = res.data
+    }
 
+    const curSlice = page && problem.md_end !== null && problem.md_end <= page.markdown.length && problem.md_start !== null
+      ? page.markdown.slice(problem.md_start, problem.md_end)
+      : ''
+    const glyph = curSlice.match(headRe)?.[1] ?? ''
+    const newPrompt = `${glyph}${problem.task_number}. ${bodyText}`
+    update.prompt_md = newPrompt
+
+    if (problem.md_start !== null && problem.md_end !== null) {
       if (page && problem.md_end <= page.markdown.length) {
         const inPageLen = problem.md_end - problem.md_start
         const continuation = problem.prompt_md.length > inPageLen + 2
