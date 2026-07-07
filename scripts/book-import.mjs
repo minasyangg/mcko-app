@@ -259,8 +259,22 @@ function rewriteImages(md, images) {
   return out
 }
 
+// OCR иногда рендерит открывающую строку задания как markdown-заголовок
+// ("## 65 Найди значения выражений:", т.к. в PDF номер набран крупным/жирным
+// шрифтом) — снимаем "#", иначе задание визуально выделяется как заголовок
+// раздела, а не как обычный текст, и теряется извлечением по номеру.
+function demoteHeadingTaskNumbers(md) {
+  return md.split('\n').map(line => {
+    const m = line.match(/^(#{1,6})[ \t]+(.*)$/)
+    if (!m) return line
+    const rest = m[2]
+    const looksLikeTask = /^(?:[КПДСKPDCπoOоОοΟ0][ \t]+)?\d{1,4}[*°]?(?:[.)][ \t]+|[ \t]+[А-ЯЁ$«(])/.test(rest)
+    return looksLikeTask ? rest : line
+  }).join('\n')
+}
+
 for (const p of pages) {
-  p.markdown = rewriteImages(normalizeMarkers(inlineShortDisplayMath(unwrapMathTasks(p.markdown))), p.images)
+  p.markdown = rewriteImages(normalizeMarkers(inlineShortDisplayMath(demoteHeadingTaskNumbers(unwrapMathTasks(p.markdown)))), p.images)
 }
 
 // printed page → scan index
@@ -315,6 +329,15 @@ function parseToc(text) {
     }
     const m = line.match(/^(.*?)\s*\.{2,}\s*(\d+|—)\s*$/)
     if (!m) {
+      // "§ N. Title." без отточия и номера страницы (Петерсон) — параграф
+      // открывается сразу; его page_start подтянется от первого пункта
+      const barePara = line.match(/^§\s*(\d+)\.\s*(.+?)\.?\s*$/)
+      if (barePara) {
+        paragraph = { kind: 'paragraph', number: `§ ${barePara[1]}`, title: barePara[2], printedPage: null, children: [] }
+        ;(chapter?.children ?? sections).push(paragraph)
+        pending = ''
+        continue
+      }
       // строка без ..... N — начало обрезанного переносом заголовка;
       // если следующая осмысленная строка содержит номер страницы и сама
       // не начинается с №/§/Глава — она продолжение этого заголовка
@@ -483,7 +506,31 @@ for (let i = 0; i < flatSections.length; i++) {
 
 // Диапазон страниц с ответами (исключаем из поиска заданий) + оглавление
 const answersSection = flatSections.find(s => /^(ответы|otbet)/i.test(s.title))
-const answersStart = answersSection?.pageStart ?? null
+
+// Некоторые книги (Петерсон) не выносят «Ответы» в оглавление отдельным
+// заголовком — раздел просто дописан в конец без титула. Эвристика: с конца
+// книги ищем самую раннюю страницу непрерывного хвоста с плотным списком
+// «N. значение» (как в разделе ответов) и без иллюстраций (в отличие от
+// страниц с заданиями, которые почти всегда содержат картинку-разделитель).
+function findHeuristicAnswersStart(allPages) {
+  const DOT_RE = /(?<=^|[\s;])(\d{1,4})\.(?=\s|\d)/g
+  const dotDensity = (md) => { let n = 0; DOT_RE.lastIndex = 0; while (DOT_RE.exec(md) !== null) n++; return n }
+  let i = allPages.length - 1
+  while (i >= 0 && (/<img\s/.test(allPages[i].markdown) || dotDensity(allPages[i].markdown) < 6)) i--
+  if (i < 0) return null
+  let start = i
+  for (i -= 1; i >= 0; i--) {
+    const md = allPages[i].markdown
+    if (/<img\s/.test(md) || dotDensity(md) < 3) break
+    start = i
+  }
+  return start
+}
+// Гейт по isDidactic: у уже отгруженных дидактических сборников (Кубышева,
+// Чесноков) ответов нет вовсе — эвристика для них не запускается, чтобы не
+// внести регресс. Для книг с явным «Ответы» в TOC эвристика не вызывается
+// вовсе (короткое замыкание ??).
+const answersStart = answersSection?.pageStart ?? (!isDidactic ? findHeuristicAnswersStart(pages) : null)
 // конец ответов = начало следующего раздела книги (Предметный указатель,
 // Справочный материал...) либо конец книги
 const afterAnswersStarts = answersStart !== null
@@ -508,15 +555,28 @@ const COMPOSITE_RE = new RegExp(`^${PREFIX}(\\d{1,2})\\.(\\d{1,3})\\.${AFTER}`, 
 const PLAIN_RE = new RegExp(`^${PREFIX}(\\d{1,4})([*°]?)\\.${AFTER}`, 'gm')
 // Дидактика: часть книг нумерует задания скобкой — «1)», «6)*»
 const PAREN_RE = /^[ \t]*(\d{1,2})[*°]?\)[*°]?[ \t]/gm
+// Петерсон и подобные: номер вообще без знака препинания («23 Выполни…»).
+// Перед номером — буква-категория задания (К/П/Д/С = классная/повторение/
+// домашняя/смекалка, OCR путает с латиницей и греческой π); после номера —
+// обязательно пробел и заглавная буква/формула/кавычка (иначе это дата,
+// количество и т.п. посреди обычного предложения, не начало задания).
+const BARE_RE = /^[ \t]*(?:([КПДСKPDCπ])[ \t]+)?(\d{1,4})[ \t]+(?=[А-ЯЁ$«(])/gm
 
 function countMatches(re, s) { re.lastIndex = 0; let n = 0; while (re.exec(s) !== null) n++; return n }
-let compositeTotal = 0
+let compositeTotal = 0, bareTotal = 0, dotTotal = 0
 for (const p of pages) {
   if (p.contentBlocks.length > 0) continue
   if (answersStart !== null && p.index >= answersStart) break
   compositeTotal += countMatches(COMPOSITE_RE, p.markdown)
+  bareTotal += countMatches(BARE_RE, p.markdown)
+  dotTotal += countMatches(PLAIN_RE, p.markdown)
 }
-const scheme = compositeTotal >= 100 ? 'composite' : 'plain'
+const scheme = compositeTotal >= 100 ? 'composite'
+  : bareTotal >= 50 && bareTotal > dotTotal * 3 ? 'bare'
+  : 'plain'
+// Регэксп извлечения задания для схем 'plain'/'bare' (единый на все места
+// использования, чтобы не разъезжались детектор и последующая пересборка)
+const SEQ_RE = scheme === 'bare' ? BARE_RE : PLAIN_RE
 
 const inRepetition = (idx) =>
   scheme === 'composite' && repetitionSection?.pageStart != null &&
@@ -650,10 +710,10 @@ for (const p of pages) {
   }
 
   const entry = { p, md, accepted: [], plain: [] }
-  const usePlain = scheme === 'plain' || inRepetition(p.index)
+  const usePlain = scheme === 'plain' || scheme === 'bare' || inRepetition(p.index)
   // composite-книга вне повторения: plain-номера («П.1» в приложении) —
   // не задания основной нумерации
-  const re = usePlain ? PLAIN_RE : COMPOSITE_RE
+  const re = usePlain ? SEQ_RE : COMPOSITE_RE
 
   let m
   re.lastIndex = 0
@@ -757,8 +817,8 @@ for (const e of pageEntries) {
     // перенос на следующую страницу: если следующая страница начинается не с задания/заголовка
     if (i === accepted.length - 1 && p.index + 1 < pages.length) {
       const nextMd = pages[p.index + 1]?.markdown ?? ''
-      const nextRe = scheme === 'plain' || isDidactic || inRepetition(p.index + 1) || dkrByPage.has(p.index + 1)
-        ? PLAIN_RE : COMPOSITE_RE
+      const nextRe = scheme === 'composite' && !(isDidactic || inRepetition(p.index + 1) || dkrByPage.has(p.index + 1))
+        ? COMPOSITE_RE : SEQ_RE
       nextRe.lastIndex = 0
       const nextTask = nextRe.exec(nextMd)
       const nextHeading = nextMd.search(/^#{1,6}\s/m)
@@ -780,7 +840,8 @@ for (const e of pageEntries) {
       promptMd: prompt,
       hasImages: /<img\s/.test(prompt),
       difficulty:
-        (s.glyph && /[∞⑤]/.test(s.glyph)) || s.star ||
+        // ∞/⑤ — общий маркер; С/C — «задачи на смекалку» (Петерсон)
+        (s.glyph && /[∞⑤СC]/.test(s.glyph)) || s.star ||
         (advancedSection && advancedSection.pageStart !== null &&
           p.index >= advancedSection.pageStart && p.index <= (advancedSection.pageEnd ?? -1))
           ? 'advanced' : 'standard',

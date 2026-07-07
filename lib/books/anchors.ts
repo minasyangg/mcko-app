@@ -75,12 +75,17 @@ export function computeAnchors(
   const candidates: Array<{ num: string; at: number; paren: boolean }> = []
   const dotRe = /^[ \t]*(?:(?:[^0-9A-Za-zА-Яа-яЁё#<\s$([{]|[oOоОοΟ0])[ \t]{0,2})?(\d{1,2}\.\d{1,3}|\d{1,4})[*°]?\.(?:[ \t]|(?=[а-еa-z6ΓB]\)))/gm
   const parenRe = /^[ \t]*(\d{1,2})[*°]?\)[*°]?[ \t]/gm
+  // Петерсон и подобные: номер без знака препинания («23 Выполни…»)
+  const bareRe = /^[ \t]*(?:[КПДСKPDCπ][ \t]+)?(\d{1,4})[ \t]+(?=[А-ЯЁ$«(])/gm
   let m: RegExpExecArray | null
   while ((m = dotRe.exec(pageMd)) !== null) {
     candidates.push({ num: m[1], at: m.index, paren: false })
   }
   while ((m = parenRe.exec(pageMd)) !== null) {
     candidates.push({ num: m[1], at: m.index, paren: true })
+  }
+  while ((m = bareRe.exec(pageMd)) !== null) {
+    candidates.push({ num: m[1], at: m.index, paren: false })
   }
   candidates.sort((a, b) => a.at - b.at)
 

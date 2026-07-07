@@ -78,7 +78,11 @@ export async function PATCH(
     // в тексте книги ДКР-задание напечатано видимым номером («3.»), а не «к1.2.3»
     const visible = visibleTaskNumber(problem.task_number)
     const esc = visible.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-    const headRe = new RegExp(`^[ \\t]*([^0-9A-Za-zА-Яа-яЁё#<\\s$([{]|[oOоОοΟ0])?[ \\t]*${esc}[*°]?[.)][*°]?[ \\t]*`)
+    // группа 1 — глиф перед номером (символ вплотную: ○/∞/⑤/OCR-кружок, или
+    // буква категории через пробел — Петерсон: К/П/Д/С); группа 2 —
+    // необязательный терминатор после номера (Петерсон печатает номер вообще
+    // без знака препинания: «23 Найди…»)
+    const headRe = new RegExp(`^[ \\t]*((?:(?:[^0-9A-Za-zА-Яа-яЁё#<\\s$([{]|[oOоОοΟ0])[ \\t]*|[КПДСKPDCπ][ \\t]+))?${esc}[*°]?([.)]?)[*°]?[ \\t]*`)
     const bodyText = body.prompt_md.trim().replace(headRe, '')
     if (bodyText === '') return Response.json({ error: 'Текст задания пуст' }, { status: 400 })
 
@@ -96,8 +100,13 @@ export async function PATCH(
     const curSlice = page && problem.md_end !== null && problem.md_end <= page.markdown.length && problem.md_start !== null
       ? page.markdown.slice(problem.md_start, problem.md_end)
       : ''
-    const glyph = curSlice.match(headRe)?.[1] ?? ''
-    const newPrompt = `${glyph}${visible}. ${bodyText}`
+    const headMatch = curSlice.match(headRe)
+    const glyph = headMatch?.[1] ?? ''
+    // терминатор сохраняется как в исходном тексте: «.», «)» или его отсутствие
+    // (Петерсон печатает номер без знака препинания — «23 Найди…»); если
+    // определить не удалось (новый/безъякорный текст) — по умолчанию точка
+    const terminator = headMatch ? headMatch[2] : '.'
+    const newPrompt = `${glyph}${visible}${terminator} ${bodyText}`
     update.prompt_md = newPrompt
 
     if (problem.md_start !== null && problem.md_end !== null) {
