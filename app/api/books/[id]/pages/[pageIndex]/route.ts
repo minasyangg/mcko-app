@@ -93,3 +93,63 @@ export async function PATCH(
 
   return Response.json({ ok: true, problems_updated: (pageProblems ?? []).length - lost, anchors_lost: lost })
 }
+
+// DELETE /api/books/[id]/pages/[pageIndex]
+// Полное удаление страницы и всех заданий на ней. Только владелец книги
+// или admin. page_index соседних страниц НЕ сдвигается (нумерация страниц
+// и task_number остальных заданий не меняются — связи test_tasks на другие
+// задания и границы разделов остаются валидны); в тестах, куда задания уже
+// добавлены, их копии сохраняются (test_tasks.book_problem_id → set null).
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string; pageIndex: string }> }
+) {
+  const { id: bookId, pageIndex: pageIndexRaw } = await params
+  const pageIndex = parseInt(pageIndexRaw)
+  if (isNaN(pageIndex)) return Response.json({ error: 'Invalid page index' }, { status: 400 })
+
+  const supabase = await createClient()
+  const { data: { user }, error: authError } = await supabase.auth.getUser()
+  if (authError || !user) return Response.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const { data: profile } = await supabase
+    .from('profiles').select('role').eq('id', user.id).single()
+  if (!profile || !['teacher', 'admin'].includes(profile.role)) {
+    return Response.json({ error: 'Forbidden' }, { status: 403 })
+  }
+
+  const admin = createAdminClient()
+  const { data: book } = await admin
+    .from('books')
+    .select('id, created_by')
+    .eq('id', bookId)
+    .single()
+  if (!book) return Response.json({ error: 'Book not found' }, { status: 404 })
+
+  if (profile.role !== 'admin' && book.created_by !== user.id) {
+    return Response.json({ error: 'Удалять может только владелец книги или администратор' }, { status: 403 })
+  }
+
+  const { data: page } = await admin
+    .from('book_pages')
+    .select('id')
+    .eq('book_id', bookId)
+    .eq('page_index', pageIndex)
+    .single()
+  if (!page) return Response.json({ error: 'Page not found' }, { status: 404 })
+
+  const { error: probErr } = await admin
+    .from('book_problems')
+    .delete()
+    .eq('book_id', bookId)
+    .eq('page_index', pageIndex)
+  if (probErr) return Response.json({ error: probErr.message }, { status: 500 })
+
+  const { error: pageErr } = await admin
+    .from('book_pages')
+    .delete()
+    .eq('id', page.id)
+  if (pageErr) return Response.json({ error: pageErr.message }, { status: 500 })
+
+  return Response.json({ ok: true })
+}

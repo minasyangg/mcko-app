@@ -552,6 +552,8 @@ function PageBlock({
   const [editingProblemId, setEditingProblemId] = useState<string | null>(null)
   const [deletingProblem, setDeletingProblem] = useState<ProblemAnchor | null>(null)
   const [deleting, setDeleting] = useState(false)
+  const [deletingPage, setDeletingPage] = useState(false)
+  const [deletingPageBusy, setDeletingPageBusy] = useState(false)
 
   async function handleDelete() {
     if (!deletingProblem) return
@@ -568,6 +570,23 @@ function PageBlock({
       onChanged()
     } finally {
       setDeleting(false)
+    }
+  }
+
+  async function handleDeletePage() {
+    setDeletingPageBusy(true)
+    try {
+      const res = await fetch(`/api/books/${bookId}/pages/${page.page_index}`, { method: 'DELETE' })
+      const d = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        toast.error(d.error ?? 'Ошибка удаления страницы')
+        return
+      }
+      toast.success(`Страница${page.printed_page !== null ? ` ${page.printed_page}` : ''} удалена`)
+      setDeletingPage(false)
+      onChanged()
+    } finally {
+      setDeletingPageBusy(false)
     }
   }
   // Разбиваем markdown страницы на сегменты: обычный текст / задание
@@ -623,10 +642,44 @@ function PageBlock({
             >
               <Plus className="h-3.5 w-3.5" />
             </button>
+            <button
+              type="button"
+              onClick={() => setDeletingPage(true)}
+              title="Удалить страницу и все задания на ней"
+              className="text-muted-foreground hover:text-destructive transition-colors"
+            >
+              <Trash2 className="h-3 w-3" />
+            </button>
           </>
         )}
         <div className="h-px bg-border flex-1" />
       </div>
+
+      <AlertDialog open={deletingPage} onOpenChange={(open) => { if (!open) setDeletingPage(false) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Удалить страницу{page.printed_page !== null ? ` ${page.printed_page}` : ''}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Страница и все задания на ней будут удалены из книги безвозвратно.
+              Нумерация страниц и номера остальных заданий не изменятся — связи
+              не потеряются. В тестах, куда задания уже добавлены, их копии сохранятся.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deletingPageBusy}>Отмена</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => { e.preventDefault(); handleDeletePage() }}
+              disabled={deletingPageBusy}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deletingPageBusy ? 'Удаление...' : 'Удалить страницу'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {creatingTask && (
         <ProblemCreateForm
           bookId={bookId}
