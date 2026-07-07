@@ -30,7 +30,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import {
   ArrowLeft, ChevronRight, ChevronDown, ChevronUp, Plus, Search, X,
-  CheckCircle2, Flame, BookOpen, Pencil, Trash2,
+  CheckCircle2, Flame, BookOpen, Pencil, Trash2, Check,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { visibleTaskNumber, taskNumberLabel } from '@/lib/books/anchors'
@@ -116,28 +116,99 @@ function buildTree(sections: Section[]): TocNode[] {
   return roots
 }
 
+interface SectionDeletePreview {
+  title: string
+  sections_count: number
+  problems_count: number
+  test_usage: Array<{ test_id: string; title: string; count: number }>
+}
+
 function TocItem({
-  node, depth, selectedId, onSelect,
+  node, depth, selectedId, onSelect, canEdit, bookId, onChanged,
 }: {
   node: TocNode
   depth: number
   selectedId: string | null
   onSelect: (node: TocNode) => void
+  canEdit: boolean
+  bookId: string
+  onChanged: () => void
 }) {
   const [open, setOpen] = useState(depth === 0)
   const hasChildren = node.children.length > 0
   const selectable = node.page_start !== null
 
+  const [renaming, setRenaming] = useState(false)
+  const [titleDraft, setTitleDraft] = useState(node.title)
+  const [savingTitle, setSavingTitle] = useState(false)
+
+  const [deleteOpen, setDeleteOpen] = useState(false)
+  const [preview, setPreview] = useState<SectionDeletePreview | null>(null)
+  const [previewLoading, setPreviewLoading] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+
+  async function handleSaveTitle() {
+    const title = titleDraft.trim()
+    if (!title) { toast.error('Название не может быть пустым'); return }
+    if (title === node.title) { setRenaming(false); return }
+    setSavingTitle(true)
+    try {
+      const res = await fetch(`/api/books/${bookId}/sections/${node.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title }),
+      })
+      const d = await res.json().catch(() => ({}))
+      if (!res.ok) { toast.error(d.error ?? 'Ошибка сохранения'); return }
+      toast.success('Название сохранено')
+      setRenaming(false)
+      onChanged()
+    } finally {
+      setSavingTitle(false)
+    }
+  }
+
+  async function openDelete() {
+    setDeleteOpen(true)
+    setPreview(null)
+    setPreviewLoading(true)
+    try {
+      const res = await fetch(`/api/books/${bookId}/sections/${node.id}`)
+      if (res.ok) setPreview(await res.json())
+    } finally {
+      setPreviewLoading(false)
+    }
+  }
+
+  async function handleDelete() {
+    setDeleting(true)
+    try {
+      const res = await fetch(`/api/books/${bookId}/sections/${node.id}`, { method: 'DELETE' })
+      const d = await res.json().catch(() => ({}))
+      if (!res.ok) { toast.error(d.error ?? 'Ошибка удаления'); return }
+      const usage = (d.test_usage ?? []) as SectionDeletePreview['test_usage']
+      const usageNote = usage.length
+        ? ` Уже было в тестах: ${usage.map(t => `«${t.title}» (${t.count})`).join(', ')}.`
+        : ''
+      toast.success(`Удалено: ${d.deleted_problems} заданий, ${d.deleted_sections} раздел(ов).${usageNote}`)
+      setDeleteOpen(false)
+      onChanged()
+    } finally {
+      setDeleting(false)
+    }
+  }
+
   return (
     <div>
       <div
         className={cn(
-          'flex items-start gap-1 rounded-md px-2 py-1.5 text-sm cursor-pointer transition-colors',
+          'group flex items-start gap-1 rounded-md px-2 py-1.5 text-sm cursor-pointer transition-colors',
           selectedId === node.id ? 'bg-primary/10 text-primary font-medium' : 'hover:bg-muted',
           !selectable && 'cursor-default text-muted-foreground',
         )}
         style={{ paddingLeft: `${8 + depth * 14}px` }}
         onClick={() => {
+          if (renaming) return
           if (hasChildren) setOpen(!open)
           if (selectable) onSelect(node)
         }}
@@ -147,18 +218,120 @@ function TocItem({
         ) : (
           <span className="w-3.5 shrink-0" />
         )}
-        <span className="leading-snug">
-          {node.kind === 'chapter' && node.number ? `Глава ${node.number}. ` : node.number ? `${node.number}. ` : ''}
-          {node.title}
-        </span>
+        {renaming ? (
+          <div className="flex items-center gap-1 flex-1 min-w-0" onClick={(e) => e.stopPropagation()}>
+            <Input
+              value={titleDraft}
+              onChange={(e) => setTitleDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleSaveTitle()
+                if (e.key === 'Escape') { setTitleDraft(node.title); setRenaming(false) }
+              }}
+              autoFocus
+              disabled={savingTitle}
+              className="h-6 text-xs px-1.5"
+            />
+            <button
+              type="button"
+              onClick={handleSaveTitle}
+              disabled={savingTitle}
+              title="Сохранить"
+              className="text-green-600 hover:text-green-700 shrink-0"
+            >
+              <Check className="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => { setTitleDraft(node.title); setRenaming(false) }}
+              disabled={savingTitle}
+              title="Отмена"
+              className="text-muted-foreground hover:text-foreground shrink-0"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        ) : (
+          <>
+            <span className="leading-snug flex-1 min-w-0">
+              {node.kind === 'chapter' && node.number ? `Глава ${node.number}. ` : node.number ? `${node.number}. ` : ''}
+              {node.title}
+            </span>
+            {canEdit && (
+              <span
+                className="flex gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <button
+                  type="button"
+                  onClick={() => setRenaming(true)}
+                  title="Переименовать раздел"
+                  className="text-muted-foreground hover:text-foreground"
+                >
+                  <Pencil className="h-3 w-3" />
+                </button>
+                <button
+                  type="button"
+                  onClick={openDelete}
+                  title="Удалить раздел и все его задания"
+                  className="text-muted-foreground hover:text-destructive"
+                >
+                  <Trash2 className="h-3 w-3" />
+                </button>
+              </span>
+            )}
+          </>
+        )}
       </div>
       {open && hasChildren && (
         <div>
           {node.children.map(c => (
-            <TocItem key={c.id} node={c} depth={depth + 1} selectedId={selectedId} onSelect={onSelect} />
+            <TocItem
+              key={c.id} node={c} depth={depth + 1} selectedId={selectedId} onSelect={onSelect}
+              canEdit={canEdit} bookId={bookId} onChanged={onChanged}
+            />
           ))}
         </div>
       )}
+
+      <AlertDialog open={deleteOpen} onOpenChange={(open) => { if (!open) setDeleteOpen(false) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Удалить «{node.title}»?</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <span className="block">
+                {previewLoading ? (
+                  'Проверяю содержимое раздела...'
+                ) : preview ? (
+                  <>
+                    Будет удалено {preview.problems_count} заданий
+                    {preview.sections_count > 1 ? ` из ${preview.sections_count} разделов (включая вложенные)` : ''}
+                    {' '}безвозвратно.
+                    {preview.test_usage.length > 0 && (
+                      <span className="block mt-2 font-medium text-destructive">
+                        Внимание: {preview.test_usage.reduce((s, t) => s + t.count, 0)} из этих заданий уже
+                        добавлены в тесты: {preview.test_usage.map(t => `«${t.title}» (${t.count})`).join(', ')}.
+                        Их копии в тестах сохранятся, но из книги задания исчезнут.
+                      </span>
+                    )}
+                  </>
+                ) : (
+                  'Не удалось получить информацию о разделе.'
+                )}
+              </span>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Отмена</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => { e.preventDefault(); handleDelete() }}
+              disabled={deleting || previewLoading || !preview}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleting ? 'Удаление...' : 'Удалить'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }
@@ -796,7 +969,8 @@ function PageBlock({
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
-export function BookReader({ book, sections, canEdit = false }: { book: Book; sections: Section[]; canEdit?: boolean }) {
+export function BookReader({ book, sections: initialSections, canEdit = false }: { book: Book; sections: Section[]; canEdit?: boolean }) {
+  const [sections, setSections] = useState(initialSections)
   const tree = useMemo(() => buildTree(sections), [sections])
   const sectionById = useMemo(() => new Map(sections.map(s => [s.id, s])), [sections])
 
@@ -808,6 +982,24 @@ export function BookReader({ book, sections, canEdit = false }: { book: Book; se
   }, [sections])
 
   const [selected, setSelected] = useState<Section | null>(firstLeaf)
+
+  // После переименования/удаления раздела — перечитать дерево; если выбранный
+  // раздел (или его предок) был удалён, выбрать первый доступный лист
+  const reloadSections = useCallback(async () => {
+    const res = await fetch(`/api/books/${book.id}/sections`)
+    if (!res.ok) return
+    const data = await res.json()
+    const next: Section[] = data.sections ?? []
+    setSections(next)
+    setSelected(prev => {
+      if (prev) {
+        const stillExists = next.find(s => s.id === prev.id)
+        if (stillExists) return stillExists
+      }
+      const leaves = next.filter(s => s.page_start !== null && !next.some(c => c.parent_id === s.id))
+      return leaves[0] ?? null
+    })
+  }, [book.id])
   const [pages, setPages] = useState<PageData[] | null>(null)
   const [problems, setProblems] = useState<ProblemAnchor[]>([])
   const [loading, setLoading] = useState(false)
@@ -904,6 +1096,9 @@ export function BookReader({ book, sections, canEdit = false }: { book: Book; se
               depth={0}
               selectedId={selected?.id ?? null}
               onSelect={(n) => setSelected(n)}
+              canEdit={canEdit}
+              bookId={book.id}
+              onChanged={reloadSections}
             />
           ))}
         </div>
