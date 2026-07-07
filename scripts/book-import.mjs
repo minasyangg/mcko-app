@@ -506,6 +506,8 @@ const AFTER = `(?:[ \\t]|(?=[а-еa-z6ΓB]\\)))`
 const COMPOSITE_RE = new RegExp(`^${PREFIX}(\\d{1,2})\\.(\\d{1,3})\\.${AFTER}`, 'gm')
 // «3*.» — звёздочка после номера = повышенная сложность (дидактика)
 const PLAIN_RE = new RegExp(`^${PREFIX}(\\d{1,4})([*°]?)\\.${AFTER}`, 'gm')
+// Дидактика: часть книг нумерует задания скобкой — «1)», «6)*»
+const PAREN_RE = /^[ \t]*(\d{1,2})[*°]?\)[*°]?[ \t]/gm
 
 function countMatches(re, s) { re.lastIndex = 0; let n = 0; while (re.exec(s) !== null) n++; return n }
 let compositeTotal = 0
@@ -569,7 +571,7 @@ let lastPara = 0, lastSub = 0  // composite-схема
 // to…» между 1238 и 1239), дубли и рестарты «Контрольных вопросов».
 const pageEntries = []
 // состояние дидактического разбора: текущая работа/вариант (переживает страницы)
-const didState = { work: null, variant: 1, lastNum: 0 }
+const didState = { work: null, variant: 1, lastNum: 0, styleLock: null }
 
 for (const p of pages) {
   if (answersStart !== null && p.index >= answersStart) break // ответы и дальше — не задания
@@ -589,7 +591,9 @@ for (const p of pages) {
     VARIANT_RE.lastIndex = 0
     while ((m = VARIANT_RE.exec(md)) !== null) events.push({ at: m.index, type: 'variant', v: parseInt(m[1]) })
     PLAIN_RE.lastIndex = 0
-    while ((m = PLAIN_RE.exec(md)) !== null) events.push({ at: m.index, type: 'task', glyph: m[1] ?? null, num: parseInt(m[2]), star: m[3] || null })
+    while ((m = PLAIN_RE.exec(md)) !== null) events.push({ at: m.index, type: 'task', style: '.', glyph: m[1] ?? null, num: parseInt(m[2]), star: m[3] || null })
+    PAREN_RE.lastIndex = 0
+    while ((m = PAREN_RE.exec(md)) !== null) events.push({ at: m.index, type: 'task', style: ')', glyph: null, num: parseInt(m[1]), star: /[*°]/.test(m[0]) ? '*' : null })
     events.sort((a, b) => a.at - b.at)
 
     for (const ev of events) {
@@ -599,14 +603,19 @@ for (const p of pages) {
         if (!ev.w.entered) { ev.w.entered = true; didState.variant = 1; didState.lastNum = 0 }
         else if (didState.work !== ev.w) didState.lastNum = 0
         didState.work = ev.w
+        didState.styleLock = null
       } else if (ev.type === 'variant') {
         didState.variant = ev.v
         didState.lastNum = 0
+        didState.styleLock = null
       } else if (didState.work === null && contVariant !== null) {
         // сквозная нумерация внутри вариантной зоны → LIS-поток «в{N}»
-        entry.plain.push({ glyph: ev.glyph, num: ev.num, at: ev.at, stream: `в${contVariant}` })
+        if (ev.style === '.') entry.plain.push({ glyph: ev.glyph, num: ev.num, at: ev.at, stream: `в${contVariant}` })
       } else if (didState.work) {
         const st = didState
+        // стиль нумерации («1.» или «1)») фиксируется первым заданием варианта:
+        // цифровые подпункты другого стиля внутри задания — не задания
+        if (st.styleLock && ev.style !== st.styleLock) continue
         if (ev.num >= 1 && ev.num <= 40 && ev.num > st.lastNum && ev.num - st.lastNum <= 6) {
           st.lastNum = ev.num
         } else if (ev.num <= 2 && st.lastNum >= 3) {
@@ -616,6 +625,7 @@ for (const p of pages) {
           warnings.push(`стр.${p.index}: пропущен номер ${ev.num} (работа ${st.work.kind}${st.work.no}, вар. ${st.variant}, последний ${st.lastNum})`)
           continue
         }
+        st.styleLock = ev.style
         entry.accepted.push({
           glyph: ev.glyph,
           star: ev.star,

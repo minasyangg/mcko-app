@@ -68,17 +68,26 @@ export function computeAnchors(
     .sort((a, b) =>
       (sortHint?.get(a) ?? zoneSortKey(a)) - (sortHint?.get(b) ?? zoneSortKey(b)))
 
-  const candidates: Array<{ num: string; at: number }> = []
-  const re = /^[ \t]*(?:(?:[^0-9A-Za-zА-Яа-яЁё#<\s$([{]|[oOоОοΟ0])[ \t]{0,2})?(\d{1,2}\.\d{1,3}|\d{1,4})[*°]?\.(?:[ \t]|(?=[а-еa-z6ΓB]\)))/gm
+  // Кандидаты двух стилей: «N.» (учебники, задачники) и «N)» (часть дидактики).
+  // Сквозные номера сопоставляются только по точечному стилю (цифровые
+  // подпункты «1) 2)» внутри заданий не должны красть якорь), зонные —
+  // позиционно по обоим стилям.
+  const candidates: Array<{ num: string; at: number; paren: boolean }> = []
+  const dotRe = /^[ \t]*(?:(?:[^0-9A-Za-zА-Яа-яЁё#<\s$([{]|[oOоОοΟ0])[ \t]{0,2})?(\d{1,2}\.\d{1,3}|\d{1,4})[*°]?\.(?:[ \t]|(?=[а-еa-z6ΓB]\)))/gm
+  const parenRe = /^[ \t]*(\d{1,2})[*°]?\)[*°]?[ \t]/gm
   let m: RegExpExecArray | null
-  while ((m = re.exec(pageMd)) !== null) {
-    candidates.push({ num: m[1], at: m.index })
+  while ((m = dotRe.exec(pageMd)) !== null) {
+    candidates.push({ num: m[1], at: m.index, paren: false })
   }
+  while ((m = parenRe.exec(pageMd)) !== null) {
+    candidates.push({ num: m[1], at: m.index, paren: true })
+  }
+  candidates.sort((a, b) => a.at - b.at)
 
   const assigned = new Map<string, number>() // task_number → candidate index
   const taken = new Set<number>()
   for (let i = 0; i < candidates.length; i++) {
-    if (plainWanted.has(candidates[i].num) && !assigned.has(candidates[i].num)) {
+    if (!candidates[i].paren && plainWanted.has(candidates[i].num) && !assigned.has(candidates[i].num)) {
       assigned.set(candidates[i].num, i)
       taken.add(i)
     }

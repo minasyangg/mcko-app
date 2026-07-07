@@ -78,7 +78,7 @@ export async function PATCH(
     // в тексте книги ДКР-задание напечатано видимым номером («3.»), а не «к1.2.3»
     const visible = visibleTaskNumber(problem.task_number)
     const esc = visible.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-    const headRe = new RegExp(`^[ \\t]*([^0-9A-Za-zА-Яа-яЁё#<\\s$([{]|[oOоОοΟ0])?[ \\t]*${esc}[*°]?\\.[ \\t]*`)
+    const headRe = new RegExp(`^[ \\t]*([^0-9A-Za-zА-Яа-яЁё#<\\s$([{]|[oOоОοΟ0])?[ \\t]*${esc}[*°]?[.)][*°]?[ \\t]*`)
     const bodyText = body.prompt_md.trim().replace(headRe, '')
     if (bodyText === '') return Response.json({ error: 'Текст задания пуст' }, { status: 400 })
 
