@@ -351,6 +351,103 @@ function parseToc(text) {
 }
 
 const toc = parseToc(tocText)
+
+// ── Дидактические сборники (--type didactic) ────────────────────────────────
+// Класс источников «СР/КР/ПР по вариантам»: печатного оглавления может не быть
+// вовсе, структура и зоны нумерации восстанавливаются из заголовков страниц.
+const isDidactic = (flag('type') ?? '') === 'didactic'
+
+// «Самостоятельная/Контрольная/Проверочная работа …» (ед. число, чтобы не
+// цеплять части «САМОСТОЯТЕЛЬНЫЕ РАБОТЫ») и «К-15 (…)» — заголовки работ
+// внимание: \b в JS не работает с кириллицей ([а-яё] ∉ \w) — границу слова
+// «работа» задаём негативным просмотром
+const WORK_RE = /^#{0,6}[ \t]*((?:Вводн[а-яё]+[ \t]+|Итогов[а-яё]+[ \t]+|Примерн[а-яё]+[ \t]+)?(Самостоятельн|Контрольн|Проверочн)[а-яё]*[ \t]+работа(?![а-яё])[^\n]*)/gim
+// «K-1 (Виленкин, п. 7)» — заголовок КР; бывает и обычной строкой без «#»,
+// поэтому требуем строку целиком: номер + необязательная скобочная пометка
+const KR_HEAD_RE = /^#{0,6}[ \t]*[KК][ \t]*[-–—][ \t]*(\d+)[ \t]*(\([^\n)]{0,80}\))?[ \t]*$/gm
+const KIND_BY_WORD = { 'самостоятельн': 'с', 'контрольн': 'р', 'проверочн': 'п' }
+
+const didacticWorks = [] // {page, at, title, kind, printedNo, no, globalIdx}
+if (isDidactic) {
+  for (const p of pages) {
+    let m
+    WORK_RE.lastIndex = 0
+    while ((m = WORK_RE.exec(p.markdown)) !== null) {
+      const title = m[1].trim()
+      didacticWorks.push({
+        page: p.index, at: m.index, title,
+        kind: KIND_BY_WORD[m[2].toLowerCase()] ?? 'р',
+        printedNo: parseInt(title.match(/№\s*(\d+)/)?.[1] ?? '') || null,
+      })
+    }
+    KR_HEAD_RE.lastIndex = 0
+    while ((m = KR_HEAD_RE.exec(p.markdown)) !== null) {
+      didacticWorks.push({
+        page: p.index, at: m.index,
+        title: `К-${m[1]}${(m[2] ?? '').trim() ? ' ' + m[2].trim() : ''}`,
+        kind: 'р', printedNo: parseInt(m[1]),
+      })
+    }
+  }
+  didacticWorks.sort((a, b) => a.page - b.page || a.at - b.at)
+
+  // Одна работа печатает заголовок над каждым вариантом («K-1 …» ×4) —
+  // повторы с тем же названием в пределах 6 страниц схлопываются в одну
+  const byTitle = new Map()
+  for (const w of didacticWorks) {
+    const keyT = w.title.toLowerCase().replace(/\s+/g, ' ')
+    const prev = byTitle.get(keyT)
+    if (prev && w.page - prev.lastPage <= 6) {
+      prev.lastPage = w.page
+      w.resolved = prev
+    } else {
+      w.lastPage = w.page
+      w.resolved = w
+      byTitle.set(keyT, w)
+    }
+  }
+  const uniqueWorks = didacticWorks.filter(w => w.resolved === w)
+
+  // глобальный индекс (порядок в документе) + разрешение коллизий печатных
+  // номеров: вторая серия К-1..К-14 (другой учебник) получает следующие номера
+  const usedKey = new Set()
+  const maxOfKind = {}
+  uniqueWorks.forEach((w, i) => {
+    w.globalIdx = i + 1
+    let no = w.printedNo ?? (maxOfKind[w.kind] ?? 0) + 1
+    if (usedKey.has(`${w.kind}${no}`)) no = (maxOfKind[w.kind] ?? 0) + 1
+    w.no = no
+    usedKey.add(`${w.kind}${no}`)
+    maxOfKind[w.kind] = Math.max(maxOfKind[w.kind] ?? 0, no)
+  })
+
+  // Обогащение оглавления: части из h1/h2-заголовков (если печатного TOC нет),
+  // работы — детьми ближайшей части
+  if (toc.length === 0) {
+    for (const p of pages) {
+      for (const m of p.markdown.matchAll(/^#{1,2}[ \t]+([^\n]{4,120})$/gm)) {
+        const t = m[1].trim()
+        const isWork = didacticWorks.some(w => w.page === p.index && t.includes(w.title.slice(0, 25)))
+        if (isWork || /^вариант\b/i.test(t)) continue
+        toc.push({ kind: 'other', number: null, title: t, printedPage: null, scanStart: p.index, children: [] })
+      }
+    }
+  }
+  const rootScan = (s) => s.scanStart ?? null
+  for (const w of uniqueWorks) {
+    // ближайшая корневая секция выше по документу
+    let best = null
+    for (const s of toc) {
+      const sc = rootScan(s) ?? (s.printedPage !== null ? s.printedPage : null)
+      if (sc !== null && sc <= w.page && (!best || sc >= (rootScan(best) ?? best.printedPage ?? 0))) best = s
+    }
+    // не дублируем секцию, если работа уже есть в печатном TOC (Проверочные у Чеснокова)
+    if (best && (rootScan(best) ?? -1) === w.page && best.title.toLowerCase().includes(w.title.slice(0, 12).toLowerCase())) continue
+    const node = { kind: 'exercises', number: null, title: w.title, printedPage: null, scanStart: w.page, children: [] }
+    ;(best?.children ?? toc).push(node)
+  }
+}
+
 if (toc.length === 0) warnings.push('Оглавление не распарсилось — content-блоки не найдены или формат неизвестен')
 
 // печатный номер → индекс скана; если конкретной страницы нет в карте
@@ -370,7 +467,7 @@ const flatSections = []
 ;(function walk(nodes, parent) {
   for (const n of nodes) {
     n.parent = parent
-    n.pageStart = printedToScan(n.printedPage)
+    n.pageStart = n.scanStart ?? printedToScan(n.printedPage)
     flatSections.push(n)
     walk(n.children, n)
   }
@@ -407,7 +504,8 @@ const PREFIX = `[ \\t]*(?:([^0-9A-Za-zА-Яа-яЁё#<\\s$([{]|[oOоОοΟ0])[ \
 // после точки — пробел либо сразу маркер подпункта ("o11.10.a)")
 const AFTER = `(?:[ \\t]|(?=[а-еa-z6ΓB]\\)))`
 const COMPOSITE_RE = new RegExp(`^${PREFIX}(\\d{1,2})\\.(\\d{1,3})\\.${AFTER}`, 'gm')
-const PLAIN_RE = new RegExp(`^${PREFIX}(\\d{1,4})\\.${AFTER}`, 'gm')
+// «3*.» — звёздочка после номера = повышенная сложность (дидактика)
+const PLAIN_RE = new RegExp(`^${PREFIX}(\\d{1,4})([*°]?)\\.${AFTER}`, 'gm')
 
 function countMatches(re, s) { re.lastIndex = 0; let n = 0; while (re.exec(s) !== null) n++; return n }
 let compositeTotal = 0
@@ -439,7 +537,26 @@ for (const s of dkrSections) {
 }
 const DKR_HEAD_RE = /ДОМ[А-ЯЁ]+\s+КОНТРОЛЬН[А-ЯЁ]*\s+РАБОТ/i
 // «Вариант 1» и его OCR-искажения: Бармант, Вармонят, Бермант, Варимят…
-const VARIANT_RE = /^#{0,6}\s*[БВ][а-яёa-z]{4,9}\s+(\d)\s*$/gim
+const VARIANT_RE = /^#{0,6}\s*[БВ][а-яёa-z]{4,9}\s+(\d)\s*\.?\s*$/gim
+
+// Дидактика: «Вариант N» из печатного оглавления с диапазоном страниц —
+// зона со своей сквозной нумерацией (Чесноков: каждый вариант = полный
+// комплект заданий 1..~350)
+const variantZoneByPage = new Map()
+if (isDidactic) {
+  for (const s of flatSections) {
+    if (!/^вариант\s*\d+$/i.test(s.title) || s.pageStart === null) continue
+    if (((s.pageEnd ?? s.pageStart) - s.pageStart) < 3) continue // короткие — не зоны
+    const v = parseInt(s.title.match(/(\d+)/)[1])
+    for (let i = s.pageStart; i <= s.pageEnd; i++) variantZoneByPage.set(i, v)
+  }
+}
+const didacticWorksByPage = new Map()
+for (const w of didacticWorks) {
+  const arr = didacticWorksByPage.get(w.page) ?? []
+  arr.push(w)
+  didacticWorksByPage.set(w.page, arr)
+}
 
 const problems = []
 let lastNum = 0            // максимальный принятый сквозной номер (plain/повторение)
@@ -451,11 +568,67 @@ let lastPara = 0, lastSub = 0  // composite-схема
 // подпоследовательность сама выкидывает OCR-галлюцинации («1260. Exposure
 // to…» между 1238 и 1239), дубли и рестарты «Контрольных вопросов».
 const pageEntries = []
+// состояние дидактического разбора: текущая работа/вариант (переживает страницы)
+const didState = { work: null, variant: 1, lastNum: 0 }
+
 for (const p of pages) {
   if (answersStart !== null && p.index >= answersStart) break // ответы и дальше — не задания
   if (p.contentBlocks.length > 0) continue // страницы оглавления
 
   const md = p.markdown
+
+  // ── Дидактика: события страницы (работы, варианты, кандидаты) по порядку ──
+  if (isDidactic) {
+    const entry = { p, md, accepted: [], plain: [] }
+    const contVariant = variantZoneByPage.get(p.index) ?? null
+    if (contVariant !== null) didState.work = null // вариантные зоны — вне работ
+
+    let m
+    const events = []
+    for (const w of didacticWorksByPage.get(p.index) ?? []) events.push({ at: w.at, type: 'work', w: w.resolved ?? w })
+    VARIANT_RE.lastIndex = 0
+    while ((m = VARIANT_RE.exec(md)) !== null) events.push({ at: m.index, type: 'variant', v: parseInt(m[1]) })
+    PLAIN_RE.lastIndex = 0
+    while ((m = PLAIN_RE.exec(md)) !== null) events.push({ at: m.index, type: 'task', glyph: m[1] ?? null, num: parseInt(m[2]), star: m[3] || null })
+    events.sort((a, b) => a.at - b.at)
+
+    for (const ev of events) {
+      if (ev.type === 'work') {
+        // повторный заголовок той же работы (над каждым вариантом) не сбрасывает
+        // счётчики; возврат к работе после чередования — сбрасывает номер
+        if (!ev.w.entered) { ev.w.entered = true; didState.variant = 1; didState.lastNum = 0 }
+        else if (didState.work !== ev.w) didState.lastNum = 0
+        didState.work = ev.w
+      } else if (ev.type === 'variant') {
+        didState.variant = ev.v
+        didState.lastNum = 0
+      } else if (didState.work === null && contVariant !== null) {
+        // сквозная нумерация внутри вариантной зоны → LIS-поток «в{N}»
+        entry.plain.push({ glyph: ev.glyph, num: ev.num, at: ev.at, stream: `в${contVariant}` })
+      } else if (didState.work) {
+        const st = didState
+        if (ev.num >= 1 && ev.num <= 40 && ev.num > st.lastNum && ev.num - st.lastNum <= 6) {
+          st.lastNum = ev.num
+        } else if (ev.num <= 2 && st.lastNum >= 3) {
+          st.variant++ // рестарт нумерации без заголовка варианта
+          st.lastNum = ev.num
+        } else {
+          warnings.push(`стр.${p.index}: пропущен номер ${ev.num} (работа ${st.work.kind}${st.work.no}, вар. ${st.variant}, последний ${st.lastNum})`)
+          continue
+        }
+        entry.accepted.push({
+          glyph: ev.glyph,
+          star: ev.star,
+          at: ev.at,
+          taskNumber: `${st.work.kind}${st.work.no}.${st.variant}.${st.lastNum}`,
+          sort: 2_000_000 + st.work.globalIdx * 10_000 + st.variant * 1000 + st.lastNum,
+        })
+      }
+      // кандидаты до первой работы (предисловие, планирование) — не задания
+    }
+    pageEntries.push(entry)
+    continue
+  }
 
   // граница ДКР-зоны на странице: на первой странице ДКР до заголовка
   // ещё идут задания параграфа (композитные)
@@ -477,7 +650,7 @@ for (const p of pages) {
   while ((m = re.exec(md)) !== null) {
     if (dkrFrom !== null && m.index >= dkrFrom) continue // ДКР-зона — ниже отдельно
     if (usePlain) {
-      entry.plain.push({ glyph: m[1] ?? null, num: parseInt(m[2]), at: m.index, rep: inRepetition(p.index) })
+      entry.plain.push({ glyph: m[1] ?? null, num: parseInt(m[2]), star: m[3] || null, at: m.index, rep: inRepetition(p.index) })
       continue
     }
     const s = { glyph: m[1] ?? null, para: parseInt(m[2]), num: parseInt(m[3]), at: m.index }
@@ -529,23 +702,35 @@ for (const p of pages) {
   pageEntries.push(entry)
 }
 
-// Фаза 2: LIS-отбор сквозных номеров (основной поток книги и повторение — отдельно)
-for (const rep of [false, true]) {
-  const stream = []
-  for (const e of pageEntries) for (const c of e.plain) if (c.rep === rep) stream.push({ e, c })
-  if (stream.length === 0) continue
+// Фаза 2: LIS-отбор сквозных номеров. Потоки независимы: основной поток
+// книги, «Итоговое повторение», вариантные зоны дидактики («в1», «в2»…)
+const streams = new Map()
+for (const e of pageEntries) {
+  for (const c of e.plain) {
+    const key = c.stream ?? (c.rep ? 'rep' : 'main')
+    if (!streams.has(key)) streams.set(key, [])
+    streams.get(key).push({ e, c })
+  }
+}
+for (const [key, stream] of streams) {
   const kept = new Set(
     longestIncreasingByNum(stream.map((x, i) => ({ num: x.c.num, idx: i }))).map(k => k.idx)
   )
   stream.forEach((x, i) => {
-    if (kept.has(i)) {
-      x.c.taskNumber = String(x.c.num)
-      x.c.sort = rep ? 1_000_000 + x.c.num : x.c.num
-      lastNum = Math.max(lastNum, x.c.num)
-      x.e.accepted.push(x.c)
-    } else {
-      warnings.push(`стр.${x.e.p.index}: пропущен номер ${x.c.num} (вне возрастающей последовательности)`)
+    if (!kept.has(i)) {
+      warnings.push(`стр.${x.e.p.index}: пропущен номер ${x.c.num} (вне возрастающей последовательности${key.startsWith('в') ? `, ${key}` : ''})`)
+      return
     }
+    if (key.startsWith('в')) {
+      const v = parseInt(key.slice(1))
+      x.c.taskNumber = `в${v}.${x.c.num}`
+      x.c.sort = 10_000_000 + v * 100_000 + x.c.num
+    } else {
+      x.c.taskNumber = String(x.c.num)
+      x.c.sort = key === 'rep' ? 1_000_000 + x.c.num : x.c.num
+      lastNum = Math.max(lastNum, x.c.num)
+    }
+    x.e.accepted.push(x.c)
   })
 }
 
@@ -562,7 +747,7 @@ for (const e of pageEntries) {
     // перенос на следующую страницу: если следующая страница начинается не с задания/заголовка
     if (i === accepted.length - 1 && p.index + 1 < pages.length) {
       const nextMd = pages[p.index + 1]?.markdown ?? ''
-      const nextRe = scheme === 'plain' || inRepetition(p.index + 1) || dkrByPage.has(p.index + 1)
+      const nextRe = scheme === 'plain' || isDidactic || inRepetition(p.index + 1) || dkrByPage.has(p.index + 1)
         ? PLAIN_RE : COMPOSITE_RE
       nextRe.lastIndex = 0
       const nextTask = nextRe.exec(nextMd)
@@ -585,7 +770,7 @@ for (const e of pageEntries) {
       promptMd: prompt,
       hasImages: /<img\s/.test(prompt),
       difficulty:
-        (s.glyph && /[∞⑤]/.test(s.glyph)) ||
+        (s.glyph && /[∞⑤]/.test(s.glyph)) || s.star ||
         (advancedSection && advancedSection.pageStart !== null &&
           p.index >= advancedSection.pageStart && p.index <= (advancedSection.pageEnd ?? -1))
           ? 'advanced' : 'standard',
@@ -767,6 +952,11 @@ console.log()
 console.log('════════ СТАТИСТИКА ════════')
 console.log(`Схема нумерации: ${scheme}${scheme === 'composite' ? ` (макс: ${lastPara}.${lastSub}${repetitionSection ? `, повторение до ${lastNum}` : ''})` : ` (макс. номер: ${lastNum})`}`)
 console.log(`Заданий: ${uniqueProblems.length}`)
+if (isDidactic) {
+  console.log(`  работ (СР/КР/ПР): ${new Set(didacticWorks.map(w => w.resolved ?? w)).size}`)
+  console.log(`  в работах: ${uniqueProblems.filter(p => /^[срп]/.test(p.taskNumber)).length}`)
+  console.log(`  в вариантных зонах: ${uniqueProblems.filter(p => p.taskNumber.startsWith('в')).length}`)
+}
 console.log(`  из домашних контрольных: ${uniqueProblems.filter(p => p.taskNumber.startsWith('к')).length}`)
 console.log(`  с ответами из книги: ${answersFound}`)
 console.log(`  с автопроверкой:     ${uniqueProblems.filter(p => p.gradingMethod && p.gradingMethod !== 'manual').length}`)

@@ -138,10 +138,11 @@ export async function POST(
   // пересчёт якорей всей страницы (включая новое задание)
   const { data: allProblems } = await admin
     .from('book_problems')
-    .select('id, task_number')
+    .select('id, task_number, task_number_sort')
     .eq('book_id', bookId)
     .eq('page_index', pageIndex)
-  const anchors = computeAnchors(newPageMd, (allProblems ?? []).map(p => p.task_number))
+  const anchors = computeAnchors(newPageMd, (allProblems ?? []).map(p => p.task_number),
+          new Map((allProblems ?? []).map(p => [p.task_number, p.task_number_sort ?? 0])))
   for (const p of allProblems ?? []) {
     const a = anchors.get(p.task_number) ?? null
     await admin.from('book_problems').update({

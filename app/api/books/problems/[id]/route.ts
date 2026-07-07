@@ -78,7 +78,7 @@ export async function PATCH(
     // в тексте книги ДКР-задание напечатано видимым номером («3.»), а не «к1.2.3»
     const visible = visibleTaskNumber(problem.task_number)
     const esc = visible.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-    const headRe = new RegExp(`^[ \\t]*([^0-9A-Za-zА-Яа-яЁё#<\\s$([{]|[oOоОοΟ0])?[ \\t]*${esc}\\.[ \\t]*`)
+    const headRe = new RegExp(`^[ \\t]*([^0-9A-Za-zА-Яа-яЁё#<\\s$([{]|[oOоОοΟ0])?[ \\t]*${esc}[*°]?\\.[ \\t]*`)
     const bodyText = body.prompt_md.trim().replace(headRe, '')
     if (bodyText === '') return Response.json({ error: 'Текст задания пуст' }, { status: 400 })
 
@@ -145,10 +145,11 @@ export async function PATCH(
         // Пересчёт якорей всех заданий этой страницы (смещения сдвинулись)
         const { data: pageProblems } = await admin
           .from('book_problems')
-          .select('id, task_number')
+          .select('id, task_number, task_number_sort')
           .eq('book_id', problem.book_id)
           .eq('page_index', problem.page_index)
-        const anchors = computeAnchors(newPageMd, (pageProblems ?? []).map(p => p.task_number))
+        const anchors = computeAnchors(newPageMd, (pageProblems ?? []).map(p => p.task_number),
+          new Map((pageProblems ?? []).map(p => [p.task_number, p.task_number_sort ?? 0])))
         for (const p of pageProblems ?? []) {
           const a = anchors.get(p.task_number) ?? null
           await admin.from('book_problems').update({
@@ -224,11 +225,12 @@ export async function DELETE(
 
       const { data: pageProblems } = await admin
         .from('book_problems')
-        .select('id, task_number')
+        .select('id, task_number, task_number_sort')
         .eq('book_id', problem.book_id)
         .eq('page_index', problem.page_index)
         .neq('id', id)
-      const anchors = computeAnchors(newPageMd, (pageProblems ?? []).map(p => p.task_number))
+      const anchors = computeAnchors(newPageMd, (pageProblems ?? []).map(p => p.task_number),
+          new Map((pageProblems ?? []).map(p => [p.task_number, p.task_number_sort ?? 0])))
       for (const p of pageProblems ?? []) {
         const a = anchors.get(p.task_number) ?? null
         await admin.from('book_problems').update({

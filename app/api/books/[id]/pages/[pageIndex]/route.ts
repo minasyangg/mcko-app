@@ -63,11 +63,12 @@ export async function PATCH(
   // Пересчёт якорей и prompt_md заданий этой страницы
   const { data: pageProblems } = await admin
     .from('book_problems')
-    .select('id, task_number, md_start, md_end, prompt_md')
+    .select('id, task_number, task_number_sort, md_start, md_end, prompt_md')
     .eq('book_id', bookId)
     .eq('page_index', pageIndex)
 
-  const anchors = computeAnchors(newMd, (pageProblems ?? []).map(p => p.task_number))
+  const anchors = computeAnchors(newMd, (pageProblems ?? []).map(p => p.task_number),
+          new Map((pageProblems ?? []).map(p => [p.task_number, p.task_number_sort ?? 0])))
   let lost = 0
   for (const p of pageProblems ?? []) {
     const a = anchors.get(p.task_number)

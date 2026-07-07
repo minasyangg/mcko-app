@@ -7,24 +7,44 @@ export interface Anchor {
   end: number
 }
 
-// Задания «Домашних контрольных работ» хранятся с уникальным номером
-// вида «к1.2.3» (контрольная 1, вариант 2, задание 3), но в тексте книги
-// они напечатаны просто как «3.». Видимый номер — последний компонент.
-const DKR_RE = /^к(\d+)\.(\d+)\.(\d+)$/
+// Зонные номера: задания вне сквозной нумерации книги хранятся с составным
+// уникальным номером, а в тексте книги напечатан только последний компонент:
+//   к1.2.3 — домашняя контрольная работа (задачник):  «ДКР 1 · вар. 2 · № 3»
+//   р2.1.4 — контрольная работа (дидактика):          «КР 2 · вар. 1 · № 4»
+//   с5.2.3 — самостоятельная работа (дидактика):      «СР 5 · вар. 2 · № 3»
+//   п3.1.2 — проверочная работа (дидактика):          «ПР 3 · вар. 1 · № 2»
+//   в2.157 — вариант со сквозной нумерацией:          «вар. 2 · № 157»
+const ZONE3_RE = /^([крсп])(\d+)\.(\d+)\.(\d+)$/
+const ZONE2_RE = /^в(\d+)\.(\d+)$/
+const KIND_LABEL: Record<string, string> = { к: 'ДКР', р: 'КР', с: 'СР', п: 'ПР' }
 
-export function isDkrNumber(taskNumber: string): boolean {
-  return DKR_RE.test(taskNumber)
+export function isZoneNumber(taskNumber: string): boolean {
+  return ZONE3_RE.test(taskNumber) || ZONE2_RE.test(taskNumber)
 }
 
 export function visibleTaskNumber(taskNumber: string): string {
-  const m = taskNumber.match(DKR_RE)
-  return m ? m[3] : taskNumber
+  const m3 = taskNumber.match(ZONE3_RE)
+  if (m3) return m3[4]
+  const m2 = taskNumber.match(ZONE2_RE)
+  if (m2) return m2[2]
+  return taskNumber
 }
 
-// «к1.2.3» → метка для бейджа: «ДКР 1 · вар. 2 · № 3»
 export function taskNumberLabel(taskNumber: string): string {
-  const m = taskNumber.match(DKR_RE)
-  return m ? `ДКР ${m[1]} · вар. ${m[2]} · № ${m[3]}` : `№ ${taskNumber}`
+  const m3 = taskNumber.match(ZONE3_RE)
+  if (m3) return `${KIND_LABEL[m3[1]]} ${m3[2]} · вар. ${m3[3]} · № ${m3[4]}`
+  const m2 = taskNumber.match(ZONE2_RE)
+  if (m2) return `вар. ${m2[1]} · № ${m2[2]}`
+  return `№ ${taskNumber}`
+}
+
+// Порядок зонных заданий в документе, когда task_number_sort недоступен
+function zoneSortKey(taskNumber: string): number {
+  const m3 = taskNumber.match(ZONE3_RE)
+  if (m3) return (+m3[2]) * 1_000_000 + (+m3[3]) * 10_000 + (+m3[4])
+  const m2 = taskNumber.match(ZONE2_RE)
+  if (m2) return (+m2[1]) * 1_000_000 + (+m2[2])
+  return 0
 }
 
 // Для каждого номера из taskNumbers находит "N. " или "N.M. " (нумерация
@@ -32,21 +52,24 @@ export function taskNumberLabel(taskNumber: string): string {
 // значок уровня сложности (∞/⑤) или кружок «задание с ответом», который
 // OCR читает как o/O/0/о/О; после точки — пробел либо сразу маркер
 // подпункта ("o11.10.a)"). end = начало следующего задания или конец страницы.
-export function computeAnchors(pageMd: string, taskNumbers: string[]): Map<string, Anchor> {
-  const plainWanted = new Set(taskNumbers.filter(t => !isDkrNumber(t)))
-  // ДКР-задания: видимые номера повторяются между вариантами (1..10 в каждом),
-  // поэтому сопоставляем позиционно — задания в порядке (контрольная, вариант,
-  // номер) против кандидатов в порядке появления в тексте
+export function computeAnchors(
+  pageMd: string,
+  taskNumbers: string[],
+  // task_number → task_number_sort: точный порядок заданий в документе
+  // (важно, когда на странице соседствуют работы разных видов)
+  sortHint?: Map<string, number>,
+): Map<string, Anchor> {
+  const plainWanted = new Set(taskNumbers.filter(t => !isZoneNumber(t)))
+  // Зонные задания: видимые номера повторяются между вариантами/работами,
+  // поэтому сопоставляем позиционно — задания в порядке документа против
+  // кандидатов в порядке появления в тексте
   const dkrOrdered = taskNumbers
-    .filter(isDkrNumber)
-    .sort((a, b) => {
-      const [, a1, a2, a3] = a.match(DKR_RE)!
-      const [, b1, b2, b3] = b.match(DKR_RE)!
-      return (+a1 - +b1) || (+a2 - +b2) || (+a3 - +b3)
-    })
+    .filter(isZoneNumber)
+    .sort((a, b) =>
+      (sortHint?.get(a) ?? zoneSortKey(a)) - (sortHint?.get(b) ?? zoneSortKey(b)))
 
   const candidates: Array<{ num: string; at: number }> = []
-  const re = /^[ \t]*(?:(?:[^0-9A-Za-zА-Яа-яЁё#<\s$([{]|[oOоОοΟ0])[ \t]{0,2})?(\d{1,2}\.\d{1,3}|\d{1,4})\.(?:[ \t]|(?=[а-еa-z6ΓB]\)))/gm
+  const re = /^[ \t]*(?:(?:[^0-9A-Za-zА-Яа-яЁё#<\s$([{]|[oOоОοΟ0])[ \t]{0,2})?(\d{1,2}\.\d{1,3}|\d{1,4})[*°]?\.(?:[ \t]|(?=[а-еa-z6ΓB]\)))/gm
   let m: RegExpExecArray | null
   while ((m = re.exec(pageMd)) !== null) {
     candidates.push({ num: m[1], at: m.index })

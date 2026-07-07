@@ -173,7 +173,7 @@ function stripTaskNumber(md: string, taskNumber: string): string {
   // ДКР-задание «к1.2.3» в тексте напечатано видимым номером «3.»
   const esc = visibleTaskNumber(taskNumber).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   return md.replace(
-    new RegExp(`^[ \\t]*(?:[^0-9A-Za-zА-Яа-яЁё#<\\s$([{]|[oOоОοΟ0])?[ \\t]*${esc}\\.[ \\t]*`),
+    new RegExp(`^[ \\t]*(?:[^0-9A-Za-zА-Яа-яЁё#<\\s$([{]|[oOоОοΟ0])?[ \\t]*${esc}[*°]?\\.[ \\t]*`),
     '',
   )
 }
