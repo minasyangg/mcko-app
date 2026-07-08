@@ -1126,8 +1126,11 @@ export function TestDetailClient({
               Аналитика
             </Link>
           </Button>
-          {/* "Опубликовать" — только для тестов которые ещё ни разу не публиковались */}
-          {versionStatus === 'in_review' && versionId && !wasPublished && (
+          {/* "Опубликовать" — для тестов, ещё ни разу не публиковавшихся.
+              status='in_review' выставляется только пайплайном разбора PDF;
+              тест, собранный вручную (библиотека/книги), так и остаётся
+              'draft' и должен публиковаться точно так же. */}
+          {(versionStatus === 'draft' || versionStatus === 'in_review') && versionId && !wasPublished && tasks.length > 0 && (
             <div className="flex flex-col gap-1">
               <div className="flex gap-2">
                 {tasks.some(t => t.review_status === 'pending') && (
