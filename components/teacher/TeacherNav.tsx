@@ -4,11 +4,19 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { LogoutButton } from '@/components/shared/LogoutButton'
-import { BookOpen, BookMarked, Users, Monitor, FileText, ClipboardList, BarChart2, TrendingUp, Menu, X, ListChecks, Library } from 'lucide-react'
+import { BookOpen, BookMarked, Users, GraduationCap, Monitor, FileText, ClipboardList, BarChart2, TrendingUp, Menu, X, ListChecks, Library } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
 
-const navItems = [
+interface NavItem {
+  href: string
+  label: string
+  icon: React.ElementType
+  exact?: boolean
+  adminOnly?: boolean
+}
+
+const navItems: NavItem[] = [
   { href: '/teacher', label: 'Дашборд', icon: BarChart2, exact: true },
   { href: '/teacher/tests', label: 'Тесты', icon: BookOpen },
   { href: '/teacher/library', label: 'Библиотека', icon: Library },
@@ -17,6 +25,7 @@ const navItems = [
   { href: '/teacher/monitor', label: 'Мониторинг', icon: Monitor },
   { href: '/teacher/results', label: 'Результаты', icon: TrendingUp },
   { href: '/teacher/groups', label: 'Группы', icon: Users },
+  { href: '/teacher/teachers', label: 'Учителя', icon: GraduationCap, adminOnly: true },
   { href: '/teacher/students', label: 'Ученики', icon: Users },
   { href: '/teacher/solution-requests', label: 'Запросы', icon: FileText },
   { href: '/teacher/scoring-rules', label: 'Правила', icon: ListChecks },
@@ -24,6 +33,7 @@ const navItems = [
 
 interface Props {
   fullName: string
+  isAdmin?: boolean
   pendingRequests: number
   pendingReview: number
 }
@@ -75,10 +85,10 @@ function NavLink({
   )
 }
 
-function NavList({ pendingRequests, monitorBadge, onLinkClick }: { pendingRequests: number; monitorBadge: number; onLinkClick?: () => void }) {
+function NavList({ isAdmin, pendingRequests, monitorBadge, onLinkClick }: { isAdmin: boolean; pendingRequests: number; monitorBadge: number; onLinkClick?: () => void }) {
   return (
     <nav className="flex-1 py-2 space-y-0.5 overflow-y-auto">
-      {navItems.map(({ href, label, icon, exact }) => (
+      {navItems.filter(item => !item.adminOnly || isAdmin).map(({ href, label, icon, exact }) => (
         <NavLink
           key={href}
           href={href}
@@ -98,7 +108,7 @@ function NavList({ pendingRequests, monitorBadge, onLinkClick }: { pendingReques
   )
 }
 
-export function TeacherNav({ fullName, pendingRequests, pendingReview }: Props) {
+export function TeacherNav({ fullName, isAdmin = false, pendingRequests, pendingReview }: Props) {
   const [mobileOpen, setMobileOpen] = useState(false)
   const [monitorBadge, setMonitorBadge] = useState(pendingReview)
 
@@ -130,7 +140,7 @@ export function TeacherNav({ fullName, pendingRequests, pendingReview }: Props) 
         <div className="h-14 flex items-center px-4 border-b shrink-0">
           <span className="font-semibold text-sm">ExamPlatform</span>
         </div>
-        <NavList pendingRequests={pendingRequests} monitorBadge={monitorBadge} />
+        <NavList isAdmin={isAdmin} pendingRequests={pendingRequests} monitorBadge={monitorBadge} />
         <div className="p-4 border-t space-y-1 shrink-0">
           <p className="text-xs text-muted-foreground truncate">{fullName}</p>
           <LogoutButton size="sm" variant="ghost" className="w-full justify-start px-0" />
@@ -170,6 +180,7 @@ export function TeacherNav({ fullName, pendingRequests, pendingReview }: Props) 
               </button>
             </div>
             <NavList
+              isAdmin={isAdmin}
               pendingRequests={pendingRequests}
               monitorBadge={monitorBadge}
               onLinkClick={() => setMobileOpen(false)}
