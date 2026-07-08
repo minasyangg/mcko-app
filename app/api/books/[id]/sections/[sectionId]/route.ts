@@ -1,31 +1,12 @@
-import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { authorizeBookEdit } from '@/lib/books/authorize'
 import { computeAnchors } from '@/lib/books/anchors'
 import { NextRequest } from 'next/server'
 
 type AdminClient = ReturnType<typeof createAdminClient>
 
-async function authorize(bookId: string) {
-  const supabase = await createClient()
-  const { data: { user }, error: authError } = await supabase.auth.getUser()
-  if (authError || !user) return { error: Response.json({ error: 'Unauthorized' }, { status: 401 }) }
-
-  const { data: profile } = await supabase
-    .from('profiles').select('role').eq('id', user.id).single()
-  if (!profile || !['teacher', 'admin'].includes(profile.role)) {
-    return { error: Response.json({ error: 'Forbidden' }, { status: 403 }) }
-  }
-
-  const admin = createAdminClient()
-  const { data: book } = await admin
-    .from('books').select('id, created_by').eq('id', bookId).single()
-  if (!book) return { error: Response.json({ error: 'Book not found' }, { status: 404 }) }
-
-  if (profile.role !== 'admin' && book.created_by !== user.id) {
-    return { error: Response.json({ error: 'Доступно только владельцу книги или администратору' }, { status: 403 }) }
-  }
-  return { admin }
-}
+const authorize = (bookId: string) =>
+  authorizeBookEdit(bookId, 'Доступно только владельцу книги, учителю с доступом или администратору')
 
 // Раздел + все вложенные (дерево book_sections.parent_id)
 async function collectSubtreeIds(admin: AdminClient, bookId: string, rootId: string) {

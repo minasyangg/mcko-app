@@ -1,11 +1,10 @@
-import { createClient } from '@/lib/supabase/server'
-import { createAdminClient } from '@/lib/supabase/admin'
+import { authorizeBookEdit } from '@/lib/books/authorize'
 import { computeAnchors } from '@/lib/books/anchors'
 import { NextRequest } from 'next/server'
 
 // PATCH /api/books/[id]/pages/[pageIndex]
 // Body: { markdown: string }
-// Правка текста страницы (теории). Только владелец книги или admin.
+// Правка текста страницы (теории). Владелец книги, учитель с грантом или admin.
 // Якоря заданий страницы пересчитываются, их prompt_md обновляется.
 export async function PATCH(
   request: NextRequest,
@@ -15,27 +14,9 @@ export async function PATCH(
   const pageIndex = parseInt(pageIndexRaw)
   if (isNaN(pageIndex)) return Response.json({ error: 'Invalid page index' }, { status: 400 })
 
-  const supabase = await createClient()
-  const { data: { user }, error: authError } = await supabase.auth.getUser()
-  if (authError || !user) return Response.json({ error: 'Unauthorized' }, { status: 401 })
-
-  const { data: profile } = await supabase
-    .from('profiles').select('role').eq('id', user.id).single()
-  if (!profile || !['teacher', 'admin'].includes(profile.role)) {
-    return Response.json({ error: 'Forbidden' }, { status: 403 })
-  }
-
-  const admin = createAdminClient()
-  const { data: book } = await admin
-    .from('books')
-    .select('id, created_by')
-    .eq('id', bookId)
-    .single()
-  if (!book) return Response.json({ error: 'Book not found' }, { status: 404 })
-
-  if (profile.role !== 'admin' && book.created_by !== user.id) {
-    return Response.json({ error: 'Редактировать может только владелец книги или администратор' }, { status: 403 })
-  }
+  const auth = await authorizeBookEdit(bookId)
+  if (auth.error) return auth.error
+  const admin = auth.admin
 
   const body = await request.json() as { markdown?: string }
   if (typeof body.markdown !== 'string' || body.markdown.trim() === '') {
@@ -108,27 +89,9 @@ export async function DELETE(
   const pageIndex = parseInt(pageIndexRaw)
   if (isNaN(pageIndex)) return Response.json({ error: 'Invalid page index' }, { status: 400 })
 
-  const supabase = await createClient()
-  const { data: { user }, error: authError } = await supabase.auth.getUser()
-  if (authError || !user) return Response.json({ error: 'Unauthorized' }, { status: 401 })
-
-  const { data: profile } = await supabase
-    .from('profiles').select('role').eq('id', user.id).single()
-  if (!profile || !['teacher', 'admin'].includes(profile.role)) {
-    return Response.json({ error: 'Forbidden' }, { status: 403 })
-  }
-
-  const admin = createAdminClient()
-  const { data: book } = await admin
-    .from('books')
-    .select('id, created_by')
-    .eq('id', bookId)
-    .single()
-  if (!book) return Response.json({ error: 'Book not found' }, { status: 404 })
-
-  if (profile.role !== 'admin' && book.created_by !== user.id) {
-    return Response.json({ error: 'Удалять может только владелец книги или администратор' }, { status: 403 })
-  }
+  const auth = await authorizeBookEdit(bookId)
+  if (auth.error) return auth.error
+  const admin = auth.admin
 
   const { data: page } = await admin
     .from('book_pages')

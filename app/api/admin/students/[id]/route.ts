@@ -3,23 +3,27 @@ import { createClient } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 
-async function verifyTeacher() {
+// Управление учениками (создание/правка/удаление/переназначение учителю) —
+// только admin. Учитель видит своих учеников read-only.
+async function verifyAdmin() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return null
   const { data: profile } = await supabase
     .from('profiles').select('role, organization_id').eq('id', user.id).single()
-  if (!profile || !['teacher', 'admin'].includes(profile.role)) return null
+  if (!profile || profile.role !== 'admin') return null
   return profile
 }
 
-// PATCH /api/admin/students/[id]  — update student info OR deactivate
+// PATCH /api/admin/students/[id]  — update student info, reassign teacher OR deactivate
 const patchSchema = z.object({
   action: z.literal('deactivate').optional(),
   full_name: z.string().min(2).optional(),
   grade: z.string().nullable().optional(),
   email: z.string().includes('@').optional(),
   password: z.string().min(6).optional(),
+  // Переназначение ответственного учителя (profiles.created_by); null — открепить
+  teacher_id: z.string().uuid().nullable().optional(),
 })
 
 export async function PATCH(
@@ -27,8 +31,8 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params
-  const profile = await verifyTeacher()
-  if (!profile) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const profile = await verifyAdmin()
+  if (!profile) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const body = await request.json().catch(() => null)
   const parsed = patchSchema.safeParse(body)
@@ -54,12 +58,25 @@ export async function PATCH(
     return NextResponse.json({ ok: true })
   }
 
-  const { full_name, grade, email, password } = parsed.data
+  const { full_name, grade, email, password, teacher_id } = parsed.data
 
-  if (full_name !== undefined || grade !== undefined) {
-    const update: { full_name?: string; grade?: string | null } = {}
+  // Валидация переназначения: учитель той же организации
+  if (teacher_id !== undefined && teacher_id !== null) {
+    const { data: teacher } = await admin
+      .from('profiles')
+      .select('id, role, organization_id')
+      .eq('id', teacher_id)
+      .single()
+    if (!teacher || teacher.role !== 'teacher' || teacher.organization_id !== profile.organization_id) {
+      return NextResponse.json({ error: 'Учитель не найден в вашей организации' }, { status: 422 })
+    }
+  }
+
+  if (full_name !== undefined || grade !== undefined || teacher_id !== undefined) {
+    const update: { full_name?: string; grade?: string | null; created_by?: string | null } = {}
     if (full_name !== undefined) update.full_name = full_name
     if (grade !== undefined) update.grade = grade
+    if (teacher_id !== undefined) update.created_by = teacher_id
     const { error } = await admin.from('profiles').update(update).eq('id', id)
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   }
@@ -82,8 +99,8 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params
-  const profile = await verifyTeacher()
-  if (!profile) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const profile = await verifyAdmin()
+  if (!profile) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const admin = createAdminClient()
 

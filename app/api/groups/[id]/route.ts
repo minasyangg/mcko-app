@@ -21,10 +21,16 @@ export async function DELETE(_req: NextRequest, { params }: Params) {
   }
 
   // Verify the group belongs to this teacher's organization
+  // (чтение через user-клиент — RLS уже скрывает чужие группы от учителя)
   const { data: group } = await supabase
-    .from('groups').select('organization_id').eq('id', groupId).single()
+    .from('groups').select('organization_id, created_by').eq('id', groupId).single()
   if (!group || group.organization_id !== profile.organization_id) {
     return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  }
+
+  // Owner-чек: учитель удаляет только свои группы, admin — любые в организации
+  if (profile.role !== 'admin' && group.created_by !== user.id) {
+    return NextResponse.json({ error: 'Удалять может только создатель группы или администратор' }, { status: 403 })
   }
 
   const admin = createAdminClient()

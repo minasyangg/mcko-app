@@ -27,16 +27,22 @@ export async function PATCH(
     return Response.json({ error: 'status must be approved or rejected' }, { status: 400 })
   }
 
-  // Verify the solution request belongs to this teacher's organization
+  // Owner-чек: учитель отвечает только на запросы по своим назначениям
+  // (attempt → assignment.created_by), admin — по любым в своей организации.
+  // Чтение через user-клиент — RLS уже скрывает чужие запросы.
   const { data: reqCheck } = await supabase
     .from('solution_requests')
-    .select('id, attempts!attempt_id ( assignments!assignment_id ( organization_id ) )')
+    .select('id, attempts!attempt_id ( assignments!assignment_id ( organization_id, created_by ) )')
     .eq('id', id)
     .single()
 
-  const orgId = (reqCheck?.attempts as any)?.assignments?.organization_id
-  if (!reqCheck || orgId !== profile.organization_id) {
+  const assignment = (reqCheck?.attempts as any)?.assignments as
+    { organization_id: string | null; created_by: string | null } | undefined
+  if (!reqCheck || assignment?.organization_id !== profile.organization_id) {
     return Response.json({ error: 'Not found' }, { status: 404 })
+  }
+  if (profile.role !== 'admin' && assignment?.created_by !== user.id) {
+    return Response.json({ error: 'Отвечать может только автор назначения или администратор' }, { status: 403 })
   }
 
   const { data, error } = await supabase

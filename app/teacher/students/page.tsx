@@ -13,17 +13,36 @@ export default async function StudentsPage() {
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('organization_id')
+    .select('role, organization_id')
     .eq('id', user.id)
     .single()
 
-  const { data: students } = await supabase
+  const isAdmin = profile?.role === 'admin'
+
+  // admin — все ученики организации; teacher — только закреплённые за ним
+  // (created_by; RLS в любом случае не отдаст чужих)
+  let studentsQuery = supabase
     .from('profiles')
-    .select('id, full_name, grade, is_active, created_at')
+    .select('id, full_name, grade, is_active, created_at, created_by')
     .eq('role', 'student')
     .eq('organization_id', profile?.organization_id || '')
+  if (!isAdmin) studentsQuery = studentsQuery.eq('created_by', user.id)
+
+  const { data: students } = await studentsQuery
     .order('is_active', { ascending: false, nullsFirst: false })
     .order('full_name', { ascending: true })
+
+  // Учителя организации — для колонки «Учитель» и переназначения (admin)
+  let teachers: { id: string; full_name: string }[] = []
+  if (isAdmin) {
+    const { data: teacherRows } = await supabase
+      .from('profiles')
+      .select('id, full_name')
+      .eq('role', 'teacher')
+      .eq('organization_id', profile?.organization_id || '')
+      .order('full_name')
+    teachers = teacherRows ?? []
+  }
 
   // Fetch emails from auth using admin client
   const adminClient = createAdminClient()
@@ -47,23 +66,36 @@ export default async function StudentsPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold">Ученики</h1>
-          <p className="text-sm text-muted-foreground mt-1">{count} ученик{suffix}</p>
+          <p className="text-sm text-muted-foreground mt-1">
+            {count} ученик{suffix}
+            {!isAdmin && ' (закреплённых за вами)'}
+          </p>
         </div>
-        <Button asChild>
-          <Link href="/teacher/students/new">
-            <Plus className="h-4 w-4 mr-2" />
-            Добавить ученика
-          </Link>
-        </Button>
+        {isAdmin && (
+          <Button asChild>
+            <Link href="/teacher/students/new">
+              <Plus className="h-4 w-4 mr-2" />
+              Добавить ученика
+            </Link>
+          </Button>
+        )}
       </div>
 
       {!studentsWithEmail.length ? (
         <div className="flex flex-col items-center justify-center py-16 text-center text-muted-foreground gap-3">
           <Users className="h-10 w-10 opacity-40" />
-          <p>Нет зарегистрированных учеников.</p>
+          <p>
+            {isAdmin
+              ? 'Нет зарегистрированных учеников.'
+              : 'За вами пока не закреплено ни одного ученика. Обратитесь к администратору.'}
+          </p>
         </div>
       ) : (
-        <StudentsTableClient students={studentsWithEmail} />
+        <StudentsTableClient
+          students={studentsWithEmail}
+          isAdmin={isAdmin}
+          teachers={teachers}
+        />
       )}
     </div>
   )

@@ -1,5 +1,5 @@
-import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { authorizeBookEdit } from '@/lib/books/authorize'
 import { computeAnchors, visibleTaskNumber } from '@/lib/books/anchors'
 import { NextRequest } from 'next/server'
 import type { Database } from '@/types/database'
@@ -10,36 +10,25 @@ const GRADING_METHODS = ['exact', 'normalized', 'numeric_tolerance', 'set_match'
 
 // PATCH /api/books/problems/[id]
 // Body: { prompt_md?, correct_answer?, grading_method? }
-// Правка текста задания и/или ответа. Только владелец книги (created_by) или admin.
+// Правка текста задания и/или ответа. Владелец книги (created_by), учитель
+// с грантом (book_editors) или admin.
 // Текст синхронизируется со страницей читалки, якоря страницы пересчитываются.
 export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params
-  const supabase = await createClient()
-
-  const { data: { user }, error: authError } = await supabase.auth.getUser()
-  if (authError || !user) return Response.json({ error: 'Unauthorized' }, { status: 401 })
-
-  const { data: profile } = await supabase
-    .from('profiles').select('role').eq('id', user.id).single()
-  if (!profile || !['teacher', 'admin'].includes(profile.role)) {
-    return Response.json({ error: 'Forbidden' }, { status: 403 })
-  }
 
   const admin = createAdminClient()
   const { data: problem } = await admin
     .from('book_problems')
-    .select('*, books!book_id(created_by)')
+    .select('*')
     .eq('id', id)
     .single()
   if (!problem) return Response.json({ error: 'Not found' }, { status: 404 })
 
-  const bookOwner = (problem.books as unknown as { created_by: string | null } | null)?.created_by
-  if (profile.role !== 'admin' && bookOwner !== user.id) {
-    return Response.json({ error: 'Редактировать может только владелец книги или администратор' }, { status: 403 })
-  }
+  const auth = await authorizeBookEdit(problem.book_id)
+  if (auth.error) return auth.error
 
   const body = await request.json() as {
     prompt_md?: string
@@ -183,36 +172,24 @@ export async function PATCH(
 
 // DELETE /api/books/problems/[id]
 // Полное удаление атома: текст вырезается из страницы читалки, строка — из БД.
-// Только владелец книги или admin. В тестах, куда задание уже добавлено,
-// его копия сохраняется (test_tasks.book_problem_id → set null).
+// Владелец книги, учитель с грантом или admin. В тестах, куда задание уже
+// добавлено, его копия сохраняется (test_tasks.book_problem_id → set null).
 export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params
-  const supabase = await createClient()
-
-  const { data: { user }, error: authError } = await supabase.auth.getUser()
-  if (authError || !user) return Response.json({ error: 'Unauthorized' }, { status: 401 })
-
-  const { data: profile } = await supabase
-    .from('profiles').select('role').eq('id', user.id).single()
-  if (!profile || !['teacher', 'admin'].includes(profile.role)) {
-    return Response.json({ error: 'Forbidden' }, { status: 403 })
-  }
 
   const admin = createAdminClient()
   const { data: problem } = await admin
     .from('book_problems')
-    .select('*, books!book_id(created_by)')
+    .select('*')
     .eq('id', id)
     .single()
   if (!problem) return Response.json({ error: 'Not found' }, { status: 404 })
 
-  const bookOwner = (problem.books as unknown as { created_by: string | null } | null)?.created_by
-  if (profile.role !== 'admin' && bookOwner !== user.id) {
-    return Response.json({ error: 'Удалять может только владелец книги или администратор' }, { status: 403 })
-  }
+  const auth = await authorizeBookEdit(problem.book_id)
+  if (auth.error) return auth.error
 
   // вырезаем текст задания из страницы (диапазон включает разделитель
   // до следующего задания — вырез чистый) и пересчитываем якоря остальных

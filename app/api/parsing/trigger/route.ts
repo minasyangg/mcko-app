@@ -1310,6 +1310,12 @@ export async function POST(request: NextRequest) {
       return Response.json({ error: 'Invalid request body' }, { status: 400 })
     }
 
+    // Доступ к версии через user-клиент: RLS пускает учителя только к своим
+    // тестам, админа — к тестам организации. Чужая версия → 404.
+    const { data: version } = await supabase
+      .from('test_versions').select('id').eq('id', test_version_id).single()
+    if (!version) return Response.json({ error: 'Version not found' }, { status: 404 })
+
     const adminClient = createAdminClient()
     const docIds: string[] = []
 

@@ -973,7 +973,7 @@ function PageBlock({
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
-export function BookReader({ book, sections: initialSections, canEdit = false }: { book: Book; sections: Section[]; canEdit?: boolean }) {
+export function BookReader({ book, sections: initialSections, canEdit = false, editorsPanel = null }: { book: Book; sections: Section[]; canEdit?: boolean; editorsPanel?: React.ReactNode }) {
   const [sections, setSections] = useState(initialSections)
   const tree = useMemo(() => buildTree(sections), [sections])
   const sectionById = useMemo(() => new Map(sections.map(s => [s.id, s])), [sections])
@@ -1092,6 +1092,8 @@ export function BookReader({ book, sections: initialSections, canEdit = false }:
           <h1 className="font-semibold text-sm leading-snug">{book.title}</h1>
           {book.authors && <p className="text-xs text-muted-foreground line-clamp-2">{book.authors}</p>}
         </div>
+        {/* Админский блок «Доступ на редактирование» (грант book_editors) */}
+        {editorsPanel}
         <div className="flex-1 overflow-y-auto py-2">
           {tree.map(node => (
             <TocItem

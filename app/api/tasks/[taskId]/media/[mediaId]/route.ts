@@ -18,6 +18,12 @@ export async function DELETE(
     return Response.json({ error: 'Forbidden' }, { status: 403 })
   }
 
+  // Доступ к заданию через user-клиент: RLS пускает учителя только к своим
+  // тестам, админа — к тестам организации. Чужое задание → 404.
+  const { data: task } = await supabase
+    .from('test_tasks').select('id').eq('id', taskId).single()
+  if (!task) return Response.json({ error: 'Task not found' }, { status: 404 })
+
   const admin = createAdminClient()
 
   const { data: media } = await admin

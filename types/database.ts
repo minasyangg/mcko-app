@@ -279,6 +279,49 @@ export type Database = {
           },
         ]
       }
+      book_editors: {
+        Row: {
+          book_id: string
+          created_at: string | null
+          granted_by: string | null
+          teacher_id: string
+        }
+        Insert: {
+          book_id: string
+          created_at?: string | null
+          granted_by?: string | null
+          teacher_id: string
+        }
+        Update: {
+          book_id?: string
+          created_at?: string | null
+          granted_by?: string | null
+          teacher_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "book_editors_book_id_fkey"
+            columns: ["book_id"]
+            isOneToOne: false
+            referencedRelation: "books"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "book_editors_granted_by_fkey"
+            columns: ["granted_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "book_editors_teacher_id_fkey"
+            columns: ["teacher_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       book_pages: {
         Row: {
           book_id: string
@@ -1133,6 +1176,7 @@ export type Database = {
       profiles: {
         Row: {
           created_at: string | null
+          created_by: string | null
           deleted_at: string | null
           full_name: string
           grade: string | null
@@ -1143,6 +1187,7 @@ export type Database = {
         }
         Insert: {
           created_at?: string | null
+          created_by?: string | null
           deleted_at?: string | null
           full_name: string
           grade?: string | null
@@ -1153,6 +1198,7 @@ export type Database = {
         }
         Update: {
           created_at?: string | null
+          created_by?: string | null
           deleted_at?: string | null
           full_name?: string
           grade?: string | null
@@ -1162,6 +1208,13 @@ export type Database = {
           role?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "profiles_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "profiles_organization_id_fkey"
             columns: ["organization_id"]

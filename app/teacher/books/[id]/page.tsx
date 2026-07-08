@@ -1,6 +1,8 @@
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { redirect, notFound } from 'next/navigation'
 import { BookReader } from '@/components/teacher/BookReader'
+import { BookEditorsPanel } from '@/components/teacher/BookEditorsPanel'
 
 export default async function BookPage({
   params,
@@ -23,12 +25,24 @@ export default async function BookPage({
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('role')
+    .select('role, organization_id')
     .eq('id', user.id)
     .single()
 
-  // Править книгу может только загрузивший её пользователь или администратор
-  const canEdit = profile?.role === 'admin' || book.created_by === user.id
+  const isAdmin = profile?.role === 'admin'
+
+  // Править книгу может загрузивший её пользователь, администратор
+  // или учитель с точечным грантом (book_editors, выдаёт админ)
+  let canEdit = isAdmin || book.created_by === user.id
+  if (!canEdit) {
+    const { data: grant } = await supabase
+      .from('book_editors')
+      .select('teacher_id')
+      .eq('book_id', id)
+      .eq('teacher_id', user.id)
+      .maybeSingle()
+    canEdit = !!grant
+  }
 
   const { data: sections } = await supabase
     .from('book_sections')
@@ -36,5 +50,37 @@ export default async function BookPage({
     .eq('book_id', id)
     .order('sort_order')
 
-  return <BookReader book={book} sections={sections ?? []} canEdit={canEdit} />
+  // Админ управляет грантами на редактирование книги
+  let editorsPanel: React.ReactNode = null
+  if (isAdmin && profile?.organization_id) {
+    const admin = createAdminClient()
+    const [{ data: teachers }, { data: grants }] = await Promise.all([
+      admin
+        .from('profiles')
+        .select('id, full_name')
+        .eq('role', 'teacher')
+        .eq('organization_id', profile.organization_id)
+        .order('full_name'),
+      admin
+        .from('book_editors')
+        .select('teacher_id')
+        .eq('book_id', id),
+    ])
+    editorsPanel = (
+      <BookEditorsPanel
+        bookId={id}
+        teachers={(teachers ?? []).filter(t => t.id !== book.created_by)}
+        grantedIds={(grants ?? []).map(g => g.teacher_id)}
+      />
+    )
+  }
+
+  return (
+    <BookReader
+      book={book}
+      sections={sections ?? []}
+      canEdit={canEdit}
+      editorsPanel={editorsPanel}
+    />
+  )
 }

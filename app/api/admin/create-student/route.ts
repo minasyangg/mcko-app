@@ -8,12 +8,13 @@ const schema = z.object({
   email: z.string().email('Некорректный email'),
   grade: z.string().optional(),
   password: z.string().min(6, 'Минимум 6 символов'),
+  teacher_id: z.string().uuid('Выберите учителя'),
 })
 
 export async function POST(request: Request) {
   const supabase = await createClient()
 
-  // Auth: only teacher/admin can create students
+  // Auth: only admin can create students (teacher is read-only for students)
   const { data: { user }, error: authError } = await supabase.auth.getUser()
   if (authError || !user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -25,8 +26,8 @@ export async function POST(request: Request) {
     .eq('id', user.id)
     .single()
 
-  if (!profile || !['teacher', 'admin'].includes(profile.role)) {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  if (!profile || profile.role !== 'admin') {
+    return NextResponse.json({ error: 'Создавать учеников может только администратор' }, { status: 403 })
   }
 
   if (!profile.organization_id) {
@@ -39,9 +40,20 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: parsed.error.issues[0]?.message ?? 'Validation error' }, { status: 400 })
   }
 
-  const { full_name, email, grade, password } = parsed.data
+  const { full_name, email, grade, password, teacher_id } = parsed.data
 
   const adminClient = createAdminClient()
+
+  // Validate the responsible teacher: role='teacher', same organization
+  const { data: teacher } = await adminClient
+    .from('profiles')
+    .select('id, role, organization_id')
+    .eq('id', teacher_id)
+    .single()
+
+  if (!teacher || teacher.role !== 'teacher' || teacher.organization_id !== profile.organization_id) {
+    return NextResponse.json({ error: 'Учитель не найден в вашей организации' }, { status: 422 })
+  }
 
   // Create user with confirmed email via admin API
   const { data: authData, error: createError } = await adminClient.auth.admin.createUser({
@@ -58,7 +70,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: createError.message }, { status: 500 })
   }
 
-  // Update profile with organization_id and grade
+  // Update profile with organization_id, grade and responsible teacher
   // (trigger handle_new_user already created the profile)
   const { error: updateError } = await adminClient
     .from('profiles')
@@ -67,6 +79,7 @@ export async function POST(request: Request) {
       grade: grade || null,
       full_name,
       role: 'student',
+      created_by: teacher_id,
     })
     .eq('id', authData.user.id)
 

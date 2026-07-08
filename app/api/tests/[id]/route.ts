@@ -21,9 +21,14 @@ export async function PATCH(
   }
 
   const { data: test } = await supabase
-    .from('tests').select('id, organization_id').eq('id', testId).single()
+    .from('tests').select('id, organization_id, created_by').eq('id', testId).single()
   if (!test || test.organization_id !== profile.organization_id) {
     return Response.json({ error: 'Test not found' }, { status: 404 })
+  }
+
+  // Owner-чек: учитель правит только свои тесты, admin — любые в организации
+  if (profile.role !== 'admin' && test.created_by !== user.id) {
+    return Response.json({ error: 'Редактировать может только создатель теста или администратор' }, { status: 403 })
   }
 
   const body = await request.json().catch(() => ({}))
@@ -84,7 +89,7 @@ export async function DELETE(
     // Verify the test belongs to the teacher's organization
     const { data: test, error: testError } = await supabase
       .from('tests')
-      .select('id, organization_id')
+      .select('id, organization_id, created_by')
       .eq('id', testId)
       .single()
 
@@ -94,6 +99,11 @@ export async function DELETE(
 
     if (test.organization_id !== profile.organization_id) {
       return Response.json({ error: 'Forbidden' }, { status: 403 })
+    }
+
+    // Owner-чек: учитель удаляет только свои тесты, admin — любые в организации
+    if (profile.role !== 'admin' && test.created_by !== user.id) {
+      return Response.json({ error: 'Удалять может только создатель теста или администратор' }, { status: 403 })
     }
 
     const admin = createAdminClient()
