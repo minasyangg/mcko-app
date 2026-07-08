@@ -6,11 +6,10 @@ import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from '@/components/ui/dialog'
-import { Plus, Eye, EyeOff, Users, Search } from 'lucide-react'
+import { Users, Search } from 'lucide-react'
 
 interface TeacherRow {
   id: string
@@ -27,33 +26,10 @@ interface StudentRow {
   is_active: boolean | null
 }
 
+// Таблица учителей + диалог множественного закрепления учеников.
+// Создание учителя вынесено в общий диалог «Создать пользователя» (UsersClient).
 export function TeachersClient({ teachers, students }: { teachers: TeacherRow[]; students: StudentRow[] }) {
   const router = useRouter()
-
-  // ── Создание учителя ──
-  const [addOpen, setAddOpen] = useState(false)
-  const [form, setForm] = useState({ full_name: '', email: '', password: '' })
-  const [showPwd, setShowPwd] = useState(false)
-  const [creating, setCreating] = useState(false)
-
-  async function handleCreate() {
-    setCreating(true)
-    try {
-      const res = await fetch('/api/admin/create-teacher', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(form),
-      })
-      const json = await res.json()
-      if (!res.ok) { toast.error(json.error ?? 'Ошибка создания'); return }
-      toast.success(`Учитель ${form.full_name} создан`)
-      setAddOpen(false)
-      setForm({ full_name: '', email: '', password: '' })
-      router.refresh()
-    } finally {
-      setCreating(false)
-    }
-  }
 
   // ── Закрепление учеников ──
   const teacherNameById = useMemo(
@@ -117,13 +93,6 @@ export function TeachersClient({ teachers, students }: { teachers: TeacherRow[];
 
   return (
     <>
-      <div className="flex justify-end">
-        <Button onClick={() => setAddOpen(true)}>
-          <Plus className="h-4 w-4 mr-2" />
-          Добавить учителя
-        </Button>
-      </div>
-
       <div className="rounded-md border overflow-hidden">
         <table className="w-full text-sm">
           <thead className="bg-muted/50">
@@ -137,7 +106,7 @@ export function TeachersClient({ teachers, students }: { teachers: TeacherRow[];
           <tbody className="divide-y">
             {teachers.length === 0 && (
               <tr><td colSpan={4} className="px-4 py-10 text-center text-muted-foreground">
-                Учителей пока нет. Добавьте первого.
+                Учителей пока нет.
               </td></tr>
             )}
             {teachers.map(t => (
@@ -158,50 +127,6 @@ export function TeachersClient({ teachers, students }: { teachers: TeacherRow[];
           </tbody>
         </table>
       </div>
-
-      {/* Создание учителя */}
-      <Dialog open={addOpen} onOpenChange={(v) => { if (!v) setAddOpen(false) }}>
-        <DialogContent className="max-w-md">
-          <DialogHeader><DialogTitle>Новый учитель</DialogTitle></DialogHeader>
-          <div className="space-y-3 py-2">
-            <div className="space-y-1">
-              <Label htmlFor="t-name">Полное имя</Label>
-              <Input id="t-name" value={form.full_name}
-                onChange={(e) => setForm(p => ({ ...p, full_name: e.target.value }))}
-                placeholder="Иванова Мария Петровна" />
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="t-email">Email</Label>
-              <Input id="t-email" type="email" value={form.email}
-                onChange={(e) => setForm(p => ({ ...p, email: e.target.value }))}
-                placeholder="teacher@example.com" />
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="t-pwd">Пароль</Label>
-              <div className="relative">
-                <Input id="t-pwd" type={showPwd ? 'text' : 'password'} value={form.password}
-                  onChange={(e) => setForm(p => ({ ...p, password: e.target.value }))}
-                  placeholder="Минимум 6 символов" className="pr-10" />
-                <button type="button"
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                  onClick={() => setShowPwd(v => !v)}>
-                  {showPwd ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </button>
-              </div>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Учитель сможет войти сразу — подтверждение email не требуется.
-            </p>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setAddOpen(false)} disabled={creating}>Отмена</Button>
-            <Button onClick={handleCreate}
-              disabled={creating || form.full_name.trim().length < 2 || !form.email.includes('@') || form.password.length < 6}>
-              {creating ? 'Создание...' : 'Создать'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       {/* Закрепление учеников */}
       <Dialog open={!!assignTarget} onOpenChange={(v) => { if (!v) setAssignTarget(null) }}>

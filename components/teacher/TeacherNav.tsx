@@ -14,6 +14,7 @@ interface NavItem {
   icon: React.ElementType
   exact?: boolean
   adminOnly?: boolean
+  teacherOnly?: boolean
 }
 
 const navItems: NavItem[] = [
@@ -25,8 +26,9 @@ const navItems: NavItem[] = [
   { href: '/teacher/monitor', label: 'Мониторинг', icon: Monitor },
   { href: '/teacher/results', label: 'Результаты', icon: TrendingUp },
   { href: '/teacher/groups', label: 'Группы', icon: Users },
-  { href: '/teacher/teachers', label: 'Учителя', icon: GraduationCap, adminOnly: true },
-  { href: '/teacher/students', label: 'Ученики', icon: Users },
+  // admin: единая панель пользователей; teacher: только свои ученики (read-only)
+  { href: '/teacher/users', label: 'Пользователи', icon: GraduationCap, adminOnly: true },
+  { href: '/teacher/students', label: 'Ученики', icon: Users, teacherOnly: true },
   { href: '/teacher/solution-requests', label: 'Запросы', icon: FileText },
   { href: '/teacher/scoring-rules', label: 'Правила', icon: ListChecks },
 ]
@@ -88,7 +90,7 @@ function NavLink({
 function NavList({ isAdmin, pendingRequests, monitorBadge, onLinkClick }: { isAdmin: boolean; pendingRequests: number; monitorBadge: number; onLinkClick?: () => void }) {
   return (
     <nav className="flex-1 py-2 space-y-0.5 overflow-y-auto">
-      {navItems.filter(item => !item.adminOnly || isAdmin).map(({ href, label, icon, exact }) => (
+      {navItems.filter(item => (!item.adminOnly || isAdmin) && (!item.teacherOnly || !isAdmin)).map(({ href, label, icon, exact }) => (
         <NavLink
           key={href}
           href={href}
