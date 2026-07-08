@@ -2,13 +2,14 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
+import { zUuid } from '@/lib/uuid'
 
 const schema = z.object({
   full_name: z.string().min(2, 'Минимум 2 символа'),
   email: z.string().email('Некорректный email'),
   grade: z.string().optional(),
   password: z.string().min(6, 'Минимум 6 символов'),
-  teacher_id: z.string().uuid('Выберите учителя'),
+  teacher_id: zUuid('Выберите учителя'),
 })
 
 export async function POST(request: Request) {

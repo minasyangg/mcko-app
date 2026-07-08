@@ -2,12 +2,13 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
+import { zUuid } from '@/lib/uuid'
 
 const schema = z.object({
-  test_id: z.string().uuid(),
+  test_id: zUuid(),
   target_type: z.enum(['group', 'student']),
-  group_id: z.string().uuid().optional().nullable(),
-  student_id: z.string().uuid().optional().nullable(),
+  group_id: zUuid().optional().nullable(),
+  student_id: zUuid().optional().nullable(),
   starts_at: z.string().optional().nullable(),
   ends_at: z.string().optional().nullable(),
   max_attempts: z.number().min(1).default(1),

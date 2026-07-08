@@ -1,10 +1,11 @@
 import { createClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
+import { zUuid } from '@/lib/uuid'
 
 const schema = z.object({
-  attempt_id: z.string().uuid(),
-  task_id: z.string().uuid(),
+  attempt_id: zUuid(),
+  task_id: zUuid(),
   student_message: z.string().max(500).optional(),
 })
 

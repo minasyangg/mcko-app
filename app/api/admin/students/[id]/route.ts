@@ -2,6 +2,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { createClient } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
+import { zUuid } from '@/lib/uuid'
 
 // Управление учениками (создание/правка/удаление/переназначение учителю) —
 // только admin. Учитель видит своих учеников read-only.
@@ -23,7 +24,7 @@ const patchSchema = z.object({
   email: z.string().includes('@').optional(),
   password: z.string().min(6).optional(),
   // Переназначение ответственного учителя (profiles.created_by); null — открепить
-  teacher_id: z.string().uuid().nullable().optional(),
+  teacher_id: zUuid().nullable().optional(),
 })
 
 export async function PATCH(
