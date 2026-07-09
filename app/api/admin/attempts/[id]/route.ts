@@ -44,47 +44,44 @@ export async function DELETE(
   const { error: delErr } = await admin.from('attempts').delete().eq('id', attemptId)
   if (delErr) return NextResponse.json({ error: delErr.message }, { status: 500 })
 
-  // Пересчёт накопительного итога по оставшимся завершённым попыткам
-  const { data: remaining } = await admin
+  // Попытка считается «потраченной»: НЕ уменьшаем attempt_count в итоге —
+  // сохраняем «сколько попыток было использовано». Обновляем только балл
+  // итога до результата ПОСЛЕДНЕЙ оставшейся завершённой попытки; если
+  // завершённых не осталось — оставляем прежний итог (последний известный).
+  const now = new Date().toISOString()
+  const { data: latest } = await admin
     .from('attempts')
-    .select('id, max_score')
+    .select('score, max_score, submitted_at, checked_at')
     .eq('assignment_id', attempt.assignment_id)
     .eq('student_id', attempt.student_id)
     .in('status', ['submitted', 'checked'])
+    .order('submitted_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
 
-  const ids = (remaining ?? []).map(a => a.id)
-  if (ids.length === 0) {
-    // Больше нет завершённых попыток — убираем итог
-    await admin.from('student_final_results').delete()
+  if (latest) {
+    await admin.from('student_final_results')
+      .update({ final_score: latest.score, max_score: latest.max_score, updated_at: now })
       .eq('student_id', attempt.student_id)
       .eq('test_version_id', asgn.test_version_id)
-  } else {
-    const { data: answers } = await admin
-      .from('attempt_task_answers')
-      .select('task_id, awarded_score')
-      .in('attempt_id', ids)
-    const taskBest = new Map<string, number>()
-    for (const ans of answers ?? []) {
-      if (!ans.task_id) continue
-      taskBest.set(ans.task_id, Math.max(taskBest.get(ans.task_id) ?? 0, ans.awarded_score ?? 0))
-    }
-    const cumulative = [...taskBest.values()].reduce((s, v) => s + v, 0)
-    const maxScore = Math.max(...(remaining ?? []).map(a => a.max_score ?? 0), 0)
-
-    const { data: assignment } = await admin
-      .from('assignments').select('max_attempts').eq('id', attempt.assignment_id).single()
-    const allUsed = ids.length >= (assignment?.max_attempts ?? 1)
-
-    await admin.from('student_final_results').upsert({
-      student_id: attempt.student_id,
-      test_version_id: asgn.test_version_id,
-      final_score: cumulative,
-      max_score: maxScore,
-      attempt_count: ids.length,
-      status: allUsed ? 'completed' : 'in_progress',
-      updated_at: new Date().toISOString(),
-    }, { onConflict: 'student_id,test_version_id' })
   }
+  // запись student_final_results НЕ удаляем — «использовано N из M» и
+  // последний результат остаются даже без строк attempts.
 
-  return NextResponse.json({ ok: true })
+  const [{ data: sfr }, { data: assignment }] = await Promise.all([
+    admin.from('student_final_results')
+      .select('attempt_count, final_score, max_score')
+      .eq('student_id', attempt.student_id)
+      .eq('test_version_id', asgn.test_version_id)
+      .maybeSingle(),
+    admin.from('assignments').select('max_attempts').eq('id', attempt.assignment_id).single(),
+  ])
+
+  return NextResponse.json({
+    ok: true,
+    attempts_used: sfr?.attempt_count ?? 0,
+    max_attempts: assignment?.max_attempts ?? 1,
+    last_score: sfr?.final_score ?? null,
+    last_max: sfr?.max_score ?? null,
+  })
 }

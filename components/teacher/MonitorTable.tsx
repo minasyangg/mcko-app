@@ -209,7 +209,10 @@ export function MonitorTable({ initialAttempts, isAdmin = false }: Props) {
     const json = await res.json().catch(() => ({}))
     if (!res.ok) { toast.error(json.error ?? 'Ошибка удаления'); return }
     setAttempts(prev => prev.filter(x => x.id !== a.id))
-    toast.success('Попытка удалена')
+    const used = json.attempts_used ?? 0
+    const max = json.max_attempts ?? 1
+    const last = json.last_score != null ? `, результат последней: ${json.last_score}/${json.last_max ?? '?'}` : ''
+    toast.success(`Попытка удалена. Использовано ${used} из ${max}${last}`)
   }
 
   async function handleFinishAll() {

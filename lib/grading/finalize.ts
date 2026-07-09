@@ -209,40 +209,28 @@ export async function finalizeAttempt(
     ...(allAutoChecked ? { checked_at: now } : {}),
   }).eq('id', attemptId)
 
-  // Накопительный итог: MAX(awarded_score) по задаче среди завершённых попыток
-  const { data: allAttemptIds, count } = await admin
+  // Итог теста = результат ПОСЛЕДНЕЙ (только что завершённой) попытки.
+  // attempt_count — сколько попыток использовано (завершено), растёт монотонно.
+  const { count } = await admin
     .from('attempts')
-    .select('id', { count: 'exact' })
+    .select('id', { count: 'exact', head: true })
     .eq('assignment_id', attempt.assignment_id)
     .eq('student_id', attempt.student_id)
     .in('status', ['submitted', 'checked'])
 
-  const ids = (allAttemptIds ?? []).map(a => a.id)
-  if (ids.length > 0) {
-    const { data: allTaskAnswers } = await admin
-      .from('attempt_task_answers')
-      .select('task_id, awarded_score')
-      .in('attempt_id', ids)
-    const taskBest = new Map<string, number>()
-    for (const ans of allTaskAnswers ?? []) {
-      if (!ans.task_id) continue
-      taskBest.set(ans.task_id, Math.max(taskBest.get(ans.task_id) ?? 0, ans.awarded_score ?? 0))
-    }
-    const cumulativeScore = [...taskBest.values()].reduce((s, v) => s + v, 0)
-    const completedCount = count ?? 0
-    const allUsed = completedCount >= (assignment.max_attempts ?? 1)
+  const completedCount = count ?? 1
+  const allUsed = completedCount >= (assignment.max_attempts ?? 1)
 
-    await admin.from('student_final_results').upsert({
-      student_id: attempt.student_id,
-      test_version_id: assignment.test_version_id,
-      final_score: cumulativeScore,
-      max_score: totalMaxScore,
-      attempt_count: completedCount,
-      last_completed_at: now,
-      status: allUsed ? 'completed' : 'in_progress',
-      updated_at: now,
-    }, { onConflict: 'student_id,test_version_id' })
-  }
+  await admin.from('student_final_results').upsert({
+    student_id: attempt.student_id,
+    test_version_id: assignment.test_version_id,
+    final_score: totalScore,
+    max_score: totalMaxScore,
+    attempt_count: completedCount,
+    last_completed_at: now,
+    status: allUsed ? 'completed' : 'in_progress',
+    updated_at: now,
+  }, { onConflict: 'student_id,test_version_id' })
 
   return { score: totalScore, max_score: totalMaxScore, status: newStatus }
 }
