@@ -4,6 +4,12 @@ import { MonitorTable, type AttemptRow } from '@/components/teacher/MonitorTable
 export default async function MonitorPage() {
   const supabase = await createClient()
 
+  const { data: { user } } = await supabase.auth.getUser()
+  const { data: profile } = user
+    ? await supabase.from('profiles').select('role').eq('id', user.id).single()
+    : { data: null }
+  const isAdmin = profile?.role === 'admin'
+
   // Load all recent attempts with assignment/student info
   const { data: attempts } = await supabase
     .from('attempts')
@@ -107,7 +113,7 @@ export default async function MonitorPage() {
           Текущий статус по каждому назначенному тесту
         </p>
       </div>
-      <MonitorTable initialAttempts={rows} />
+      <MonitorTable initialAttempts={rows} isAdmin={isAdmin} />
     </div>
   )
 }
