@@ -16,7 +16,7 @@ export default async function UsersPage() {
 
   const org = profile.organization_id || ''
 
-  const [{ data: studentRows }, { data: teacherRows }] = await Promise.all([
+  const [{ data: studentRows }, { data: teacherRows }, { data: links }] = await Promise.all([
     supabase
       .from('profiles')
       .select('id, full_name, grade, is_active, created_at, created_by')
@@ -30,10 +30,19 @@ export default async function UsersPage() {
       .eq('role', 'teacher')
       .eq('organization_id', org)
       .order('full_name'),
+    supabase.from('teacher_students').select('teacher_id, student_id'),
   ])
 
   const students = studentRows ?? []
   const teachers = teacherRows ?? []
+
+  // Прикрепления M:N: карта ученик → id учителей
+  const teachersByStudent = new Map<string, string[]>()
+  for (const l of links ?? []) {
+    const arr = teachersByStudent.get(l.student_id) ?? []
+    arr.push(l.teacher_id)
+    teachersByStudent.set(l.student_id, arr)
+  }
 
   // Emails — из auth (в profiles их нет), одним проходом по всем id
   const adminClient = createAdminClient()
@@ -46,13 +55,17 @@ export default async function UsersPage() {
     })
   }
 
-  const studentsWithEmail = students.map(s => ({ ...s, email: emailMap[s.id] ?? '' }))
+  const studentsWithEmail = students.map(s => ({
+    ...s,
+    email: emailMap[s.id] ?? '',
+    teacher_ids: teachersByStudent.get(s.id) ?? [],
+  }))
   const teachersWithMeta = teachers.map(t => ({
     id: t.id,
     full_name: t.full_name,
     is_active: t.is_active,
     email: emailMap[t.id] ?? '',
-    student_count: students.filter(s => s.created_by === t.id).length,
+    student_count: (links ?? []).filter(l => l.teacher_id === t.id).length,
   }))
 
   return (

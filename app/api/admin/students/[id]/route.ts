@@ -11,7 +11,7 @@ async function verifyAdmin() {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return null
   const { data: profile } = await supabase
-    .from('profiles').select('role, organization_id').eq('id', user.id).single()
+    .from('profiles').select('id, role, organization_id').eq('id', user.id).single()
   if (!profile || profile.role !== 'admin') return null
   return profile
 }
@@ -23,8 +23,9 @@ const patchSchema = z.object({
   grade: z.string().nullable().optional(),
   email: z.string().includes('@').optional(),
   password: z.string().min(6).optional(),
-  // Переназначение ответственного учителя (profiles.created_by); null — открепить
-  teacher_id: zUuid().nullable().optional(),
+  // Полный набор прикреплённых учителей (M:N teacher_students). Если передан —
+  // заменяет текущий набор для этого ученика (можно закрепить за несколькими).
+  teacher_ids: z.array(zUuid()).optional(),
 })
 
 export async function PATCH(
@@ -34,6 +35,7 @@ export async function PATCH(
   const { id } = await params
   const profile = await verifyAdmin()
   if (!profile) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  if (!profile.organization_id) return NextResponse.json({ error: 'No organization' }, { status: 400 })
 
   const body = await request.json().catch(() => null)
   const parsed = patchSchema.safeParse(body)
@@ -59,27 +61,40 @@ export async function PATCH(
     return NextResponse.json({ ok: true })
   }
 
-  const { full_name, grade, email, password, teacher_id } = parsed.data
+  const { full_name, grade, email, password, teacher_ids } = parsed.data
 
-  // Валидация переназначения: учитель той же организации
-  if (teacher_id !== undefined && teacher_id !== null) {
-    const { data: teacher } = await admin
-      .from('profiles')
-      .select('id, role, organization_id')
-      .eq('id', teacher_id)
-      .single()
-    if (!teacher || teacher.role !== 'teacher' || teacher.organization_id !== profile.organization_id) {
-      return NextResponse.json({ error: 'Учитель не найден в вашей организации' }, { status: 422 })
-    }
-  }
-
-  if (full_name !== undefined || grade !== undefined || teacher_id !== undefined) {
-    const update: { full_name?: string; grade?: string | null; created_by?: string | null } = {}
+  if (full_name !== undefined || grade !== undefined) {
+    const update: { full_name?: string; grade?: string | null } = {}
     if (full_name !== undefined) update.full_name = full_name
     if (grade !== undefined) update.grade = grade
-    if (teacher_id !== undefined) update.created_by = teacher_id
     const { error } = await admin.from('profiles').update(update).eq('id', id)
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  }
+
+  // Полный набор прикреплённых учителей (M:N): валидируем, затем приводим
+  // teacher_students к переданному набору (добавляем недостающие, убираем лишние)
+  if (teacher_ids !== undefined) {
+    const unique = [...new Set(teacher_ids)]
+    if (unique.length > 0) {
+      const { data: valid } = await admin
+        .from('profiles').select('id')
+        .in('id', unique).eq('role', 'teacher').eq('organization_id', profile.organization_id)
+      if ((valid?.length ?? 0) !== unique.length) {
+        return NextResponse.json({ error: 'Один из учителей не найден в вашей организации' }, { status: 422 })
+      }
+    }
+    // убрать связи, которых нет в новом наборе
+    let del = admin.from('teacher_students').delete().eq('student_id', id)
+    if (unique.length > 0) del = del.not('teacher_id', 'in', `(${unique.join(',')})`)
+    const { error: delErr } = await del
+    if (delErr) return NextResponse.json({ error: delErr.message }, { status: 500 })
+    // добавить недостающие
+    if (unique.length > 0) {
+      const rows = unique.map(tid => ({ teacher_id: tid, student_id: id, assigned_by: profile.id }))
+      const { error: insErr } = await admin
+        .from('teacher_students').upsert(rows, { onConflict: 'teacher_id,student_id' })
+      if (insErr) return NextResponse.json({ error: insErr.message }, { status: 500 })
+    }
   }
 
   if (email || password) {

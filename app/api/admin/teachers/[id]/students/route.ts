@@ -61,13 +61,15 @@ export async function PATCH(
     return NextResponse.json({ error: 'Ученики не найдены в вашей организации' }, { status: 422 })
   }
 
+  // Прикрепление аддитивное (M:N через teacher_students): assign не снимает
+  // ученика с других учителей, unassign убирает связь только с этим учителем.
   if (action === 'assign') {
-    const { error } = await admin.from('profiles').update({ created_by: teacherId }).in('id', ids)
+    const rows = ids.map(sid => ({ teacher_id: teacherId, student_id: sid, assigned_by: user.id }))
+    const { error } = await admin.from('teacher_students').upsert(rows, { onConflict: 'teacher_id,student_id' })
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   } else {
-    // открепляем только тех, кто закреплён именно за этим учителем
     const { error } = await admin
-      .from('profiles').update({ created_by: null }).in('id', ids).eq('created_by', teacherId)
+      .from('teacher_students').delete().eq('teacher_id', teacherId).in('student_id', ids)
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   }
 

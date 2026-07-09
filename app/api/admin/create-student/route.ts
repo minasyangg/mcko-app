@@ -88,5 +88,14 @@ export async function POST(request: Request) {
     console.error('Failed to update profile:', updateError)
   }
 
+  // Прикрепление к учителю — через teacher_students (M:N); created_by выше
+  // остаётся как «первый учитель/создатель» (информационно)
+  const { error: linkError } = await adminClient
+    .from('teacher_students')
+    .upsert({ teacher_id, student_id: authData.user.id, assigned_by: user.id }, { onConflict: 'teacher_id,student_id' })
+  if (linkError) {
+    console.error('Failed to link student to teacher:', linkError)
+  }
+
   return NextResponse.json({ id: authData.user.id, email }, { status: 201 })
 }

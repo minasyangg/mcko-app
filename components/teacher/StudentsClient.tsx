@@ -15,9 +15,6 @@ import {
   AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
   AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from '@/components/ui/alert-dialog'
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from '@/components/ui/select'
 import { Pencil, Trash2, UserX, Eye, EyeOff, UserMinus } from 'lucide-react'
 
 export interface StudentRow {
@@ -27,6 +24,7 @@ export interface StudentRow {
   is_active: boolean | null
   created_at: string | null
   created_by?: string | null
+  teacher_ids?: string[]  // прикреплённые учителя (M:N)
   email?: string
 }
 
@@ -43,8 +41,6 @@ interface Props {
   teachers?: TeacherOption[]
 }
 
-const UNASSIGNED = '_none'
-
 export function StudentsClient({ students: initial, isAdmin = false, teachers = [] }: Props) {
   const router = useRouter()
   const [students, setStudents] = useState<StudentRow[]>(initial)
@@ -52,7 +48,38 @@ export function StudentsClient({ students: initial, isAdmin = false, teachers = 
   const [editForm, setEditForm] = useState({ full_name: '', grade: '', email: '', password: '' })
   const [showPwd, setShowPwd] = useState(false)
   const [saving, setSaving] = useState(false)
-  const [reassigning, setReassigning] = useState<string | null>(null)
+
+  // Диалог прикрепления учителей к ученику (M:N)
+  const [teacherTarget, setTeacherTarget] = useState<StudentRow | null>(null)
+  const [checkedTeachers, setCheckedTeachers] = useState<Set<string>>(new Set())
+  const [savingTeachers, setSavingTeachers] = useState(false)
+  const teacherName = (id: string) => teachers.find(t => t.id === id)?.full_name ?? '—'
+
+  function openTeachers(s: StudentRow) {
+    setTeacherTarget(s)
+    setCheckedTeachers(new Set(s.teacher_ids ?? []))
+  }
+
+  async function handleSaveTeachers() {
+    if (!teacherTarget) return
+    setSavingTeachers(true)
+    try {
+      const teacher_ids = [...checkedTeachers]
+      const res = await fetch(`/api/admin/students/${teacherTarget.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ teacher_ids }),
+      })
+      const json = await res.json()
+      if (!res.ok) { toast.error(json.error ?? 'Ошибка сохранения'); return }
+      setStudents(prev => prev.map(s => s.id === teacherTarget.id ? { ...s, teacher_ids } : s))
+      toast.success('Учителя обновлены')
+      setTeacherTarget(null)
+      router.refresh()
+    } finally {
+      setSavingTeachers(false)
+    }
+  }
 
   function openEdit(s: StudentRow) {
     setEditTarget(s)
@@ -95,27 +122,6 @@ export function StudentsClient({ students: initial, isAdmin = false, teachers = 
     }
   }
 
-  async function handleReassign(student: StudentRow, teacherId: string) {
-    setReassigning(student.id)
-    try {
-      const res = await fetch(`/api/admin/students/${student.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ teacher_id: teacherId === UNASSIGNED ? null : teacherId }),
-      })
-      const json = await res.json()
-      if (!res.ok) { toast.error(json.error ?? 'Ошибка переназначения'); return }
-
-      setStudents((prev) => prev.map((s) =>
-        s.id === student.id ? { ...s, created_by: teacherId === UNASSIGNED ? null : teacherId } : s
-      ))
-      toast.success('Учитель обновлён')
-      router.refresh()
-    } finally {
-      setReassigning(null)
-    }
-  }
-
   async function handleDeactivate(student: StudentRow) {
     const res = await fetch(`/api/admin/students/${student.id}`, {
       method: 'PATCH',
@@ -150,7 +156,7 @@ export function StudentsClient({ students: initial, isAdmin = false, teachers = 
               <th className="text-left px-4 py-3 font-medium">ФИО</th>
               <th className="text-left px-4 py-3 font-medium">Email</th>
               <th className="text-left px-4 py-3 font-medium">Класс</th>
-              {isAdmin && <th className="text-left px-4 py-3 font-medium">Учитель</th>}
+              {isAdmin && <th className="text-left px-4 py-3 font-medium">Учителя</th>}
               <th className="text-left px-4 py-3 font-medium">Статус</th>
               <th className="text-left px-4 py-3 font-medium">Дата</th>
               {isAdmin && <th className="px-4 py-3 w-24" />}
@@ -175,23 +181,21 @@ export function StudentsClient({ students: initial, isAdmin = false, teachers = 
                   <td className="px-4 py-3 text-muted-foreground">{s.grade ?? '—'}</td>
                   {isAdmin && (
                     <td className="px-4 py-3">
-                      <Select
-                        value={s.created_by ?? UNASSIGNED}
-                        onValueChange={(v) => handleReassign(s, v)}
-                        disabled={reassigning === s.id}
-                      >
-                        <SelectTrigger className="h-8 w-44 text-xs">
-                          <SelectValue placeholder="Не назначен" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value={UNASSIGNED}>
-                            <span className="text-muted-foreground">Не назначен</span>
-                          </SelectItem>
-                          {teachers.map((t) => (
-                            <SelectItem key={t.id} value={t.id}>{t.full_name}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <div className="flex items-center gap-1.5 flex-wrap max-w-64">
+                        {(s.teacher_ids ?? []).length === 0 ? (
+                          <span className="text-xs text-muted-foreground">Не закреплён</span>
+                        ) : (
+                          (s.teacher_ids ?? []).map((tid) => (
+                            <Badge key={tid} variant="outline" className="text-[11px] font-normal">
+                              {teacherName(tid)}
+                            </Badge>
+                          ))
+                        )}
+                        <Button size="sm" variant="ghost" className="h-6 px-1.5 text-xs"
+                          onClick={() => openTeachers(s)}>
+                          <Pencil className="h-3 w-3" />
+                        </Button>
+                      </div>
                     </td>
                   )}
                   <td className="px-4 py-3">
@@ -364,6 +368,51 @@ export function StudentsClient({ students: initial, isAdmin = false, teachers = 
               </Button>
               <Button onClick={handleSave} disabled={saving}>
                 {saving ? 'Сохранение...' : 'Сохранить'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {/* Прикрепление учителей к ученику (M:N) */}
+      {isAdmin && (
+        <Dialog open={!!teacherTarget} onOpenChange={(v) => { if (!v) setTeacherTarget(null) }}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Учителя ученика: {teacherTarget?.full_name}</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-2">
+              <p className="text-xs text-muted-foreground">
+                Ученика можно закрепить за несколькими учителями. Каждый учитель видит
+                только свои тесты и результаты этого ученика.
+              </p>
+              <div className="max-h-72 overflow-y-auto rounded-md border divide-y">
+                {teachers.length === 0 && (
+                  <p className="px-3 py-6 text-center text-sm text-muted-foreground">Учителей нет</p>
+                )}
+                {teachers.map((t) => (
+                  <label key={t.id} className="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-muted/40">
+                    <input
+                      type="checkbox"
+                      checked={checkedTeachers.has(t.id)}
+                      onChange={() => setCheckedTeachers((prev) => {
+                        const next = new Set(prev)
+                        if (next.has(t.id)) next.delete(t.id); else next.add(t.id)
+                        return next
+                      })}
+                      className="h-4 w-4 shrink-0"
+                    />
+                    <span className="text-sm">{t.full_name}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setTeacherTarget(null)} disabled={savingTeachers}>
+                Отмена
+              </Button>
+              <Button onClick={handleSaveTeachers} disabled={savingTeachers}>
+                {savingTeachers ? 'Сохранение...' : 'Сохранить'}
               </Button>
             </DialogFooter>
           </DialogContent>

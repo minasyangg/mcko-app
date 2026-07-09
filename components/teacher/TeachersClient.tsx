@@ -22,7 +22,7 @@ interface StudentRow {
   id: string
   full_name: string
   grade: string | null
-  created_by: string | null
+  teacher_ids: string[]   // прикреплённые учителя (M:N)
   is_active: boolean | null
 }
 
@@ -44,7 +44,7 @@ export function TeachersClient({ teachers, students }: { teachers: TeacherRow[];
   function openAssign(t: TeacherRow) {
     setAssignTarget(t)
     setQuery('')
-    setChecked(new Set(students.filter(s => s.created_by === t.id).map(s => s.id)))
+    setChecked(new Set(students.filter(s => s.teacher_ids.includes(t.id)).map(s => s.id)))
   }
 
   const filteredStudents = useMemo(() => {
@@ -65,8 +65,8 @@ export function TeachersClient({ teachers, students }: { teachers: TeacherRow[];
   async function handleAssignSave() {
     if (!assignTarget) return
     const tid = assignTarget.id
-    const toAssign = students.filter(s => checked.has(s.id) && s.created_by !== tid).map(s => s.id)
-    const toUnassign = students.filter(s => !checked.has(s.id) && s.created_by === tid).map(s => s.id)
+    const toAssign = students.filter(s => checked.has(s.id) && !s.teacher_ids.includes(tid)).map(s => s.id)
+    const toUnassign = students.filter(s => !checked.has(s.id) && s.teacher_ids.includes(tid)).map(s => s.id)
     if (toAssign.length === 0 && toUnassign.length === 0) { setAssignTarget(null); return }
 
     setSavingAssign(true)
@@ -148,9 +148,11 @@ export function TeachersClient({ teachers, students }: { teachers: TeacherRow[];
                 <p className="px-3 py-6 text-center text-sm text-muted-foreground">Ничего не найдено</p>
               )}
               {filteredStudents.map(s => {
-                const otherTeacher = s.created_by && s.created_by !== assignTarget?.id
-                  ? teacherNameById.get(s.created_by)
-                  : null
+                const others = s.teacher_ids
+                  .filter(id => id !== assignTarget?.id)
+                  .map(id => teacherNameById.get(id))
+                  .filter(Boolean)
+                const otherTeacher = others.length ? others.join(', ') : null
                 return (
                   <label key={s.id} className="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-muted/40">
                     <input type="checkbox" checked={checked.has(s.id)} onChange={() => toggle(s.id)}

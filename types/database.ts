@@ -1632,6 +1632,49 @@ export type Database = {
           },
         ]
       }
+      teacher_students: {
+        Row: {
+          assigned_by: string | null
+          created_at: string | null
+          student_id: string
+          teacher_id: string
+        }
+        Insert: {
+          assigned_by?: string | null
+          created_at?: string | null
+          student_id: string
+          teacher_id: string
+        }
+        Update: {
+          assigned_by?: string | null
+          created_at?: string | null
+          student_id?: string
+          teacher_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "teacher_students_assigned_by_fkey"
+            columns: ["assigned_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "teacher_students_student_id_fkey"
+            columns: ["student_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "teacher_students_teacher_id_fkey"
+            columns: ["teacher_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       test_documents: {
         Row: {
           created_at: string | null
@@ -1933,7 +1976,56 @@ export type Database = {
     Functions: {
       auth_org: { Args: never; Returns: string }
       auth_role: { Args: never; Returns: string }
+      check_assignment_in_auth_org: {
+        Args: { p_assignment_id: string }
+        Returns: boolean
+      }
+      check_attempt_assignment_owned_by_auth: {
+        Args: { p_attempt_id: string }
+        Returns: boolean
+      }
+      check_attempt_in_auth_org: {
+        Args: { p_attempt_id: string }
+        Returns: boolean
+      }
+      check_attempt_student_owned_by_auth: {
+        Args: { p_attempt_id: string }
+        Returns: boolean
+      }
+      check_group_in_auth_org: {
+        Args: { p_group_id: string }
+        Returns: boolean
+      }
+      check_group_owned_by_auth: {
+        Args: { p_group_id: string }
+        Returns: boolean
+      }
+      check_student_in_auth_org: {
+        Args: { p_student_id: string }
+        Returns: boolean
+      }
+      check_student_owned_by_auth: {
+        Args: { p_student_id: string }
+        Returns: boolean
+      }
+      check_task_in_auth_org: { Args: { p_task_id: string }; Returns: boolean }
+      check_task_owned_by_auth: {
+        Args: { p_task_id: string }
+        Returns: boolean
+      }
       check_test_in_auth_org: { Args: { p_test_id: string }; Returns: boolean }
+      check_test_owned_by_auth: {
+        Args: { p_test_id: string }
+        Returns: boolean
+      }
+      check_version_in_auth_org: {
+        Args: { p_version_id: string }
+        Returns: boolean
+      }
+      check_version_owned_by_auth: {
+        Args: { p_version_id: string }
+        Returns: boolean
+      }
       delete_student_cascade: {
         Args: { target_student_id: string }
         Returns: Json

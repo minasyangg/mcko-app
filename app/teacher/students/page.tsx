@@ -19,16 +19,13 @@ export default async function StudentsPage() {
 
   const isAdmin = profile?.role === 'admin'
 
-  // admin — все ученики организации; teacher — только закреплённые за ним
-  // (created_by; RLS в любом случае не отдаст чужих)
-  let studentsQuery = supabase
+  // teacher — только закреплённые за ним ученики (M:N teacher_students);
+  // RLS сам ограничивает выборку прикреплёнными, доп. фильтр не нужен.
+  const { data: students } = await supabase
     .from('profiles')
     .select('id, full_name, grade, is_active, created_at, created_by')
     .eq('role', 'student')
     .eq('organization_id', profile?.organization_id || '')
-  if (!isAdmin) studentsQuery = studentsQuery.eq('created_by', user.id)
-
-  const { data: students } = await studentsQuery
     .order('is_active', { ascending: false, nullsFirst: false })
     .order('full_name', { ascending: true })
 

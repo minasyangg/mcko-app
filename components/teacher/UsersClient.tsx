@@ -36,7 +36,7 @@ export function UsersClient({
   const router = useRouter()
   const teacherOptions: TeacherOption[] = teachers.map(t => ({ id: t.id, full_name: t.full_name }))
   const studentsForAssign = students.map(s => ({
-    id: s.id, full_name: s.full_name, grade: s.grade, created_by: s.created_by ?? null, is_active: s.is_active,
+    id: s.id, full_name: s.full_name, grade: s.grade, teacher_ids: s.teacher_ids ?? [], is_active: s.is_active,
   }))
 
   // ── Единый диалог создания пользователя ──
