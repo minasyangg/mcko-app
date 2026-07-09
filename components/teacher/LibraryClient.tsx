@@ -1,24 +1,14 @@
 'use client'
 
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { useRouter, useSearchParams, usePathname } from 'next/navigation'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Loader2, Search, SlidersHorizontal, X, ChevronDown, ChevronRight } from 'lucide-react'
+import { Loader2, Search, SlidersHorizontal, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { LibraryProblemCard } from './LibraryProblemCard'
-
-interface Topic {
-  id: string
-  exam_type: string
-  subject: string
-  grade: string | null
-  fipicod: string | null
-  name: string
-  parent_id: string | null
-  sort_order: number | null
-}
+import { LibraryFilter, type Topic, type LibraryFilters } from './LibraryFilter'
 
 interface Problem {
   id: string
@@ -40,112 +30,105 @@ interface Props {
   totalProblems: number
 }
 
-const SUBJECTS = ['Математика', 'Математика (база)', 'Физика', 'Химия', 'Биология', 'Информатика', 'Русский язык', 'История']
-const EXAM_TYPES = ['ОГЭ', 'ЕГЭ', 'ВПР', 'ГВЭ']
-const PER_PAGE = 20
+const PER_PAGE   = 20
+const DEBOUNCE   = 350  // ms — wait before firing fetch on filter change
 
-function ToggleGroup({
-  label,
-  options,
-  value,
-  onChange,
-}: {
-  label: string
-  options: [string, string][]
-  value: string
-  onChange: (v: string) => void
-}) {
-  return (
-    <div className="space-y-1.5">
-      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{label}</p>
-      <div className="flex rounded-md border divide-x overflow-hidden text-xs">
-        {options.map(([val, lbl]) => (
-          <button
-            key={val}
-            type="button"
-            onClick={() => onChange(val)}
-            className={cn(
-              'flex-1 py-1.5 text-center transition-colors',
-              value === val
-                ? 'bg-primary text-primary-foreground font-medium'
-                : 'hover:bg-muted text-muted-foreground'
-            )}
-          >
-            {lbl}
-          </button>
-        ))}
-      </div>
-    </div>
-  )
+// ── URL ↔ state helpers ─────────────────────────────────────────────────────
+function filtersToParams(f: LibraryFilters, sourceId: string): URLSearchParams {
+  const p = new URLSearchParams()
+  if (f.subject)        p.set('subject',    f.subject)
+  if (f.examType)       p.set('exam_type',  f.examType)
+  if (f.source !== 'all')     p.set('source',    f.source)
+  if (f.hasAnswer !== 'all')  p.set('has_answer', f.hasAnswer)
+  if (f.siteDomain !== 'all') p.set('site_domain', f.siteDomain)
+  f.topicIds.forEach(id => p.append('canonical_topic_id', id))
+  if (sourceId.trim()) p.set('source_id', sourceId.trim())
+  return p
+}
+
+function filtersFromParams(sp: URLSearchParams): { filters: LibraryFilters; sourceId: string } {
+  return {
+    filters: {
+      subject:     sp.get('subject')    ?? '',
+      examType:    sp.get('exam_type')  ?? '',
+      source:      sp.get('source')     ?? 'all',
+      hasAnswer:   sp.get('has_answer') ?? 'all',
+      siteDomain:  sp.get('site_domain') ?? 'all',
+      topicIds:    sp.getAll('canonical_topic_id'),
+      topicSearch: '',
+    },
+    sourceId: sp.get('source_id') ?? '',
+  }
 }
 
 export function LibraryClient({ initialTopics, totalProblems }: Props) {
-  const [source,     setSource]    = useState('all')
-  const [subject,    setSubject]   = useState('')
-  const [examType,   setExamType]  = useState('')
-  const [topicIds,   setTopicIds]  = useState<string[]>([])
-  const [sourceId,   setSourceId]  = useState('')
-  const [topicSearch, setTopicSearch] = useState('')
-  const [hasAnswer,  setHasAnswer] = useState('all')
-  const [siteDomain, setSiteDomain] = useState('all')
+  const router   = useRouter()
+  const pathname = usePathname()
+  const sp       = useSearchParams()
+
+  // Initialise from URL params so filters survive refresh and are shareable
+  const { filters: initFilters, sourceId: initSourceId } = filtersFromParams(sp)
+
+  const [filters,    setFilters]    = useState<LibraryFilters>(initFilters)
+  const [sourceId,   setSourceId]   = useState(initSourceId)
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({})
 
-  const [problems,  setProblems]  = useState<Problem[]>([])
-  const [total,     setTotal]     = useState(0)
-  const [page,      setPage]      = useState(1)
-  const [loading,   setLoading]   = useState(false)
-  const [resetting, setResetting] = useState(false)
-  const [hasMore,   setHasMore]   = useState(false)
+  const [problems,   setProblems]   = useState<Problem[]>([])
+  const [total,      setTotal]      = useState(0)
+  const [page,       setPage]       = useState(1)
+  const [loading,    setLoading]    = useState(false)
+  const [resetting,  setResetting]  = useState(false)
+  const [hasMore,    setHasMore]    = useState(false)
   const [filtersOpen, setFiltersOpen] = useState(false)
 
-  // Canonical topics для текущего subject + examType
-  const sections = initialTopics.filter(t =>
-    t.parent_id === null &&
-    (!subject  || t.subject   === subject) &&
-    (!examType || t.exam_type === examType)
-  )
-
-  const subtopicsOf = (sectionId: string) =>
-    initialTopics.filter(t =>
-      t.parent_id === sectionId &&
-      (!topicSearch || t.name.toLowerCase().includes(topicSearch.toLowerCase()) ||
-        (t.fipicod ?? '').includes(topicSearch))
-    )
-
-  const toggleSection = (id: string) =>
-    setExpandedSections(prev => ({ ...prev, [id]: !prev[id] }))
+  // Debounce timer ref — avoids hammering the API on rapid filter changes
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // AbortController ref — cancels in-flight requests when filters change
+  const abortRef    = useRef<AbortController | null>(null)
 
   const fetchProblems = useCallback(async (p: number, reset = false) => {
+    abortRef.current?.abort()
+    const ctrl = new AbortController()
+    abortRef.current = ctrl
+
     setLoading(true)
     if (reset) setResetting(true)
-    try {
-      const params = new URLSearchParams()
-      params.set('page', String(p))
-      params.set('per_page', String(PER_PAGE))
-      if (source !== 'all')     params.set('source', source)
-      if (subject)              params.set('subject', subject)
-      if (examType)             params.set('exam_type', examType)
-      topicIds.forEach(id =>    params.append('canonical_topic_id', id))
-      if (hasAnswer === 'yes')  params.set('has_answer', 'true')
-      if (hasAnswer === 'no')   params.set('has_answer', 'false')
-      if (siteDomain !== 'all') params.set('site_domain', siteDomain)
-      if (sourceId.trim())      params.set('source_id', sourceId.trim())
 
-      const res  = await fetch(`/api/library/problems?${params}`)
+    try {
+      const params = filtersToParams(filters, sourceId)
+      params.set('page',     String(p))
+      params.set('per_page', String(PER_PAGE))
+
+      const res  = await fetch(`/api/library/problems?${params}`, { signal: ctrl.signal })
+      if (!res.ok) throw new Error('fetch failed')
       const json = await res.json()
 
       setProblems(prev => reset ? (json.data ?? []) : [...prev, ...(json.data ?? [])])
       setTotal(json.total ?? 0)
       setHasMore(p < (json.total_pages ?? 1))
       setPage(p)
+    } catch (e: unknown) {
+      if (e instanceof Error && e.name === 'AbortError') return  // superseded request — ignore
     } finally {
       setLoading(false)
       setResetting(false)
     }
-  }, [source, subject, examType, topicIds, sourceId, hasAnswer, siteDomain])
+  }, [filters, sourceId])
 
-  useEffect(() => { fetchProblems(1, true) }, [fetchProblems])
+  // Debounced fetch on filter change — also syncs filters to URL
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    debounceRef.current = setTimeout(() => {
+      // Sync filters to URL (replaces history so Back works naturally)
+      const params = filtersToParams(filters, sourceId)
+      router.replace(`${pathname}?${params}`, { scroll: false })
+      fetchProblems(1, true)
+    }, DEBOUNCE)
+    return () => { if (debounceRef.current) clearTimeout(debounceRef.current) }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filters, sourceId])
 
+  // Infinite scroll
   const sentinelRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
     if (!sentinelRef.current || !hasMore) return
@@ -157,191 +140,60 @@ export function LibraryClient({ initialTopics, totalProblems }: Props) {
     return () => io.disconnect()
   }, [hasMore, loading, page, fetchProblems])
 
-  const hasFilters = !!(source !== 'all' || subject || examType || topicIds.length || sourceId || hasAnswer !== 'all' || siteDomain !== 'all')
+  const handleFilterChange = useCallback((patch: Partial<LibraryFilters>) => {
+    setFilters(prev => ({ ...prev, ...patch }))
+    setPage(1)
+  }, [])
 
-  const resetFilters = () => {
-    setSource('all'); setSubject(''); setExamType('')
-    setTopicIds([]); setSourceId(''); setTopicSearch('')
-    setHasAnswer('all'); setSiteDomain('all')
-  }
+  const handleToggleSection = useCallback((id: string) => {
+    setExpandedSections(prev => ({ ...prev, [id]: !prev[id] }))
+  }, [])
 
-  const toggleTopic = (id: string) =>
-    setTopicIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])
-
-  // Клик по разделу — переключает раздел + все его подтемы разом
-  const toggleSectionGroup = (sectionId: string) => {
-    const childIds = initialTopics.filter(t => t.parent_id === sectionId).map(t => t.id)
-    const allIds = [sectionId, ...childIds]
-    const anySelected = allIds.some(id => topicIds.includes(id))
-    if (anySelected) {
-      setTopicIds(prev => prev.filter(id => !allIds.includes(id)))
-    } else {
-      setTopicIds(prev => [...new Set([...prev, ...allIds])])
-    }
-  }
-
-  // Активные чипы фильтров
-  const activeChips: { label: string; onRemove: () => void }[] = []
-  if (subject)          activeChips.push({ label: subject,   onRemove: () => { setSubject('');   setTopicIds([]) } })
-  if (examType)         activeChips.push({ label: examType,  onRemove: () => { setExamType('');  setTopicIds([]) } })
-  if (source !== 'all') activeChips.push({ label: source === 'verified' ? 'Глобальные' : 'Мои задачи', onRemove: () => setSource('all') })
-  if (hasAnswer !== 'all') activeChips.push({ label: hasAnswer === 'yes' ? 'С ответом' : 'Без ответа', onRemove: () => setHasAnswer('all') })
-  if (siteDomain !== 'all') activeChips.push({ label: siteDomain === 'fipi' ? 'ФИПИ' : 'Сдамгиа', onRemove: () => setSiteDomain('all') })
-  // Чипы тем: если раздел выбран — показываем раздел, его подтемы скрываем
-  const selectedSectionIds = new Set(
-    topicIds.filter(id => initialTopics.find(t => t.id === id)?.parent_id === null)
+  // Active filter chips
+  const hasFilters = !!(
+    filters.subject || filters.examType ||
+    filters.source !== 'all' || filters.hasAnswer !== 'all' ||
+    filters.siteDomain !== 'all' || filters.topicIds.length || sourceId
   )
-  for (const id of topicIds) {
+
+  const selectedSectionIds = new Set(
+    filters.topicIds.filter(id => initialTopics.find(t => t.id === id)?.parent_id === null)
+  )
+  const activeChips: { label: string; onRemove: () => void }[] = []
+  if (filters.subject)           activeChips.push({ label: filters.subject,  onRemove: () => handleFilterChange({ subject: '', topicIds: [] }) })
+  if (filters.examType)          activeChips.push({ label: filters.examType, onRemove: () => handleFilterChange({ examType: '', topicIds: [] }) })
+  if (filters.source !== 'all')  activeChips.push({ label: filters.source === 'verified' ? 'Глобальные' : 'Мои задачи', onRemove: () => handleFilterChange({ source: 'all' }) })
+  if (filters.hasAnswer !== 'all') activeChips.push({ label: filters.hasAnswer === 'yes' ? 'С ответом' : 'Без ответа', onRemove: () => handleFilterChange({ hasAnswer: 'all' }) })
+  if (filters.siteDomain !== 'all') activeChips.push({ label: filters.siteDomain === 'fipi' ? 'ФИПИ' : 'Сдамгиа', onRemove: () => handleFilterChange({ siteDomain: 'all' }) })
+  for (const id of filters.topicIds) {
     const t = initialTopics.find(x => x.id === id)
     if (!t) continue
-    if (t.parent_id && selectedSectionIds.has(t.parent_id)) continue // скрыто под чипом раздела
+    if (t.parent_id && selectedSectionIds.has(t.parent_id)) continue
     activeChips.push({
       label: t.fipicod ? `${t.fipicod} ${t.name}` : t.name,
-      onRemove: () => t.parent_id === null ? toggleSectionGroup(t.id) : toggleTopic(id),
+      onRemove: () => t.parent_id === null
+        ? (() => {
+            const childIds = initialTopics.filter(x => x.parent_id === t.id).map(x => x.id)
+            handleFilterChange({ topicIds: filters.topicIds.filter(x => x !== id && !childIds.includes(x)) })
+          })()
+        : handleFilterChange({ topicIds: filters.topicIds.filter(x => x !== id) }),
     })
   }
+  if (sourceId) activeChips.push({ label: `ID: ${sourceId}`, onRemove: () => setSourceId('') })
 
-  const FilterPanel = () => (
-    <div className="space-y-4">
-      {/* Предмет */}
-      <div className="space-y-1.5">
-        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Предмет</p>
-        <Select value={subject || '_all'} onValueChange={v => { setSubject(v === '_all' ? '' : v); setTopicIds([]) }}>
-          <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="Все предметы" /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="_all">Все предметы</SelectItem>
-            {SUBJECTS.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
-          </SelectContent>
-        </Select>
-      </div>
-
-      {/* Экзамен */}
-      <div className="space-y-1.5">
-        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Экзамен</p>
-        <Select value={examType || '_all'} onValueChange={v => { setExamType(v === '_all' ? '' : v); setTopicIds([]) }}>
-          <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="Все" /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="_all">Все</SelectItem>
-            {EXAM_TYPES.map(e => <SelectItem key={e} value={e}>{e}</SelectItem>)}
-          </SelectContent>
-        </Select>
-      </div>
-
-      {/* Источник */}
-      <ToggleGroup
-        label="Источник"
-        options={[['all', 'Все'], ['verified', 'Глоб.'], ['custom', 'Мои']]}
-        value={source}
-        onChange={setSource}
-      />
-
-      {/* Ответ */}
-      <ToggleGroup
-        label="Ответ"
-        options={[['all', 'Все'], ['yes', 'Есть'], ['no', 'Нет']]}
-        value={hasAnswer}
-        onChange={setHasAnswer}
-      />
-
-      {/* Сайт */}
-      <ToggleGroup
-        label="База задач"
-        options={[['all', 'Все'], ['fipi', 'ФИПИ'], ['sdamgia', 'Сдамгиа']]}
-        value={siteDomain}
-        onChange={setSiteDomain}
-      />
-
-      {/* Темы КЭС — только если выбран предмет+экзамен с каноническими темами */}
-      {sections.length > 0 && (
-        <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Темы КЭС</p>
-            {topicIds.length > 0 && (
-              <button onClick={() => setTopicIds([])} className="text-[10px] text-muted-foreground hover:text-foreground underline">
-                Сбросить
-              </button>
-            )}
-          </div>
-          <Input
-            placeholder="Поиск тем..."
-            value={topicSearch}
-            onChange={e => setTopicSearch(e.target.value)}
-            className="h-7 text-xs"
-          />
-          <div className="space-y-0.5 max-h-72 overflow-y-auto pr-1">
-            {sections.map(sec => {
-              const allSubs = initialTopics.filter(t => t.parent_id === sec.id)
-              const subs = subtopicsOf(sec.id)
-              const isExpanded = !!expandedSections[sec.id] || !!topicSearch
-              const anySelected = [sec.id, ...allSubs.map(s => s.id)].some(id => topicIds.includes(id))
-
-              return (
-                <div key={sec.id}>
-                  {/* Заголовок раздела */}
-                  <div className="flex items-center gap-1 py-1 rounded hover:bg-muted/50">
-                    <button
-                      type="button"
-                      onClick={() => toggleSection(sec.id)}
-                      className="p-0.5 text-muted-foreground hover:text-foreground shrink-0"
-                    >
-                      {isExpanded
-                        ? <ChevronDown className="h-3 w-3" />
-                        : <ChevronRight className="h-3 w-3" />}
-                    </button>
-                    <label className="flex items-center gap-1.5 cursor-pointer flex-1 min-w-0">
-                      <input
-                        type="checkbox"
-                        className="accent-primary h-3.5 w-3.5 cursor-pointer shrink-0"
-                        checked={anySelected}
-                        onChange={() => toggleSectionGroup(sec.id)}
-                      />
-                      <span className={cn('text-xs font-medium leading-tight truncate', anySelected && 'text-primary')}>
-                        {sec.fipicod ? `${sec.fipicod}. ` : ''}{sec.name}
-                      </span>
-                    </label>
-                  </div>
-
-                  {/* Подтемы */}
-                  {isExpanded && subs.length > 0 && (
-                    <div className="ml-5 space-y-0.5 mb-1">
-                      {subs.map(sub => (
-                        <label key={sub.id} className="flex items-center gap-1.5 cursor-pointer py-0.5 rounded hover:bg-muted/50 px-1">
-                          <input
-                            type="checkbox"
-                            className="accent-primary h-3 w-3 cursor-pointer shrink-0"
-                            checked={topicIds.includes(sub.id)}
-                            onChange={() => toggleTopic(sub.id)}
-                          />
-                          <span className={cn(
-                            'text-xs leading-tight',
-                            topicIds.includes(sub.id) ? 'text-primary font-medium' : 'text-muted-foreground'
-                          )}>
-                            {sub.fipicod && <span className="font-mono mr-1">{sub.fipicod}</span>}
-                            {sub.name}
-                          </span>
-                        </label>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )
-            })}
-          </div>
-        </div>
-      )}
-
-      {hasFilters && (
-        <Button variant="ghost" size="sm" onClick={resetFilters} className="w-full text-xs h-7">
-          <X className="h-3 w-3 mr-1" />
-          Сбросить все фильтры
-        </Button>
-      )}
-    </div>
+  const filterPanel = (
+    <LibraryFilter
+      filters={filters}
+      onChange={handleFilterChange}
+      topics={initialTopics}
+      expandedSections={expandedSections}
+      onToggleSection={handleToggleSection}
+    />
   )
 
   return (
     <div className="space-y-4">
-      {/* Заголовок */}
+      {/* Header */}
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold">Библиотека задач</h1>
@@ -349,14 +201,23 @@ export function LibraryClient({ initialTopics, totalProblems }: Props) {
             {totalProblems.toLocaleString('ru-RU')} задач · ОГЭ/ЕГЭ Математика, Физика
           </p>
         </div>
-        <Button variant="outline" size="sm" className="md:hidden" onClick={() => setFiltersOpen(!filtersOpen)}>
+        <Button
+          variant="outline"
+          size="sm"
+          className="md:hidden"
+          onClick={() => setFiltersOpen(!filtersOpen)}
+        >
           <SlidersHorizontal className="h-4 w-4 mr-1.5" />
           Фильтры
-          {hasFilters && <Badge variant="secondary" className="ml-1.5 h-4 px-1 text-[10px]">{activeChips.length}</Badge>}
+          {hasFilters && (
+            <Badge variant="secondary" className="ml-1.5 h-4 px-1 text-[10px]">
+              {activeChips.length}
+            </Badge>
+          )}
         </Button>
       </div>
 
-      {/* Поиск */}
+      {/* Search by code / source_id */}
       <div className="relative">
         <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
         <Input
@@ -366,46 +227,52 @@ export function LibraryClient({ initialTopics, totalProblems }: Props) {
           className="pl-8 pr-8"
         />
         {sourceId && (
-          <button onClick={() => setSourceId('')}
-            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+          <button
+            onClick={() => setSourceId('')}
+            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+          >
             <X className="h-4 w-4" />
           </button>
         )}
       </div>
 
       <div className="flex gap-6 items-start">
-        {/* Сайдбар (desktop) */}
-        <aside className={cn('w-56 shrink-0', 'hidden md:block', filtersOpen && 'block!')}>
-          {FilterPanel()}
+        {/* Desktop sidebar */}
+        <aside className={cn('w-56 shrink-0', 'hidden md:block')}>
+          {filterPanel}
         </aside>
 
-        {/* Мобильная панель */}
+        {/* Mobile drawer */}
         {filtersOpen && (
-          <div className="md:hidden fixed inset-0 z-50 bg-background/80 backdrop-blur-sm"
-            onClick={() => setFiltersOpen(false)}>
-            <div className="absolute left-0 top-0 bottom-0 w-72 bg-background border-r p-4 overflow-y-auto"
-              onClick={e => e.stopPropagation()}>
+          <div
+            className="md:hidden fixed inset-0 z-50 bg-background/80 backdrop-blur-sm"
+            onClick={() => setFiltersOpen(false)}
+          >
+            <div
+              className="absolute left-0 top-0 bottom-0 w-72 bg-background border-r p-4 overflow-y-auto"
+              onClick={e => e.stopPropagation()}
+            >
               <div className="flex items-center justify-between mb-4">
                 <span className="font-semibold text-sm">Фильтры</span>
                 <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setFiltersOpen(false)}>
                   <X className="h-4 w-4" />
                 </Button>
               </div>
-              {FilterPanel()}
+              {filterPanel}
             </div>
           </div>
         )}
 
-        {/* Список задач */}
+        {/* Problem list */}
         <div className="flex-1 min-w-0 space-y-3 relative">
-          {/* Оверлей загрузки */}
+          {/* Loading overlay */}
           {resetting && loading && (
             <div className="absolute inset-0 bg-background/70 backdrop-blur-[1px] flex items-start justify-center pt-16 z-10 rounded-lg">
               <Loader2 className="h-8 w-8 animate-spin text-primary" />
             </div>
           )}
 
-          {/* Активные фильтры — чипы */}
+          {/* Active filter chips */}
           {activeChips.length > 0 && (
             <div className="flex flex-wrap gap-1.5 items-center">
               {activeChips.map((chip, i) => (
@@ -417,50 +284,56 @@ export function LibraryClient({ initialTopics, totalProblems }: Props) {
                 </Badge>
               ))}
               {activeChips.length > 1 && (
-                <button onClick={resetFilters}
-                  className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2">
+                <button
+                  onClick={() => { handleFilterChange({ subject: '', examType: '', source: 'all', hasAnswer: 'all', siteDomain: 'all', topicIds: [], topicSearch: '' }); setSourceId('') }}
+                  className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2"
+                >
                   Сбросить все
                 </button>
               )}
             </div>
           )}
 
-          {/* Счётчик */}
+          {/* Count */}
           <p className="text-sm text-muted-foreground">
             {loading && problems.length === 0
               ? 'Загрузка...'
               : `Найдено: ${total.toLocaleString('ru-RU')} задач`}
           </p>
 
-          {/* Карточки */}
-          {problems.map(p => (
-            <LibraryProblemCard key={p.id} problem={p} />
-          ))}
+          {/* Cards */}
+          {problems.map(p => <LibraryProblemCard key={p.id} problem={p} />)}
 
-          {/* Пустое состояние */}
+          {/* Empty state */}
           {!loading && problems.length === 0 && (
             <div className="flex flex-col items-center justify-center py-16 text-muted-foreground gap-3">
               <Search className="h-10 w-10 opacity-30" />
               <p className="text-sm">Задачи не найдены. Попробуйте изменить фильтры.</p>
               {hasFilters && (
-                <Button variant="outline" size="sm" onClick={resetFilters}>Сбросить фильтры</Button>
+                <Button variant="outline" size="sm" onClick={() => handleFilterChange({ subject: '', examType: '', source: 'all', hasAnswer: 'all', siteDomain: 'all', topicIds: [] })}>
+                  Сбросить фильтры
+                </Button>
               )}
             </div>
           )}
 
-          {/* Лоадер */}
+          {/* Loader */}
           {loading && (
             <div className="flex justify-center py-8">
               <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
             </div>
           )}
 
-          {/* Пагинация */}
+          {/* Infinite scroll sentinel */}
           {hasMore && !loading && (
             <div className="flex flex-col items-center gap-3 pt-2">
               <div ref={sentinelRef} />
-              <Button variant="outline" size="sm" onClick={() => fetchProblems(page + 1)}
-                className="w-full sm:w-auto">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => fetchProblems(page + 1)}
+                className="w-full sm:w-auto"
+              >
                 Ещё задачи ({(total - problems.length).toLocaleString('ru-RU')} осталось)
               </Button>
             </div>

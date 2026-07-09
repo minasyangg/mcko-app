@@ -18,6 +18,12 @@ export async function PATCH(
     return Response.json({ error: 'Forbidden' }, { status: 403 })
   }
 
+  // Доступ к заданию через user-клиент: RLS пускает учителя только к своим
+  // тестам, админа — к тестам организации. Чужое задание → 404.
+  const { data: task } = await supabase
+    .from('test_tasks').select('id').eq('id', taskId).single()
+  if (!task) return Response.json({ error: 'Task not found' }, { status: 404 })
+
   const body = await request.json() as { correct_answer?: string; grading_method?: string }
   const { correct_answer, grading_method } = body
 

@@ -19,12 +19,17 @@ export async function PATCH(
 
   const { data: test } = await supabase
     .from('tests')
-    .select('id, is_active, organization_id, current_published_version_id')
+    .select('id, is_active, organization_id, current_published_version_id, created_by')
     .eq('id', id)
     .eq('organization_id', profile.organization_id ?? '')
     .single()
 
   if (!test) return Response.json({ error: 'Test not found' }, { status: 404 })
+
+  // Owner-чек: учитель управляет только своими тестами, admin — любыми в организации
+  if (profile.role !== 'admin' && test.created_by !== user.id) {
+    return Response.json({ error: 'Управлять публикацией может только создатель теста или администратор' }, { status: 403 })
+  }
 
   const admin = createAdminClient()
   const newActive = !test.is_active

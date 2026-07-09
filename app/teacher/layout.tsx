@@ -42,6 +42,7 @@ export default async function TeacherLayout({ children }: { children: React.Reac
     <div className="min-h-screen flex flex-col md:flex-row">
       <TeacherNav
         fullName={profile.full_name ?? ''}
+        isAdmin={profile.role === 'admin'}
         pendingRequests={pendingRequests ?? 0}
         pendingReview={pendingReview ?? 0}
       />

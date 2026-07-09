@@ -4,6 +4,12 @@ import { MonitorTable, type AttemptRow } from '@/components/teacher/MonitorTable
 export default async function MonitorPage() {
   const supabase = await createClient()
 
+  const { data: { user } } = await supabase.auth.getUser()
+  const { data: profile } = user
+    ? await supabase.from('profiles').select('role').eq('id', user.id).single()
+    : { data: null }
+  const isAdmin = profile?.role === 'admin'
+
   // Load all recent attempts with assignment/student info
   const { data: attempts } = await supabase
     .from('attempts')
@@ -71,14 +77,16 @@ export default async function MonitorPage() {
     const test = tv?.tests
     const profile = (a as any).profiles
     const groupKey = `${a.student_id}_${(a as any).assignment_id}`
-    const totalAttempts = attemptCountMap.get(groupKey) ?? 1
-    const latestAttemptNum = attemptNumberMap.get(a.id) ?? totalAttempts
+    const liveTotal = attemptCountMap.get(groupKey) ?? 1
+    const latestAttemptNum = attemptNumberMap.get(a.id) ?? liveTotal
     const maxAttempts = asgn?.max_attempts ?? 1
-    const allUsed = totalAttempts >= maxAttempts && !['in_progress', 'not_started'].includes(a.status)
 
-    // Get cumulative score from student_final_results
+    // Get last-attempt result + used count from student_final_results.
+    // attempt_count переживает удаление отдельной попытки («потрачено N из M»).
     const finalKey = `${a.student_id}_${asgn?.test_version_id}`
     const final = finalMap.get(finalKey)
+    const totalAttempts = final?.attempt_count ?? liveTotal
+    const allUsed = totalAttempts >= maxAttempts && !['in_progress', 'not_started'].includes(a.status)
 
     return {
       id: a.id,
@@ -107,7 +115,7 @@ export default async function MonitorPage() {
           Текущий статус по каждому назначенному тесту
         </p>
       </div>
-      <MonitorTable initialAttempts={rows} />
+      <MonitorTable initialAttempts={rows} isAdmin={isAdmin} />
     </div>
   )
 }

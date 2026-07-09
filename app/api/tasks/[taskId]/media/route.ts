@@ -34,7 +34,9 @@ export async function POST(
 
   const admin = createAdminClient()
 
-  const { data: task } = await admin
+  // Доступ к заданию через user-клиент: RLS пускает учителя только к своим
+  // тестам, админа — к тестам организации. Чужое задание → 404.
+  const { data: task } = await supabase
     .from('test_tasks').select('id, test_version_id').eq('id', taskId).single()
   if (!task) return Response.json({ error: 'Task not found' }, { status: 404 })
 

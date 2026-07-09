@@ -26,12 +26,17 @@ export async function DELETE(
   // Verify the assignment belongs to the teacher's org
   const { data: assignment } = await admin
     .from('assignments')
-    .select('id, organization_id')
+    .select('id, organization_id, created_by')
     .eq('id', id)
     .single()
 
   if (!assignment || assignment.organization_id !== profile.organization_id) {
     return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  }
+
+  // Owner-чек: учитель удаляет только свои назначения, admin — любые в организации
+  if (profile.role !== 'admin' && assignment.created_by !== user.id) {
+    return NextResponse.json({ error: 'Удалять может только создатель назначения или администратор' }, { status: 403 })
   }
 
   // Get attempt IDs first, then delete related records

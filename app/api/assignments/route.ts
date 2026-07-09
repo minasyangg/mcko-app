@@ -2,12 +2,13 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
+import { zUuid } from '@/lib/uuid'
 
 const schema = z.object({
-  test_id: z.string().uuid(),
+  test_id: zUuid(),
   target_type: z.enum(['group', 'student']),
-  group_id: z.string().uuid().optional().nullable(),
-  student_id: z.string().uuid().optional().nullable(),
+  group_id: zUuid().optional().nullable(),
+  student_id: zUuid().optional().nullable(),
   starts_at: z.string().optional().nullable(),
   ends_at: z.string().optional().nullable(),
   max_attempts: z.number().min(1).default(1),
@@ -52,7 +53,7 @@ export async function POST(request: Request) {
   const admin = createAdminClient()
   const { data: test } = await admin
     .from('tests')
-    .select('current_published_version_id, organization_id')
+    .select('current_published_version_id, organization_id, created_by')
     .eq('id', test_id)
     .single()
 
@@ -62,6 +63,44 @@ export async function POST(request: Request) {
 
   if (!test.current_published_version_id) {
     return NextResponse.json({ error: 'Тест не опубликован' }, { status: 400 })
+  }
+
+  // Учитель назначает только свои тесты и только своим группам/ученикам
+  // (RLS with check подстрахует на уровне БД, но отдаём внятную ошибку до инсерта)
+  if (profile.role !== 'admin') {
+    if (test.created_by !== user.id) {
+      return NextResponse.json({ error: 'Назначать можно только свои тесты' }, { status: 403 })
+    }
+    if (target_type === 'group' && group_id) {
+      const { data: group } = await admin
+        .from('groups').select('id, created_by, organization_id').eq('id', group_id).single()
+      if (!group || group.organization_id !== profile.organization_id || group.created_by !== user.id) {
+        return NextResponse.json({ error: 'Назначать можно только своим группам' }, { status: 403 })
+      }
+    }
+    if (target_type === 'student' && student_id) {
+      const { data: student } = await admin
+        .from('profiles').select('id, role, created_by').eq('id', student_id).single()
+      if (!student || student.role !== 'student' || student.created_by !== user.id) {
+        return NextResponse.json({ error: 'Назначать можно только своим ученикам' }, { status: 403 })
+      }
+    }
+  } else {
+    // admin: цель назначения должна быть из его организации
+    if (target_type === 'group' && group_id) {
+      const { data: group } = await admin
+        .from('groups').select('id, organization_id').eq('id', group_id).single()
+      if (!group || group.organization_id !== profile.organization_id) {
+        return NextResponse.json({ error: 'Группа не найдена' }, { status: 404 })
+      }
+    }
+    if (target_type === 'student' && student_id) {
+      const { data: student } = await admin
+        .from('profiles').select('id, role, organization_id').eq('id', student_id).single()
+      if (!student || student.role !== 'student' || student.organization_id !== profile.organization_id) {
+        return NextResponse.json({ error: 'Ученик не найден' }, { status: 404 })
+      }
+    }
   }
 
   const { data: assignment, error } = await admin.from('assignments').insert({

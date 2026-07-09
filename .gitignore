@@ -13,3 +13,8 @@ build/
 supabase/.branches
 supabase/.temp
 supabase/functions/.tmp
+
+# OCR-сканы книг (авторские материалы — не публиковать в репозитории)
+*_by_PaddleOCR*.json
+algebra_*.json
+book-import-sql/

@@ -2,10 +2,15 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { Badge } from '@/components/ui/badge'
+import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
+} from '@/components/ui/alert-dialog'
 import { AttemptDrawer } from '@/components/teacher/AttemptDrawer'
 import { TableFilterBar, useTableFilter, type FilterField } from '@/components/shared/TableFilter'
+import { Trash2, CheckCheck, Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 export interface AttemptRow {
@@ -28,6 +33,7 @@ export interface AttemptRow {
 
 interface Props {
   initialAttempts: AttemptRow[]
+  isAdmin?: boolean
 }
 
 const STATUS_LABELS: Record<string, string> = {
@@ -85,7 +91,13 @@ function formatTime(iso: string | null) {
 
 type Tab = 'active' | 'review' | 'checked'
 
-function TableView({ rows, onSelect }: { rows: AttemptRow[]; onSelect: (id: string) => void }) {
+function TableView({ rows, tab, isAdmin, onSelect, onDelete }: {
+  rows: AttemptRow[]
+  tab: Tab
+  isAdmin: boolean
+  onSelect: (id: string) => void
+  onDelete: (a: AttemptRow) => void
+}) {
   if (rows.length === 0) {
     return (
       <div className="py-12 text-center text-sm text-muted-foreground">
@@ -93,6 +105,7 @@ function TableView({ rows, onSelect }: { rows: AttemptRow[]; onSelect: (id: stri
       </div>
     )
   }
+  const showDelete = isAdmin && tab === 'checked'
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
@@ -104,35 +117,74 @@ function TableView({ rows, onSelect }: { rows: AttemptRow[]; onSelect: (id: stri
             <th className="px-4 py-3 text-left font-medium text-muted-foreground">Статус</th>
             <th className="px-4 py-3 text-center font-medium text-muted-foreground">Балл</th>
             <th className="px-4 py-3 text-left font-medium text-muted-foreground">Активность</th>
-            <th className="px-4 py-3 text-left font-medium text-muted-foreground">Начата</th>
             <th className="px-4 py-3" />
           </tr>
         </thead>
         <tbody>
-          {rows.map((a) => (
-            <tr key={a.id} className="border-b last:border-0 hover:bg-muted/30 transition-colors">
-              <td className="px-4 py-3 font-medium">{a.full_name}</td>
-              <td className="px-4 py-3 text-muted-foreground">{a.grade ?? '—'}</td>
-              <td className="px-4 py-3 max-w-50 truncate text-muted-foreground" title={a.test_title}>
-                {a.test_title}
-              </td>
-              <td className="px-4 py-3"><StatusChip status={a.status} attemptNumber={a.attempt_number} maxAttempts={a.max_attempts} /></td>
-              <td className="px-4 py-3 text-center font-medium tabular-nums">
-                {a.score !== null ? `${a.score}/${a.max_score ?? '?'}` : '—'}
-              </td>
-              <td className="px-4 py-3 text-muted-foreground whitespace-nowrap text-xs">
-                {formatRelative(a.last_activity_at)}
-              </td>
-              <td className="px-4 py-3 text-muted-foreground whitespace-nowrap text-xs">
-                {formatTime(a.started_at)}
-              </td>
-              <td className="px-4 py-3 text-right">
-                <Button variant="ghost" size="sm" onClick={() => onSelect(a.id)}>
-                  {['submitted', 'under_review'].includes(a.status) ? 'Проверить' : 'Подробнее'}
-                </Button>
-              </td>
-            </tr>
-          ))}
+          {rows.map((a) => {
+            const used = a.total_attempts ?? 1
+            const max = a.max_attempts ?? 1
+            return (
+              <tr key={a.id} className="border-b last:border-0 hover:bg-muted/30 transition-colors">
+                <td className="px-4 py-3 font-medium">{a.full_name}</td>
+                <td className="px-4 py-3 text-muted-foreground">{a.grade ?? '—'}</td>
+                <td className="px-4 py-3 max-w-50 text-muted-foreground">
+                  <div className="truncate" title={a.test_title}>{a.test_title}</div>
+                  {tab === 'checked' && (
+                    <div className="text-[11px] text-muted-foreground/80 mt-0.5">
+                      Попыток: {used} из {max}
+                    </div>
+                  )}
+                </td>
+                <td className="px-4 py-3"><StatusChip status={a.status} attemptNumber={a.attempt_number} maxAttempts={a.max_attempts} /></td>
+                <td className="px-4 py-3 text-center font-medium tabular-nums">
+                  {a.score !== null ? `${a.score}/${a.max_score ?? '?'}` : '—'}
+                </td>
+                {/* Объединённый столбец: когда начата + последняя активность */}
+                <td className="px-4 py-3 text-muted-foreground whitespace-nowrap text-xs">
+                  <div>{formatRelative(a.last_activity_at)}</div>
+                  {a.started_at && (
+                    <div className="text-[11px] text-muted-foreground/70">начата {formatTime(a.started_at)}</div>
+                  )}
+                </td>
+                <td className="px-4 py-3 text-right">
+                  <div className="flex items-center gap-1 justify-end">
+                    <Button variant="ghost" size="sm" onClick={() => onSelect(a.id)}>
+                      {['submitted', 'under_review'].includes(a.status) ? 'Проверить' : 'Подробнее'}
+                    </Button>
+                    {showDelete && (
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button variant="ghost" size="sm"
+                            className="h-8 w-8 p-0 text-destructive hover:text-destructive hover:bg-destructive/10"
+                            title="Удалить попытку">
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Удалить попытку?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              Попытка ученика <b>{a.full_name}</b> по тесту «{a.test_title}» будет
+                              удалена безвозвратно вместе с ответами. Накопительный результат
+                              пересчитается по оставшимся попыткам.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Отмена</AlertDialogCancel>
+                            <AlertDialogAction onClick={() => onDelete(a)}
+                              className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                              Удалить
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    )}
+                  </div>
+                </td>
+              </tr>
+            )
+          })}
         </tbody>
       </table>
     </div>
@@ -145,11 +197,41 @@ const FILTER_FIELDS: FilterField[] = [
   { key: 'test_title',  label: 'Тест',   type: 'text',   placeholder: 'Поиск по тесту', width: 'w-48' },
 ]
 
-export function MonitorTable({ initialAttempts }: Props) {
+export function MonitorTable({ initialAttempts, isAdmin = false }: Props) {
   const [attempts, setAttempts] = useState<AttemptRow[]>(initialAttempts)
   const [selectedAttemptId, setSelectedAttemptId] = useState<string | null>(null)
   const [tab, setTab] = useState<Tab>('active')
+  const [finishingAll, setFinishingAll] = useState(false)
   const supabase = createClient()
+
+  async function handleDelete(a: AttemptRow) {
+    const res = await fetch(`/api/admin/attempts/${a.id}`, { method: 'DELETE' })
+    const json = await res.json().catch(() => ({}))
+    if (!res.ok) { toast.error(json.error ?? 'Ошибка удаления'); return }
+    setAttempts(prev => prev.filter(x => x.id !== a.id))
+    const used = json.attempts_used ?? 0
+    const max = json.max_attempts ?? 1
+    const last = json.last_score != null ? `, результат последней: ${json.last_score}/${json.last_max ?? '?'}` : ''
+    toast.success(`Попытка удалена. Использовано ${used} из ${max}${last}`)
+  }
+
+  async function handleFinishAll() {
+    setFinishingAll(true)
+    try {
+      const res = await fetch('/api/admin/attempts/finish-all', { method: 'POST' })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) { toast.error(json.error ?? 'Ошибка'); return }
+      toast.success(`Завершено попыток: ${json.finished}${json.expired ? `, истекло не начатых: ${json.expired}` : ''}`)
+      // Локально убираем активные — они уйдут в другие вкладки после refetch
+      setAttempts(prev => prev.map(x =>
+        ['in_progress', 'not_started'].includes(x.status)
+          ? { ...x, status: x.status === 'not_started' ? 'expired' : 'submitted' }
+          : x
+      ))
+    } finally {
+      setFinishingAll(false)
+    }
+  }
 
   useEffect(() => {
     const channel = supabase
@@ -227,18 +309,46 @@ export function MonitorTable({ initialAttempts }: Props) {
         ))}
       </div>
 
-      {/* Filters */}
-      <TableFilterBar
-        fields={FILTER_FIELDS}
-        filters={filters}
-        setFilter={setFilter}
-        clearFilters={clearFilters}
-        hasActiveFilters={hasActiveFilters}
-        data={tabRows}
-      />
+      {/* Filters + bulk action */}
+      <div className="flex items-start justify-between gap-3">
+        <TableFilterBar
+          fields={FILTER_FIELDS}
+          filters={filters}
+          setFilter={setFilter}
+          clearFilters={clearFilters}
+          hasActiveFilters={hasActiveFilters}
+          data={tabRows}
+        />
+        {isAdmin && tab === 'active' && active.length > 0 && (
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button size="sm" variant="outline" disabled={finishingAll} className="shrink-0 mt-1">
+                {finishingAll ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <CheckCheck className="h-4 w-4 mr-1.5" />}
+                Завершить все
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Завершить все активные попытки?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  Все попытки «в процессе» будут принудительно завершены и проверены
+                  автоматически — даже если время не истекло и попытки не израсходованы.
+                  Ученики, не приступившие к тесту, получат статус «истекла».
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel disabled={finishingAll}>Отмена</AlertDialogCancel>
+                <AlertDialogAction onClick={(e) => { e.preventDefault(); handleFinishAll() }} disabled={finishingAll}>
+                  {finishingAll ? 'Завершение...' : 'Завершить все'}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        )}
+      </div>
 
       <div className="rounded-md border overflow-hidden">
-        <TableView rows={filtered} onSelect={setSelectedAttemptId} />
+        <TableView rows={filtered} tab={tab} isAdmin={isAdmin} onSelect={setSelectedAttemptId} onDelete={handleDelete} />
       </div>
 
       <AttemptDrawer

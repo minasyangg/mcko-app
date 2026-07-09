@@ -23,20 +23,63 @@ export interface StudentRow {
   grade: string | null
   is_active: boolean | null
   created_at: string | null
+  created_by?: string | null
+  teacher_ids?: string[]  // прикреплённые учителя (M:N)
   email?: string
+}
+
+export interface TeacherOption {
+  id: string
+  full_name: string
 }
 
 interface Props {
   students: StudentRow[]
+  // admin: полный CRUD + колонка «Учитель» с переназначением;
+  // teacher: read-only список своих учеников
+  isAdmin?: boolean
+  teachers?: TeacherOption[]
 }
 
-export function StudentsClient({ students: initial }: Props) {
+export function StudentsClient({ students: initial, isAdmin = false, teachers = [] }: Props) {
   const router = useRouter()
   const [students, setStudents] = useState<StudentRow[]>(initial)
   const [editTarget, setEditTarget] = useState<StudentRow | null>(null)
   const [editForm, setEditForm] = useState({ full_name: '', grade: '', email: '', password: '' })
   const [showPwd, setShowPwd] = useState(false)
   const [saving, setSaving] = useState(false)
+
+  // Диалог прикрепления учителей к ученику (M:N)
+  const [teacherTarget, setTeacherTarget] = useState<StudentRow | null>(null)
+  const [checkedTeachers, setCheckedTeachers] = useState<Set<string>>(new Set())
+  const [savingTeachers, setSavingTeachers] = useState(false)
+  const teacherName = (id: string) => teachers.find(t => t.id === id)?.full_name ?? '—'
+
+  function openTeachers(s: StudentRow) {
+    setTeacherTarget(s)
+    setCheckedTeachers(new Set(s.teacher_ids ?? []))
+  }
+
+  async function handleSaveTeachers() {
+    if (!teacherTarget) return
+    setSavingTeachers(true)
+    try {
+      const teacher_ids = [...checkedTeachers]
+      const res = await fetch(`/api/admin/students/${teacherTarget.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ teacher_ids }),
+      })
+      const json = await res.json()
+      if (!res.ok) { toast.error(json.error ?? 'Ошибка сохранения'); return }
+      setStudents(prev => prev.map(s => s.id === teacherTarget.id ? { ...s, teacher_ids } : s))
+      toast.success('Учителя обновлены')
+      setTeacherTarget(null)
+      router.refresh()
+    } finally {
+      setSavingTeachers(false)
+    }
+  }
 
   function openEdit(s: StudentRow) {
     setEditTarget(s)
@@ -113,9 +156,10 @@ export function StudentsClient({ students: initial }: Props) {
               <th className="text-left px-4 py-3 font-medium">ФИО</th>
               <th className="text-left px-4 py-3 font-medium">Email</th>
               <th className="text-left px-4 py-3 font-medium">Класс</th>
+              {isAdmin && <th className="text-left px-4 py-3 font-medium">Учителя</th>}
               <th className="text-left px-4 py-3 font-medium">Статус</th>
               <th className="text-left px-4 py-3 font-medium">Дата</th>
-              <th className="px-4 py-3 w-24" />
+              {isAdmin && <th className="px-4 py-3 w-24" />}
             </tr>
           </thead>
           <tbody className="divide-y">
@@ -135,6 +179,25 @@ export function StudentsClient({ students: initial }: Props) {
                   </td>
                   <td className="px-4 py-3 text-muted-foreground text-xs">{s.email || '—'}</td>
                   <td className="px-4 py-3 text-muted-foreground">{s.grade ?? '—'}</td>
+                  {isAdmin && (
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-1.5 flex-wrap max-w-64">
+                        {(s.teacher_ids ?? []).length === 0 ? (
+                          <span className="text-xs text-muted-foreground">Не закреплён</span>
+                        ) : (
+                          (s.teacher_ids ?? []).map((tid) => (
+                            <Badge key={tid} variant="outline" className="text-[11px] font-normal">
+                              {teacherName(tid)}
+                            </Badge>
+                          ))
+                        )}
+                        <Button size="sm" variant="ghost" className="h-6 px-1.5 text-xs"
+                          onClick={() => openTeachers(s)}>
+                          <Pencil className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    </td>
+                  )}
                   <td className="px-4 py-3">
                     <Badge variant={isActive ? 'default' : 'secondary'}>
                       {isActive ? 'Активен' : 'Неактивен'}
@@ -143,91 +206,93 @@ export function StudentsClient({ students: initial }: Props) {
                   <td className="px-4 py-3 text-muted-foreground">
                     {s.created_at ? new Date(s.created_at).toLocaleDateString('ru-RU') : '—'}
                   </td>
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-1 justify-end">
-                      <Button
-                        size="sm" variant="ghost"
-                        className="h-7 w-7 p-0"
-                        onClick={() => openEdit(s)}
-                        title="Редактировать"
-                      >
-                        <Pencil className="h-3.5 w-3.5" />
-                      </Button>
+                  {isAdmin && (
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-1 justify-end">
+                        <Button
+                          size="sm" variant="ghost"
+                          className="h-7 w-7 p-0"
+                          onClick={() => openEdit(s)}
+                          title="Редактировать"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </Button>
 
-                      {/* Деактивировать (soft) */}
-                      {isActive && (
+                        {/* Деактивировать (soft) */}
+                        {isActive && (
+                          <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                              <Button
+                                size="sm" variant="ghost"
+                                className="h-7 w-7 p-0 text-amber-600 hover:text-amber-700 hover:bg-amber-50"
+                                title="Деактивировать"
+                              >
+                                <UserMinus className="h-3.5 w-3.5" />
+                              </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                              <AlertDialogHeader>
+                                <AlertDialogTitle>Деактивировать ученика?</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                  <strong>{s.full_name}</strong> будет помечен как неактивный.
+                                  Назначения и членство в группах будут удалены.
+                                  История попыток и результаты тестов сохранятся.
+                                </AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <AlertDialogFooter>
+                                <AlertDialogCancel>Отмена</AlertDialogCancel>
+                                <AlertDialogAction
+                                  onClick={() => handleDeactivate(s)}
+                                  className="bg-amber-600 text-white hover:bg-amber-700"
+                                >
+                                  Деактивировать
+                                </AlertDialogAction>
+                              </AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
+                        )}
+
+                        {/* Удалить навсегда (hard) */}
                         <AlertDialog>
                           <AlertDialogTrigger asChild>
                             <Button
                               size="sm" variant="ghost"
-                              className="h-7 w-7 p-0 text-amber-600 hover:text-amber-700 hover:bg-amber-50"
-                              title="Деактивировать"
+                              className="h-7 w-7 p-0 text-destructive hover:text-destructive hover:bg-destructive/10"
+                              title="Удалить навсегда"
                             >
-                              <UserMinus className="h-3.5 w-3.5" />
+                              <Trash2 className="h-3.5 w-3.5" />
                             </Button>
                           </AlertDialogTrigger>
                           <AlertDialogContent>
                             <AlertDialogHeader>
-                              <AlertDialogTitle>Деактивировать ученика?</AlertDialogTitle>
-                              <AlertDialogDescription>
-                                <strong>{s.full_name}</strong> будет помечен как неактивный.
-                                Назначения и членство в группах будут удалены.
-                                История попыток и результаты тестов сохранятся.
+                              <AlertDialogTitle>Удалить ученика навсегда?</AlertDialogTitle>
+                              <AlertDialogDescription className="space-y-2">
+                                <span className="block">
+                                  Это действие <strong>необратимо</strong>. Будут удалены:
+                                </span>
+                                <ul className="list-disc list-inside text-sm space-y-0.5">
+                                  <li>Аккаунт и профиль <strong>{s.full_name}</strong></li>
+                                  <li>Все его попытки и ответы</li>
+                                  <li>Все назначения</li>
+                                  <li>Членство в группах</li>
+                                  <li>Результаты тестов</li>
+                                </ul>
                               </AlertDialogDescription>
                             </AlertDialogHeader>
                             <AlertDialogFooter>
                               <AlertDialogCancel>Отмена</AlertDialogCancel>
                               <AlertDialogAction
-                                onClick={() => handleDeactivate(s)}
-                                className="bg-amber-600 text-white hover:bg-amber-700"
+                                onClick={() => handleHardDelete(s)}
+                                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                               >
-                                Деактивировать
+                                Удалить навсегда
                               </AlertDialogAction>
                             </AlertDialogFooter>
                           </AlertDialogContent>
                         </AlertDialog>
-                      )}
-
-                      {/* Удалить навсегда (hard) */}
-                      <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                          <Button
-                            size="sm" variant="ghost"
-                            className="h-7 w-7 p-0 text-destructive hover:text-destructive hover:bg-destructive/10"
-                            title="Удалить навсегда"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                          <AlertDialogHeader>
-                            <AlertDialogTitle>Удалить ученика навсегда?</AlertDialogTitle>
-                            <AlertDialogDescription className="space-y-2">
-                              <span className="block">
-                                Это действие <strong>необратимо</strong>. Будут удалены:
-                              </span>
-                              <ul className="list-disc list-inside text-sm space-y-0.5">
-                                <li>Аккаунт и профиль <strong>{s.full_name}</strong></li>
-                                <li>Все его попытки и ответы</li>
-                                <li>Все назначения</li>
-                                <li>Членство в группах</li>
-                                <li>Результаты тестов</li>
-                              </ul>
-                            </AlertDialogDescription>
-                          </AlertDialogHeader>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel>Отмена</AlertDialogCancel>
-                            <AlertDialogAction
-                              onClick={() => handleHardDelete(s)}
-                              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                            >
-                              Удалить навсегда
-                            </AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
-                    </div>
-                  </td>
+                      </div>
+                    </td>
+                  )}
                 </tr>
               )
             })}
@@ -235,77 +300,124 @@ export function StudentsClient({ students: initial }: Props) {
         </table>
       </div>
 
-      {/* Edit dialog */}
-      <Dialog open={!!editTarget} onOpenChange={(v) => { if (!v) setEditTarget(null) }}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Редактировать: {editTarget?.full_name}</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3 py-2">
-            <div className="space-y-1">
-              <Label htmlFor="edit-name">Полное имя</Label>
-              <Input
-                id="edit-name"
-                value={editForm.full_name}
-                onChange={(e) => setEditForm((p) => ({ ...p, full_name: e.target.value }))}
-              />
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="edit-grade">Класс</Label>
-              <Input
-                id="edit-grade"
-                value={editForm.grade}
-                onChange={(e) => setEditForm((p) => ({ ...p, grade: e.target.value }))}
-                placeholder="10А, 9Б..."
-              />
-            </div>
-            {editTarget?.email && (
+      {/* Edit dialog (admin only) */}
+      {isAdmin && (
+        <Dialog open={!!editTarget} onOpenChange={(v) => { if (!v) setEditTarget(null) }}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Редактировать: {editTarget?.full_name}</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-3 py-2">
               <div className="space-y-1">
-                <Label className="text-muted-foreground">Текущий email</Label>
-                <p className="text-sm px-3 py-2 rounded-md bg-muted text-muted-foreground font-mono">{editTarget.email}</p>
-              </div>
-            )}
-            <div className="space-y-1">
-              <Label htmlFor="edit-email">Новый email <span className="text-muted-foreground text-xs">(необязательно)</span></Label>
-              <Input
-                id="edit-email"
-                type="email"
-                value={editForm.email}
-                onChange={(e) => setEditForm((p) => ({ ...p, email: e.target.value }))}
-                placeholder="Оставьте пустым, чтобы не менять"
-              />
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="edit-pwd">Новый пароль <span className="text-muted-foreground text-xs">(необязательно)</span></Label>
-              <div className="relative">
+                <Label htmlFor="edit-name">Полное имя</Label>
                 <Input
-                  id="edit-pwd"
-                  type={showPwd ? 'text' : 'password'}
-                  value={editForm.password}
-                  onChange={(e) => setEditForm((p) => ({ ...p, password: e.target.value }))}
-                  placeholder="Минимум 6 символов"
-                  className="pr-10"
+                  id="edit-name"
+                  value={editForm.full_name}
+                  onChange={(e) => setEditForm((p) => ({ ...p, full_name: e.target.value }))}
                 />
-                <button
-                  type="button"
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                  onClick={() => setShowPwd((v) => !v)}
-                >
-                  {showPwd ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </button>
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="edit-grade">Класс</Label>
+                <Input
+                  id="edit-grade"
+                  value={editForm.grade}
+                  onChange={(e) => setEditForm((p) => ({ ...p, grade: e.target.value }))}
+                  placeholder="10А, 9Б..."
+                />
+              </div>
+              {editTarget?.email && (
+                <div className="space-y-1">
+                  <Label className="text-muted-foreground">Текущий email</Label>
+                  <p className="text-sm px-3 py-2 rounded-md bg-muted text-muted-foreground font-mono">{editTarget.email}</p>
+                </div>
+              )}
+              <div className="space-y-1">
+                <Label htmlFor="edit-email">Новый email <span className="text-muted-foreground text-xs">(необязательно)</span></Label>
+                <Input
+                  id="edit-email"
+                  type="email"
+                  value={editForm.email}
+                  onChange={(e) => setEditForm((p) => ({ ...p, email: e.target.value }))}
+                  placeholder="Оставьте пустым, чтобы не менять"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="edit-pwd">Новый пароль <span className="text-muted-foreground text-xs">(необязательно)</span></Label>
+                <div className="relative">
+                  <Input
+                    id="edit-pwd"
+                    type={showPwd ? 'text' : 'password'}
+                    value={editForm.password}
+                    onChange={(e) => setEditForm((p) => ({ ...p, password: e.target.value }))}
+                    placeholder="Минимум 6 символов"
+                    className="pr-10"
+                  />
+                  <button
+                    type="button"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    onClick={() => setShowPwd((v) => !v)}
+                  >
+                    {showPwd ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
               </div>
             </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setEditTarget(null)} disabled={saving}>
-              Отмена
-            </Button>
-            <Button onClick={handleSave} disabled={saving}>
-              {saving ? 'Сохранение...' : 'Сохранить'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setEditTarget(null)} disabled={saving}>
+                Отмена
+              </Button>
+              <Button onClick={handleSave} disabled={saving}>
+                {saving ? 'Сохранение...' : 'Сохранить'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {/* Прикрепление учителей к ученику (M:N) */}
+      {isAdmin && (
+        <Dialog open={!!teacherTarget} onOpenChange={(v) => { if (!v) setTeacherTarget(null) }}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Учителя ученика: {teacherTarget?.full_name}</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-2">
+              <p className="text-xs text-muted-foreground">
+                Ученика можно закрепить за несколькими учителями. Каждый учитель видит
+                только свои тесты и результаты этого ученика.
+              </p>
+              <div className="max-h-72 overflow-y-auto rounded-md border divide-y">
+                {teachers.length === 0 && (
+                  <p className="px-3 py-6 text-center text-sm text-muted-foreground">Учителей нет</p>
+                )}
+                {teachers.map((t) => (
+                  <label key={t.id} className="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-muted/40">
+                    <input
+                      type="checkbox"
+                      checked={checkedTeachers.has(t.id)}
+                      onChange={() => setCheckedTeachers((prev) => {
+                        const next = new Set(prev)
+                        if (next.has(t.id)) next.delete(t.id); else next.add(t.id)
+                        return next
+                      })}
+                      className="h-4 w-4 shrink-0"
+                    />
+                    <span className="text-sm">{t.full_name}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setTeacherTarget(null)} disabled={savingTeachers}>
+                Отмена
+              </Button>
+              <Button onClick={handleSaveTeachers} disabled={savingTeachers}>
+                {savingTeachers ? 'Сохранение...' : 'Сохранить'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
     </>
   )
 }

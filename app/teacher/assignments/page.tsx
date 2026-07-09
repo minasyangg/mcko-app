@@ -11,7 +11,7 @@ export default async function AssignmentsPage() {
     .from('assignments')
     .select(`
       id, starts_at, ends_at, max_attempts, created_at,
-      group_id, student_id,
+      group_id, student_id, test_version_id,
       test_versions!test_version_id ( tests!test_id ( title ) ),
       groups ( name ),
       profiles!student_id ( full_name ),
@@ -19,6 +19,19 @@ export default async function AssignmentsPage() {
     `)
     .order('created_at', { ascending: false })
     .limit(100)
+
+  // Итоги учеников (persist «использовано N из M» + результат последней попытки).
+  // Читаем по всем test_version, встречающимся в назначениях.
+  const tvIds = [...new Set((assignments ?? []).map(a => a.test_version_id).filter(Boolean))]
+  const { data: finalResults } = tvIds.length
+    ? await supabase
+        .from('student_final_results')
+        .select('student_id, test_version_id, final_score, max_score, attempt_count, status')
+        .in('test_version_id', tvIds)
+    : { data: [] as { student_id: string; test_version_id: string; final_score: number | null; max_score: number | null; attempt_count: number | null; status: string | null }[] }
+  const finalMap = new Map(
+    (finalResults ?? []).map(r => [`${r.student_id}_${r.test_version_id}`, r])
+  )
 
   return (
     <div className="space-y-6">
@@ -66,12 +79,18 @@ export default async function AssignmentsPage() {
                 const allAttempts = ((a as any).attempts ?? []) as { id: string; status: string; student_id: string }[]
                 const maxAttempts = a.max_attempts ?? 1
                 const isGroupAssignment = !!a.group_id
-                // For individual: track completion by per-student attempt count
-                // For group: show max_attempts per student (not total across all students)
-                const completedCount = isGroupAssignment
-                  ? 0  // groups: completion tracked per-student, not shown in aggregate
-                  : allAttempts.filter(at => ['submitted', 'checked'].includes(at.status)).length
+                // Индивидуальное назначение: «использовано» берём из
+                // student_final_results (переживает удаление отдельной попытки),
+                // с фолбэком на живой подсчёт. Итог — результат последней попытки.
+                const sfr = !isGroupAssignment && a.student_id
+                  ? finalMap.get(`${a.student_id}_${a.test_version_id}`)
+                  : undefined
+                const liveCompleted = allAttempts.filter(at => ['submitted', 'checked'].includes(at.status)).length
+                const completedCount = isGroupAssignment ? 0 : (sfr?.attempt_count ?? liveCompleted)
                 const isCompleted = !isGroupAssignment && completedCount >= maxAttempts && completedCount > 0
+                const lastResult = sfr && sfr.final_score != null
+                  ? `${sfr.final_score}/${sfr.max_score ?? '?'}`
+                  : null
                 const target = group?.name
                   ? `Группа: ${group.name}`
                   : profile?.full_name
@@ -94,12 +113,19 @@ export default async function AssignmentsPage() {
                         : '—'}
                     </td>
                     <td className="px-4 py-3">
-                      {isGroupAssignment
-                        ? <span className="text-muted-foreground">{maxAttempts} / уч.</span>
-                        : isCompleted
-                          ? <span className="text-xs font-medium text-emerald-700 dark:text-emerald-400">✓ Завершён ({completedCount}/{maxAttempts})</span>
-                          : <span className="text-muted-foreground">{completedCount}/{maxAttempts}</span>
-                      }
+                      {isGroupAssignment ? (
+                        <span className="text-muted-foreground">{maxAttempts} / уч.</span>
+                      ) : (
+                        <div className="space-y-0.5">
+                          {isCompleted
+                            ? <span className="text-xs font-medium text-emerald-700 dark:text-emerald-400">✓ Завершён ({completedCount}/{maxAttempts})</span>
+                            : <span className="text-muted-foreground">использовано {completedCount} из {maxAttempts}</span>
+                          }
+                          {lastResult && (
+                            <div className="text-[11px] text-muted-foreground">последняя: <span className="font-medium tabular-nums text-foreground">{lastResult}</span></div>
+                          )}
+                        </div>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-muted-foreground">
                       {a.created_at
