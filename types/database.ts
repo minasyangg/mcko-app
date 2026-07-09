@@ -282,18 +282,21 @@ export type Database = {
       book_editors: {
         Row: {
           book_id: string
+          can_delete: boolean
           created_at: string | null
           granted_by: string | null
           teacher_id: string
         }
         Insert: {
           book_id: string
+          can_delete?: boolean
           created_at?: string | null
           granted_by?: string | null
           teacher_id: string
         }
         Update: {
           book_id?: string
+          can_delete?: boolean
           created_at?: string | null
           granted_by?: string | null
           teacher_id?: string

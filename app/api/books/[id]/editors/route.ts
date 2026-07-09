@@ -40,13 +40,13 @@ export async function GET(
 
   const { data: editors } = await admin
     .from('book_editors')
-    .select('teacher_id, granted_by, created_at')
+    .select('teacher_id, can_delete, granted_by, created_at')
     .eq('book_id', bookId)
 
   return Response.json({ editors: editors ?? [] })
 }
 
-// POST /api/books/[id]/editors — выдать грант. Body: { teacher_id }
+// POST /api/books/[id]/editors — выдать/обновить грант. Body: { teacher_id, can_delete? }
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -55,7 +55,7 @@ export async function POST(
   const ctx = await verifyAdmin()
   if (!ctx) return Response.json({ error: 'Выдавать доступ может только администратор' }, { status: 403 })
 
-  const body = await request.json().catch(() => ({})) as { teacher_id?: string }
+  const body = await request.json().catch(() => ({})) as { teacher_id?: string; can_delete?: boolean }
   if (!body.teacher_id) return Response.json({ error: 'teacher_id required' }, { status: 400 })
 
   const admin = createAdminClient()
@@ -78,6 +78,7 @@ export async function POST(
   const { error } = await admin.from('book_editors').upsert({
     book_id: bookId,
     teacher_id: body.teacher_id,
+    can_delete: body.can_delete ?? false,
     granted_by: ctx.userId,
   }, { onConflict: 'book_id,teacher_id' })
   if (error) return Response.json({ error: error.message }, { status: 500 })

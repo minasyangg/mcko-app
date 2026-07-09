@@ -3,7 +3,8 @@ import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { BookOpen } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { BookOpen, ShieldCheck } from 'lucide-react'
 
 const bookTypeLabel: Record<string, string> = {
   textbook: 'Учебник',
@@ -17,6 +18,10 @@ export default async function BooksPage() {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
+  const { data: profile } = await supabase
+    .from('profiles').select('role').eq('id', user.id).single()
+  const isAdmin = profile?.role === 'admin'
+
   const { data: books } = await supabase
     .from('books')
     .select('id, title, authors, book_type, subject, grade, level, page_count, import_meta')
@@ -27,11 +32,21 @@ export default async function BooksPage() {
 
   return (
     <div className="max-w-5xl mx-auto py-8 px-4 space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold">Книги</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Учебники и задачники — база заданий для домашних работ и тестов
-        </p>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold">Книги</h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            Учебники и задачники — база заданий для домашних работ и тестов
+          </p>
+        </div>
+        {isAdmin && (
+          <Button asChild variant="outline" size="sm">
+            <Link href="/teacher/books/permissions">
+              <ShieldCheck className="h-4 w-4 mr-1.5" />
+              Права доступа
+            </Link>
+          </Button>
+        )}
       </div>
 
       {(!books || books.length === 0) && (

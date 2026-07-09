@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import MarkdownContent from '@/components/shared/MarkdownContent'
 import { AddToTestDialog } from '@/components/teacher/AddToTestDialog'
@@ -27,6 +28,7 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
+  AlertDialogTrigger,
 } from '@/components/ui/alert-dialog'
 import {
   ArrowLeft, ChevronRight, ChevronDown, ChevronUp, Plus, Search, X,
@@ -973,7 +975,24 @@ function PageBlock({
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
-export function BookReader({ book, sections: initialSections, canEdit = false, editorsPanel = null }: { book: Book; sections: Section[]; canEdit?: boolean; editorsPanel?: React.ReactNode }) {
+export function BookReader({ book, sections: initialSections, canEdit = false, canDelete = false, editorsPanel = null }: { book: Book; sections: Section[]; canEdit?: boolean; canDelete?: boolean; editorsPanel?: React.ReactNode }) {
+  const router = useRouter()
+  const [deletingBook, setDeletingBook] = useState(false)
+
+  async function handleDeleteBook() {
+    setDeletingBook(true)
+    try {
+      const res = await fetch(`/api/books/${book.id}`, { method: 'DELETE' })
+      const d = await res.json().catch(() => ({}))
+      if (!res.ok) { toast.error(d.error ?? 'Ошибка удаления'); setDeletingBook(false); return }
+      toast.success(`Книга «${book.title}» удалена`)
+      router.push('/teacher/books')
+      router.refresh()
+    } catch {
+      setDeletingBook(false)
+    }
+  }
+
   const [sections, setSections] = useState(initialSections)
   const tree = useMemo(() => buildTree(sections), [sections])
   const sectionById = useMemo(() => new Map(sections.map(s => [s.id, s])), [sections])
@@ -1091,6 +1110,33 @@ export function BookReader({ book, sections: initialSections, canEdit = false, e
           </Button>
           <h1 className="font-semibold text-sm leading-snug">{book.title}</h1>
           {book.authors && <p className="text-xs text-muted-foreground line-clamp-2">{book.authors}</p>}
+          {canDelete && (
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button variant="ghost" size="sm"
+                  className="h-6 -ml-2 px-2 text-xs text-destructive hover:text-destructive hover:bg-destructive/10">
+                  <Trash2 className="h-3 w-3 mr-1" /> Удалить книгу
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Удалить книгу «{book.title}»?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Книга со всеми разделами, страницами и заданиями будет удалена безвозвратно.
+                    Задания, уже добавленные в тесты, там сохранятся.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel disabled={deletingBook}>Отмена</AlertDialogCancel>
+                  <AlertDialogAction onClick={(e) => { e.preventDefault(); handleDeleteBook() }}
+                    disabled={deletingBook}
+                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                    {deletingBook ? 'Удаление...' : 'Удалить'}
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          )}
         </div>
         {/* Админский блок «Доступ на редактирование» (грант book_editors) */}
         {editorsPanel}
