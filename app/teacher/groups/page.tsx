@@ -11,6 +11,7 @@ export default async function GroupsPage() {
   const { data: groups } = await supabase
     .from('groups')
     .select('id, name, description, created_at')
+    .is('roadmap_id', null)  // скрытые системные группы программ не показываем
     .order('created_at', { ascending: false })
 
   // Count members per group

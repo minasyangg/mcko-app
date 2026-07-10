@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { LogoutButton } from '@/components/shared/LogoutButton'
-import { BookOpen, BookMarked, Users, GraduationCap, Monitor, FileText, ClipboardList, BarChart2, TrendingUp, Menu, X, ListChecks, Library } from 'lucide-react'
+import { BookOpen, BookMarked, Users, GraduationCap, Monitor, FileText, ClipboardList, BarChart2, TrendingUp, Menu, X, ListChecks, Library, Route } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
 
@@ -23,10 +23,11 @@ const navItems: NavItem[] = [
   { href: '/teacher/library', label: 'Библиотека', icon: Library },
   { href: '/teacher/books', label: 'Книги', icon: BookMarked },
   { href: '/teacher/assignments', label: 'Назначения', icon: ClipboardList },
+  { href: '/teacher/roadmaps', label: 'Программы', icon: Route, teacherOnly: true },
   { href: '/teacher/monitor', label: 'Мониторинг', icon: Monitor },
   { href: '/teacher/results', label: 'Результаты', icon: TrendingUp },
-  { href: '/teacher/groups', label: 'Группы', icon: Users },
   // admin: единая панель пользователей; teacher: только свои ученики (read-only)
+  // «Группы» — внутри «Ученики»/«Пользователи» (ссылка в шапке), не в меню
   { href: '/teacher/users', label: 'Пользователи', icon: GraduationCap, adminOnly: true },
   { href: '/teacher/students', label: 'Ученики', icon: Users, teacherOnly: true },
   { href: '/teacher/solution-requests', label: 'Запросы', icon: FileText },

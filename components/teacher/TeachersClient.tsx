@@ -2,6 +2,7 @@
 
 import { useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -9,7 +10,7 @@ import { Input } from '@/components/ui/input'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from '@/components/ui/dialog'
-import { Users, Search } from 'lucide-react'
+import { Users, Search, LayoutDashboard } from 'lucide-react'
 
 interface TeacherRow {
   id: string
@@ -100,7 +101,7 @@ export function TeachersClient({ teachers, students }: { teachers: TeacherRow[];
               <th className="text-left px-4 py-3 font-medium">ФИО</th>
               <th className="text-left px-4 py-3 font-medium">Email</th>
               <th className="text-left px-4 py-3 font-medium">Учеников</th>
-              <th className="px-4 py-3 w-40" />
+              <th className="px-4 py-3 w-60" />
             </tr>
           </thead>
           <tbody className="divide-y">
@@ -117,10 +118,18 @@ export function TeachersClient({ teachers, students }: { teachers: TeacherRow[];
                   <Badge variant="secondary">{t.student_count}</Badge>
                 </td>
                 <td className="px-4 py-3 text-right">
-                  <Button size="sm" variant="outline" onClick={() => openAssign(t)}>
-                    <Users className="h-3.5 w-3.5 mr-1.5" />
-                    Ученики
-                  </Button>
+                  <div className="flex items-center justify-end gap-1.5">
+                    <Button asChild size="sm" variant="ghost">
+                      <Link href={`/teacher/users/${t.id}/cabinet`}>
+                        <LayoutDashboard className="h-3.5 w-3.5 mr-1.5" />
+                        Кабинет
+                      </Link>
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={() => openAssign(t)}>
+                      <Users className="h-3.5 w-3.5 mr-1.5" />
+                      Ученики
+                    </Button>
+                  </div>
                 </td>
               </tr>
             ))}
