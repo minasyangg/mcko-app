@@ -804,6 +804,40 @@ for (const [key, stream] of streams) {
   })
 }
 
+// Разрывные задания: последнее задание страницы нередко продолжается на
+// следующей странице (иногда через пустую страницу-колонцифру). Собираем
+// «хвост» — текст последующих страниц до первого нового задания/заголовка,
+// не залезая в оглавление и раздел ответов. Ограничиваем объём, чтобы не
+// утащить теорию или начало нового раздела.
+let continuationsPulled = 0
+function pullContinuation(fromIndex) {
+  let acc = ''
+  let budget = 1200
+  for (let j = fromIndex + 1; j < pages.length && budget > 0; j++) {
+    const np = pages[j]
+    if (np.contentBlocks.length > 0) break                 // страница оглавления
+    if (answersStart !== null && j >= answersStart) break  // ответы и дальше — не задания
+    const nextMd = np.markdown
+    const trimmed = nextMd.trim()
+    if (trimmed === '' || /^\d{1,4}$/.test(trimmed)) continue // пустая или только колонцифра — хвост может быть дальше
+    const nextRe = scheme === 'composite' && !(isDidactic || inRepetition(j) || dkrByPage.has(j))
+      ? COMPOSITE_RE : SEQ_RE
+    nextRe.lastIndex = 0
+    const nextTask = nextRe.exec(nextMd)
+    const nextHeading = nextMd.search(/^#{1,6}\s/m)
+    let cut = nextMd.length
+    if (nextTask) cut = Math.min(cut, nextTask.index)
+    if (nextHeading >= 0) cut = Math.min(cut, nextHeading)
+    let cont = nextMd.slice(0, cut).trim()
+    if (!cont || /^#/.test(cont)) break  // страница сразу начинается с задания/заголовка — хвоста нет
+    if (cont.length > budget) cont = cont.slice(0, budget) // длинный хвост берём началом, а не отбрасываем целиком
+    acc += (acc ? '\n\n' : '') + cont
+    budget -= cont.length
+    if (cut < nextMd.length) break       // на этой странице уже началось новое задание/раздел — дальше не идём
+  }
+  return acc
+}
+
 // Фаза 3: тексты заданий
 for (const e of pageEntries) {
   const { p, md, accepted } = e
@@ -814,21 +848,11 @@ for (const e of pageEntries) {
     const end = i + 1 < accepted.length ? accepted[i + 1].at : md.length
     let prompt = md.slice(s.at, end).trim()
 
-    // перенос на следующую страницу: если следующая страница начинается не с задания/заголовка
-    if (i === accepted.length - 1 && p.index + 1 < pages.length) {
-      const nextMd = pages[p.index + 1]?.markdown ?? ''
-      const nextRe = scheme === 'composite' && !(isDidactic || inRepetition(p.index + 1) || dkrByPage.has(p.index + 1))
-        ? COMPOSITE_RE : SEQ_RE
-      nextRe.lastIndex = 0
-      const nextTask = nextRe.exec(nextMd)
-      const nextHeading = nextMd.search(/^#{1,6}\s/m)
-      let cut = nextMd.length
-      if (nextTask) cut = Math.min(cut, nextTask.index)
-      if (nextHeading >= 0) cut = Math.min(cut, nextHeading)
-      const cont = nextMd.slice(0, cut).trim()
-      if (cont && cut > 0 && cut < 900 && !/^#/.test(cont)) {
-        prompt += '\n\n' + cont
-      }
+    // перенос на следующую страницу(ы): последнее задание страницы может
+    // продолжаться дальше — склеиваем «хвост» разрывного задания
+    if (i === accepted.length - 1) {
+      const cont = pullContinuation(p.index)
+      if (cont) { prompt += '\n\n' + cont; continuationsPulled++ }
     }
 
     problems.push({
@@ -1032,6 +1056,7 @@ console.log(`  из домашних контрольных: ${uniqueProblems.fi
 console.log(`  с ответами из книги: ${answersFound}`)
 console.log(`  с автопроверкой:     ${uniqueProblems.filter(p => p.gradingMethod && p.gradingMethod !== 'manual').length}`)
 console.log(`  с картинками:        ${uniqueProblems.filter(p => p.hasImages).length}`)
+console.log(`  разрывных (склеено): ${continuationsPulled}`)
 console.log(`  повышенной трудности: ${uniqueProblems.filter(p => p.difficulty === 'advanced').length}`)
 console.log(`  без раздела:         ${uniqueProblems.filter(p => !p.section).length}`)
 console.log(`Предупреждений: ${warnings.length}`)
