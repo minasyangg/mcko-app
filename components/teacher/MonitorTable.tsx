@@ -9,6 +9,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from '@/components/ui/alert-dialog'
 import { AttemptDrawer } from '@/components/teacher/AttemptDrawer'
+import { AssignmentsPanel, type AssignmentRow } from '@/components/teacher/AssignmentsPanel'
 import { TableFilterBar, useTableFilter, type FilterField } from '@/components/shared/TableFilter'
 import { Trash2, CheckCheck, Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -34,6 +35,7 @@ export interface AttemptRow {
 interface Props {
   initialAttempts: AttemptRow[]
   isAdmin?: boolean
+  assignments?: AssignmentRow[]
 }
 
 const STATUS_LABELS: Record<string, string> = {
@@ -89,7 +91,7 @@ function formatTime(iso: string | null) {
   return new Date(iso).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
 }
 
-type Tab = 'active' | 'review' | 'checked'
+type Tab = 'assignments' | 'active' | 'review' | 'checked'
 
 function TableView({ rows, tab, isAdmin, onSelect, onDelete, onFinish }: {
   rows: AttemptRow[]
@@ -226,10 +228,10 @@ const FILTER_FIELDS: FilterField[] = [
   { key: 'test_title',  label: 'Тест',   type: 'text',   placeholder: 'Поиск по тесту', width: 'w-48' },
 ]
 
-export function MonitorTable({ initialAttempts, isAdmin = false }: Props) {
+export function MonitorTable({ initialAttempts, isAdmin = false, assignments = [] }: Props) {
   const [attempts, setAttempts] = useState<AttemptRow[]>(initialAttempts)
   const [selectedAttemptId, setSelectedAttemptId] = useState<string | null>(null)
-  const [tab, setTab] = useState<Tab>('active')
+  const [tab, setTab] = useState<Tab>('assignments')
   const [finishingAll, setFinishingAll] = useState(false)
   const supabase = createClient()
 
@@ -305,25 +307,17 @@ export function MonitorTable({ initialAttempts, isAdmin = false }: Props) {
   const review  = attempts.filter((a) => ['submitted', 'under_review'].includes(a.status))
   const checked = attempts.filter((a) => ['checked', 'completed'].includes(a.status))
 
-  const tabRows = tab === 'active' ? active : tab === 'review' ? review : checked
+  const tabRows = tab === 'active' ? active : tab === 'review' ? review : tab === 'checked' ? checked : []
 
   const { filtered, filters, setFilter, clearFilters, hasActiveFilters } =
     useTableFilter(tabRows, FILTER_FIELDS)
 
   const tabs: { key: Tab; label: string; count: number }[] = [
+    { key: 'assignments', label: 'Назначения', count: assignments.length },
     { key: 'active',  label: 'В процессе',  count: active.length },
     { key: 'review',  label: 'На проверке', count: review.length },
     { key: 'checked', label: 'Проверено',   count: checked.length },
   ]
-
-  if (attempts.length === 0) {
-    return (
-      <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
-        <p className="text-lg font-medium">Нет попыток</p>
-        <p className="text-sm mt-1">Когда ученики начнут тест, они появятся здесь.</p>
-      </div>
-    )
-  }
 
   return (
     <>
@@ -351,7 +345,11 @@ export function MonitorTable({ initialAttempts, isAdmin = false }: Props) {
         ))}
       </div>
 
+      {/* Первый таб — назначения (перенесены из отдельного раздела) */}
+      {tab === 'assignments' && <AssignmentsPanel rows={assignments} />}
+
       {/* Filters + bulk action */}
+      {tab !== 'assignments' && (
       <div className="flex items-start justify-between gap-3">
         <TableFilterBar
           fields={FILTER_FIELDS}
@@ -388,10 +386,13 @@ export function MonitorTable({ initialAttempts, isAdmin = false }: Props) {
           </AlertDialog>
         )}
       </div>
+      )}
 
+      {tab !== 'assignments' && (
       <div className="rounded-md border overflow-hidden">
         <TableView rows={filtered} tab={tab} isAdmin={isAdmin} onSelect={setSelectedAttemptId} onDelete={handleDelete} onFinish={handleFinish} />
       </div>
+      )}
 
       <AttemptDrawer
         attemptId={selectedAttemptId}

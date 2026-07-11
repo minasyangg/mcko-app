@@ -17,11 +17,14 @@ export default async function GroupDetailPage({ params }: Props) {
 
   const { data: group } = await supabase
     .from('groups')
-    .select('id, name, description, organization_id')
+    .select('id, name, description, organization_id, roadmap_id')
     .eq('id', groupId)
     .single()
 
   if (!group) redirect('/teacher/groups')
+  // Системная группа программы — не группа: состав управляется в редакторе
+  // программы, сюда не пускаем, чтобы не путать понятия
+  if (group.roadmap_id) redirect(`/teacher/roadmaps/${group.roadmap_id}`)
 
   const { data: members } = await supabase
     .from('group_members')

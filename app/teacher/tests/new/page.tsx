@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { z } from 'zod'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -35,6 +35,10 @@ const SUBJECTS = ['Математика', 'Физика', 'ТВИС', 'Русс�
 
 export default function NewTestPage() {
   const router = useRouter()
+  // ?kind=homework — создание домашнего задания (баллы задаёт учитель),
+  // по умолчанию — тест (разбаловка/критерии по правилам оценивания)
+  const kind = useSearchParams().get('kind') === 'homework' ? 'homework' : 'test'
+  const isHomework = kind === 'homework'
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -93,6 +97,7 @@ export default function NewTestPage() {
           organization_id: profile.organization_id,
           created_by: user.id,
           status: 'draft',
+          kind,
         })
         .select('id')
         .single()
@@ -124,11 +129,15 @@ export default function NewTestPage() {
     <div className="max-w-2xl mx-auto py-8 px-4">
       <div className="mb-6">
         <Button asChild variant="ghost" size="sm" className="mb-4">
-          <Link href="/teacher/tests">← Назад к тестам</Link>
+          <Link href="/teacher/tests">← Назад к заданиям</Link>
         </Button>
-        <h1 className="text-2xl font-semibold">Создать новый тест</h1>
+        <h1 className="text-2xl font-semibold">
+          {isHomework ? 'Создать домашнее задание' : 'Создать новый тест'}
+        </h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Заполните информацию о тесте, затем загрузите PDF с заданиями
+          {isHomework
+            ? 'Домашнее задание — баллы задаёте вы сами при составлении или назначении'
+            : 'Заполните информацию о тесте, затем загрузите PDF с заданиями'}
         </p>
       </div>
 

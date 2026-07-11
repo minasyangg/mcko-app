@@ -2045,6 +2045,7 @@ export type Database = {
           grade: string | null
           id: string
           is_active: boolean
+          kind: string
           organization_id: string
           scoring_rule_id: string | null
           status: string
@@ -2061,6 +2062,7 @@ export type Database = {
           grade?: string | null
           id?: string
           is_active?: boolean
+          kind?: string
           organization_id: string
           scoring_rule_id?: string | null
           status?: string
@@ -2077,6 +2079,7 @@ export type Database = {
           grade?: string | null
           id?: string
           is_active?: boolean
+          kind?: string
           organization_id?: string
           scoring_rule_id?: string | null
           status?: string

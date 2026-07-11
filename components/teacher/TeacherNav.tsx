@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { LogoutButton } from '@/components/shared/LogoutButton'
-import { BookOpen, BookMarked, Users, GraduationCap, Monitor, FileText, ClipboardList, BarChart2, TrendingUp, Menu, X, ListChecks, Library, Route } from 'lucide-react'
+import { BookOpen, BookMarked, Users, GraduationCap, Monitor, FileText, BarChart2, TrendingUp, Menu, X, ListChecks, Library, Route } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
 
@@ -19,10 +19,10 @@ interface NavItem {
 
 const navItems: NavItem[] = [
   { href: '/teacher', label: 'Дашборд', icon: BarChart2, exact: true },
-  { href: '/teacher/tests', label: 'Тесты', icon: BookOpen },
+  { href: '/teacher/tests', label: 'Задания', icon: BookOpen },
   { href: '/teacher/library', label: 'Библиотека', icon: Library },
   { href: '/teacher/books', label: 'Книги', icon: BookMarked },
-  { href: '/teacher/assignments', label: 'Назначения', icon: ClipboardList },
+  // «Назначения» — первый таб внутри «Мониторинга»
   { href: '/teacher/roadmaps', label: 'Программы', icon: Route, teacherOnly: true },
   { href: '/teacher/monitor', label: 'Мониторинг', icon: Monitor },
   { href: '/teacher/results', label: 'Результаты', icon: TrendingUp },

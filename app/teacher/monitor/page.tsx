@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { MonitorTable, type AttemptRow } from '@/components/teacher/MonitorTable'
+import type { AssignmentRow } from '@/components/teacher/AssignmentsPanel'
 
 export default async function MonitorPage() {
   const supabase = await createClient()
@@ -114,15 +115,69 @@ export default async function MonitorPage() {
     }
   }).sort((a, b) => new Date(b.last_activity_at ?? 0).getTime() - new Date(a.last_activity_at ?? 0).getTime())
 
+  // ── Таб «Назначения» (перенесён из /teacher/assignments) ──
+  // Roadmap-назначения (roadmap_topic_id) не показываем: программа — не
+  // группа, её заданиями управляет редактор программы.
+  const { data: asgnRows } = await supabase
+    .from('assignments')
+    .select(`
+      id, starts_at, ends_at, max_attempts, created_at,
+      group_id, student_id, test_version_id,
+      test_versions!test_version_id ( tests!test_id ( title ) ),
+      groups ( name ),
+      profiles!student_id ( full_name ),
+      attempts ( id, status, student_id )
+    `)
+    .is('roadmap_topic_id', null)
+    .order('created_at', { ascending: false })
+    .limit(100)
+
+  const asgnTvIds = [...new Set((asgnRows ?? []).map(a => a.test_version_id).filter(Boolean))]
+  const { data: asgnFinals } = asgnTvIds.length
+    ? await supabase
+        .from('student_final_results')
+        .select('student_id, test_version_id, final_score, max_score, attempt_count')
+        .in('test_version_id', asgnTvIds)
+    : { data: [] as { student_id: string; test_version_id: string; final_score: number | null; max_score: number | null; attempt_count: number | null }[] }
+  const asgnFinalMap = new Map(
+    (asgnFinals ?? []).map(r => [`${r.student_id}_${r.test_version_id}`, r])
+  )
+
+  const assignments: AssignmentRow[] = (asgnRows ?? []).map(a => {
+    const tv = a.test_versions as any
+    const test = tv?.tests as any
+    const group = a.groups as any
+    const profileRow = (a as any).profiles as any
+    const allAttempts = ((a as any).attempts ?? []) as { status: string }[]
+    const maxAttempts = a.max_attempts ?? 1
+    const isGroup = !!a.group_id
+    const sfr = !isGroup && a.student_id ? asgnFinalMap.get(`${a.student_id}_${a.test_version_id}`) : undefined
+    const liveCompleted = allAttempts.filter(at => ['submitted', 'checked'].includes(at.status)).length
+    const completedCount = isGroup ? 0 : (sfr?.attempt_count ?? liveCompleted)
+    return {
+      id: a.id,
+      test_title: test?.title ?? '—',
+      target: group?.name ? `Группа: ${group.name}` : profileRow?.full_name ?? (a.student_id ? 'Ученик' : '—'),
+      starts_at: a.starts_at,
+      ends_at: a.ends_at,
+      created_at: a.created_at,
+      is_group: isGroup,
+      max_attempts: maxAttempts,
+      completed_count: completedCount,
+      is_completed: !isGroup && completedCount >= maxAttempts && completedCount > 0,
+      last_result: sfr && sfr.final_score != null ? `${sfr.final_score}/${sfr.max_score ?? '?'}` : null,
+    }
+  })
+
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-semibold">Мониторинг</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Текущий статус по каждому назначенному тесту
+          Назначения тестов и текущий статус попыток
         </p>
       </div>
-      <MonitorTable initialAttempts={rows} isAdmin={isAdmin} />
+      <MonitorTable initialAttempts={rows} isAdmin={isAdmin} assignments={assignments} />
     </div>
   )
 }
