@@ -971,6 +971,22 @@ export function TestDetailClient({
   }
 
   const nextTaskNumber = tasks.length > 0 ? Math.max(...tasks.map((t) => t.task_number)) + 1 : 1
+  // Назначение и аналитика доступны только после публикации
+  const isPublished = test.status === 'published'
+  // существительное для подписей: домашнее задание vs тест
+  const entityNoun = isHomework ? 'задание' : 'тест'
+
+  // Запоминаем, в какой тест/ДЗ добавлять задания, чтобы в книгах/библиотеке
+  // диалог «Добавить в тест» открылся с уже выбранной целью (её можно сменить)
+  function rememberAddTarget() {
+    if (!versionId) return
+    try {
+      sessionStorage.setItem(
+        'mcko:add-to-test',
+        JSON.stringify({ versionId, title: test.title, ts: Date.now() })
+      )
+    } catch { /* sessionStorage недоступен — не критично */ }
+  }
 
   function handleTaskUpdate(updated: TestTask) {
     setTasks((prev) => prev.map((t) => (t.id === updated.id ? updated : t)))
@@ -1124,13 +1140,13 @@ export function TestDetailClient({
           {isHomework ? (
             <>
               <Button asChild size="sm" variant="outline">
-                <Link href="/teacher/books">
+                <Link href="/teacher/books" onClick={rememberAddTarget}>
                   <BookMarked className="h-4 w-4 mr-1.5" />
                   Подобрать из книг
                 </Link>
               </Button>
               <Button asChild size="sm" variant="outline">
-                <Link href="/teacher/library">
+                <Link href="/teacher/library" onClick={rememberAddTarget}>
                   <Library className="h-4 w-4 mr-1.5" />
                   Из библиотеки задач
                 </Link>
@@ -1144,18 +1160,34 @@ export function TestDetailClient({
               </Link>
             </Button>
           )}
-          <Button asChild size="sm" variant="outline">
-            <Link href={`/teacher/assignments/new?test=${testId}`}>
+          {/* «Назначить» активна только после публикации */}
+          {isPublished ? (
+            <Button asChild size="sm" variant="outline">
+              <Link href={`/teacher/assignments/new?test=${testId}`}>
+                <UserPlus className="h-4 w-4 mr-1.5" />
+                Назначить
+              </Link>
+            </Button>
+          ) : (
+            <Button
+              size="sm"
+              variant="outline"
+              disabled
+              title={`Сначала опубликуйте ${entityNoun}`}
+            >
               <UserPlus className="h-4 w-4 mr-1.5" />
               Назначить
-            </Link>
-          </Button>
-          <Button asChild size="sm" variant="outline">
-            <Link href={`/teacher/tests/${testId}/analytics`}>
-              <BarChart2 className="h-4 w-4 mr-1.5" />
-              Аналитика
-            </Link>
-          </Button>
+            </Button>
+          )}
+          {/* Аналитика — только для опубликованных */}
+          {isPublished && (
+            <Button asChild size="sm" variant="outline">
+              <Link href={`/teacher/tests/${testId}/analytics`}>
+                <BarChart2 className="h-4 w-4 mr-1.5" />
+                Аналитика
+              </Link>
+            </Button>
+          )}
           {/* "Опубликовать" — для тестов, ещё ни разу не публиковавшихся.
               status='in_review' выставляется только пайплайном разбора PDF;
               тест, собранный вручную (библиотека/книги), так и остаётся
@@ -1238,14 +1270,14 @@ export function TestDetailClient({
                 disabled={deleting}
               >
                 <Trash2 className="h-4 w-4 mr-1.5" />
-                {deleting ? 'Удаление...' : 'Удалить тест'}
+                {deleting ? 'Удаление...' : isHomework ? 'Удалить задание' : 'Удалить тест'}
               </Button>
             </AlertDialogTrigger>
             <AlertDialogContent>
               <AlertDialogHeader>
-                <AlertDialogTitle>Удалить тест?</AlertDialogTitle>
+                <AlertDialogTitle>{isHomework ? 'Удалить задание?' : 'Удалить тест?'}</AlertDialogTitle>
                 <AlertDialogDescription>
-                  Тест <span className="font-semibold">&quot;{test.title}&quot;</span> и все его данные
+                  {isHomework ? 'Задание' : 'Тест'} <span className="font-semibold">&quot;{test.title}&quot;</span> и все его данные
                   (версии, задачи, назначения, попытки) будут удалены без возможности восстановления.
                 </AlertDialogDescription>
               </AlertDialogHeader>
@@ -1283,7 +1315,7 @@ export function TestDetailClient({
         {/* Published read-only notice */}
         {!canEdit && versionStatus === 'published' && (
           <div className="rounded-md bg-muted px-4 py-3 text-sm text-muted-foreground border">
-            Тест опубликован — задачи заблокированы для редактирования.
+            {isHomework ? 'Задание опубликовано' : 'Тест опубликован'} — задачи заблокированы для редактирования.
           </div>
         )}
 
@@ -1343,13 +1375,13 @@ export function TestDetailClient({
                 </p>
                 <div className="flex flex-wrap gap-2 justify-center">
                   <Button asChild size="sm" variant="outline">
-                    <Link href="/teacher/books">
+                    <Link href="/teacher/books" onClick={rememberAddTarget}>
                       <BookMarked className="h-4 w-4 mr-1.5" />
                       Книги
                     </Link>
                   </Button>
                   <Button asChild size="sm" variant="outline">
-                    <Link href="/teacher/library">
+                    <Link href="/teacher/library" onClick={rememberAddTarget}>
                       <Library className="h-4 w-4 mr-1.5" />
                       Библиотека задач
                     </Link>

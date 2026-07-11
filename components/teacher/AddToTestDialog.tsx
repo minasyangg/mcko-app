@@ -74,6 +74,18 @@ export function AddToTestDialog({ open, onClose, addUrl, problemLabel }: AddToTe
           }
         }
         setTests(editable)
+
+        // Предвыбор цели, если пришли из редактора теста/ДЗ (свежая, до 2 часов).
+        // Выбор можно сменить вручную.
+        try {
+          const raw = sessionStorage.getItem('mcko:add-to-test')
+          if (raw) {
+            const { versionId: vid, ts } = JSON.parse(raw) as { versionId?: string; ts?: number }
+            if (vid && Date.now() - (ts ?? 0) < 2 * 60 * 60 * 1000 && editable.some(t => t.versionId === vid)) {
+              setVersionId(vid)
+            }
+          }
+        } catch { /* sessionStorage недоступен — просто без предвыбора */ }
       })
   }, [open])
 
