@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { LogoutButton } from '@/components/shared/LogoutButton'
-import { BookOpen, BookMarked, Users, GraduationCap, Monitor, FileText, ClipboardList, BarChart2, TrendingUp, Menu, X, ListChecks, Library, Route, History } from 'lucide-react'
+import { BookOpen, BookMarked, Users, GraduationCap, Monitor, FileText, ClipboardList, BarChart2, TrendingUp, Menu, X, ListChecks, Library, Route } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
 
@@ -145,15 +145,6 @@ export function TeacherNav({ fullName, isAdmin = false, pendingRequests, pending
         </div>
         <NavList isAdmin={isAdmin} pendingRequests={pendingRequests} monitorBadge={monitorBadge} />
         <div className="p-4 border-t space-y-1 shrink-0">
-          {isAdmin && (
-            <Link
-              href="/teacher/sessions"
-              className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors pb-1"
-            >
-              <History className="h-3.5 w-3.5" />
-              Сессии
-            </Link>
-          )}
           <p className="text-xs text-muted-foreground truncate">{fullName}</p>
           <LogoutButton size="sm" variant="ghost" className="w-full justify-start px-0" />
         </div>
@@ -198,16 +189,6 @@ export function TeacherNav({ fullName, isAdmin = false, pendingRequests, pending
               onLinkClick={() => setMobileOpen(false)}
             />
             <div className="p-4 border-t space-y-1 shrink-0">
-              {isAdmin && (
-                <Link
-                  href="/teacher/sessions"
-                  onClick={() => setMobileOpen(false)}
-                  className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors pb-1"
-                >
-                  <History className="h-3.5 w-3.5" />
-                  Сессии
-                </Link>
-              )}
               <p className="text-xs text-muted-foreground truncate">{fullName}</p>
               <LogoutButton size="sm" variant="ghost" className="w-full justify-start px-0" />
             </div>

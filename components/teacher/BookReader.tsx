@@ -587,7 +587,20 @@ function PageBlock({
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
-export function BookReader({ book, sections: initialSections, canEdit = false, canDelete = false, editorsPanel = null }: { book: Book; sections: Section[]; canEdit?: boolean; canDelete?: boolean; editorsPanel?: React.ReactNode }) {
+export function BookReader({
+  book, sections: initialSections, canEdit = false, canDelete = false, editorsPanel = null,
+  initialSectionId = null, initialTask = null, initialProblemId = null,
+}: {
+  book: Book
+  sections: Section[]
+  canEdit?: boolean
+  canDelete?: boolean
+  editorsPanel?: React.ReactNode
+  // Deep-link из общего поиска каталога: открыть раздел и проскроллить к заданию
+  initialSectionId?: string | null
+  initialTask?: string | null
+  initialProblemId?: string | null
+}) {
   const router = useRouter()
   const [deletingBook, setDeletingBook] = useState(false)
 
@@ -616,7 +629,13 @@ export function BookReader({ book, sections: initialSections, canEdit = false, c
     return leaves[0] ?? null
   }, [sections])
 
-  const [selected, setSelected] = useState<Section | null>(firstLeaf)
+  const [selected, setSelected] = useState<Section | null>(() => {
+    if (initialSectionId) {
+      const s = initialSections.find(x => x.id === initialSectionId && x.page_start !== null)
+      if (s) return s
+    }
+    return firstLeaf
+  })
 
   // После переименования/удаления раздела — перечитать дерево; если выбранный
   // раздел (или его предок) был удалён, выбрать первый доступный лист
@@ -644,8 +663,8 @@ export function BookReader({ book, sections: initialSections, canEdit = false, c
   const [searching, setSearching] = useState(false)
 
   const [dialogProblem, setDialogProblem] = useState<ProblemAnchor | null>(null)
-  const [highlightId, setHighlightId] = useState<string | null>(null)
-  const scrollTarget = useRef<string | null>(null)
+  const [highlightId, setHighlightId] = useState<string | null>(initialProblemId)
+  const scrollTarget = useRef<string | null>(initialTask)
 
   const loadSection = useCallback(async (s: Section) => {
     if (s.page_start === null) return

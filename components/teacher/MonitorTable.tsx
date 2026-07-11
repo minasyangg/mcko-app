@@ -91,12 +91,13 @@ function formatTime(iso: string | null) {
 
 type Tab = 'active' | 'review' | 'checked'
 
-function TableView({ rows, tab, isAdmin, onSelect, onDelete }: {
+function TableView({ rows, tab, isAdmin, onSelect, onDelete, onFinish }: {
   rows: AttemptRow[]
   tab: Tab
   isAdmin: boolean
   onSelect: (id: string) => void
   onDelete: (a: AttemptRow) => void
+  onFinish: (a: AttemptRow) => void
 }) {
   if (rows.length === 0) {
     return (
@@ -152,6 +153,34 @@ function TableView({ rows, tab, isAdmin, onSelect, onDelete }: {
                     <Button variant="ghost" size="sm" onClick={() => onSelect(a.id)}>
                       {['submitted', 'under_review'].includes(a.status) ? 'Проверить' : 'Подробнее'}
                     </Button>
+                    {isAdmin && tab === 'active' && (
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button variant="ghost" size="sm"
+                            className="h-8 px-2 text-xs text-orange-600 hover:text-orange-700 hover:bg-orange-50"
+                            title="Принудительно завершить попытку">
+                            <CheckCheck className="h-3.5 w-3.5 mr-1" />
+                            Завершить
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Завершить попытку?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              Попытка ученика <b>{a.full_name}</b> по тесту «{a.test_title}» будет
+                              принудительно завершена и проверена автоматически — даже если время
+                              не истекло. Не начатая попытка получит статус «истекла».
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Отмена</AlertDialogCancel>
+                            <AlertDialogAction onClick={() => onFinish(a)}>
+                              Завершить
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    )}
                     {showDelete && (
                       <AlertDialog>
                         <AlertDialogTrigger asChild>
@@ -213,6 +242,19 @@ export function MonitorTable({ initialAttempts, isAdmin = false }: Props) {
     const max = json.max_attempts ?? 1
     const last = json.last_score != null ? `, результат последней: ${json.last_score}/${json.last_max ?? '?'}` : ''
     toast.success(`Попытка удалена. Использовано ${used} из ${max}${last}`)
+  }
+
+  async function handleFinish(a: AttemptRow) {
+    const res = await fetch(`/api/admin/attempts/${a.id}/finish`, { method: 'POST' })
+    const json = await res.json().catch(() => ({}))
+    if (!res.ok) { toast.error(json.error ?? 'Ошибка завершения'); return }
+    setAttempts(prev => prev.map(x => x.id === a.id
+      ? { ...x, status: json.status ?? 'submitted', score: json.score ?? x.score, max_score: json.max_score ?? x.max_score }
+      : x
+    ))
+    toast.success(json.status === 'expired'
+      ? 'Попытка помечена как истёкшая (ученик не приступал)'
+      : `Попытка завершена: ${json.score ?? 0}/${json.max_score ?? '?'}`)
   }
 
   async function handleFinishAll() {
@@ -348,7 +390,7 @@ export function MonitorTable({ initialAttempts, isAdmin = false }: Props) {
       </div>
 
       <div className="rounded-md border overflow-hidden">
-        <TableView rows={filtered} tab={tab} isAdmin={isAdmin} onSelect={setSelectedAttemptId} onDelete={handleDelete} />
+        <TableView rows={filtered} tab={tab} isAdmin={isAdmin} onSelect={setSelectedAttemptId} onDelete={handleDelete} onFinish={handleFinish} />
       </div>
 
       <AttemptDrawer
