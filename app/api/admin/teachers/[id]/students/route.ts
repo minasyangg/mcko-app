@@ -1,8 +1,7 @@
-import { createClient } from '@/lib/supabase/server'
-import { createAdminClient } from '@/lib/supabase/admin'
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { UUID_RE } from '@/lib/uuid'
+import { requireAdmin } from '@/lib/auth/authorize'
 
 // PATCH /api/admin/teachers/[id]/students
 // Множественное закрепление/открепление учеников за учителем (profiles.created_by).
@@ -19,19 +18,9 @@ export async function PATCH(
 ) {
   const { id: teacherId } = await params
 
-  const supabase = await createClient()
-  const { data: { user }, error: authError } = await supabase.auth.getUser()
-  if (authError || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
-  const { data: profile } = await supabase
-    .from('profiles').select('role, organization_id').eq('id', user.id).single()
-  if (!profile || profile.role !== 'admin') {
-    return NextResponse.json({ error: 'Доступно только администратору' }, { status: 403 })
-  }
-  if (!profile.organization_id) {
-    return NextResponse.json({ error: 'No organization' }, { status: 400 })
-  }
-  const orgId = profile.organization_id
+  const auth = await requireAdmin()
+  if ('error' in auth) return auth.error
+  const { admin, orgId, userId } = auth
 
   const body = await request.json().catch(() => null)
   const parsed = schema.safeParse(body)
@@ -39,8 +28,6 @@ export async function PATCH(
     return NextResponse.json({ error: parsed.error.issues[0]?.message ?? 'Validation error' }, { status: 400 })
   }
   const { student_ids, action } = parsed.data
-
-  const admin = createAdminClient()
 
   // Учитель существует, роль teacher, та же организация
   const { data: teacher } = await admin
@@ -64,7 +51,7 @@ export async function PATCH(
   // Прикрепление аддитивное (M:N через teacher_students): assign не снимает
   // ученика с других учителей, unassign убирает связь только с этим учителем.
   if (action === 'assign') {
-    const rows = ids.map(sid => ({ teacher_id: teacherId, student_id: sid, assigned_by: user.id }))
+    const rows = ids.map(sid => ({ teacher_id: teacherId, student_id: sid, assigned_by: userId }))
     const { error } = await admin.from('teacher_students').upsert(rows, { onConflict: 'teacher_id,student_id' })
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   } else {

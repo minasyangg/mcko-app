@@ -31,10 +31,17 @@ export default async function MonitorPage() {
     .order('last_activity_at', { ascending: false })
     .limit(500)
 
-  // Load cumulative scores from student_final_results
-  const { data: finalResults } = await supabase
-    .from('student_final_results')
-    .select('student_id, test_version_id, final_score, max_score, attempt_count, status')
+  // Итоги — только по версиям/ученикам из загруженных попыток,
+  // а не вся таблица организации
+  const tvIds = [...new Set((attempts ?? []).map(a => (a as any).assignments?.test_version_id).filter(Boolean))]
+  const studentIds = [...new Set((attempts ?? []).map(a => a.student_id))]
+  const { data: finalResults } = tvIds.length
+    ? await supabase
+        .from('student_final_results')
+        .select('student_id, test_version_id, final_score, max_score, attempt_count, status')
+        .in('test_version_id', tvIds)
+        .in('student_id', studentIds)
+    : { data: [] as { student_id: string; test_version_id: string; final_score: number | null; max_score: number | null; attempt_count: number | null; status: string | null }[] }
 
   // Map: "studentId_tvId" → final result
   const finalMap = new Map(

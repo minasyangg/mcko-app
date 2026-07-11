@@ -1,6 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
-import { getEmailMap } from '@/lib/auth/emails'
 import { UsersClient } from '@/components/teacher/UsersClient'
 
 // Единая админ-панель пользователей: ученики + учителя на одной странице,
@@ -19,14 +18,14 @@ export default async function UsersPage() {
   const [{ data: studentRows }, { data: teacherRows }, { data: links }] = await Promise.all([
     supabase
       .from('profiles')
-      .select('id, full_name, grade, is_active, created_at, created_by')
+      .select('id, full_name, grade, is_active, created_at, created_by, email')
       .eq('role', 'student')
       .eq('organization_id', org)
       .order('is_active', { ascending: false, nullsFirst: false })
       .order('full_name'),
     supabase
       .from('profiles')
-      .select('id, full_name, is_active, created_at')
+      .select('id, full_name, is_active, created_at, email')
       .eq('role', 'teacher')
       .eq('organization_id', org)
       .order('full_name'),
@@ -46,19 +45,17 @@ export default async function UsersPage() {
     countByTeacher.set(l.teacher_id, (countByTeacher.get(l.teacher_id) ?? 0) + 1)
   }
 
-  // Emails — из auth (в profiles их нет), одним listUsers вместо N getUserById
-  const emailMap = await getEmailMap([...students.map(s => s.id), ...teachers.map(t => t.id)])
-
+  // email теперь живёт в profiles (миграция 025) — Auth Admin API не нужен
   const studentsWithEmail = students.map(s => ({
     ...s,
-    email: emailMap[s.id] ?? '',
+    email: s.email ?? '',
     teacher_ids: teachersByStudent.get(s.id) ?? [],
   }))
   const teachersWithMeta = teachers.map(t => ({
     id: t.id,
     full_name: t.full_name,
     is_active: t.is_active,
-    email: emailMap[t.id] ?? '',
+    email: t.email ?? '',
     student_count: countByTeacher.get(t.id) ?? 0,
   }))
 

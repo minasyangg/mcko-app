@@ -1,8 +1,7 @@
-import { createClient } from '@/lib/supabase/server'
-import { createAdminClient } from '@/lib/supabase/admin'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { zUuid } from '@/lib/uuid'
+import { requireAdmin } from '@/lib/auth/authorize'
 
 const schema = z.object({
   full_name: z.string().min(2, 'Минимум 2 символа'),
@@ -13,27 +12,10 @@ const schema = z.object({
 })
 
 export async function POST(request: Request) {
-  const supabase = await createClient()
-
   // Auth: only admin can create students (teacher is read-only for students)
-  const { data: { user }, error: authError } = await supabase.auth.getUser()
-  if (authError || !user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
-
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('role, organization_id')
-    .eq('id', user.id)
-    .single()
-
-  if (!profile || profile.role !== 'admin') {
-    return NextResponse.json({ error: 'Создавать учеников может только администратор' }, { status: 403 })
-  }
-
-  if (!profile.organization_id) {
-    return NextResponse.json({ error: 'No organization' }, { status: 400 })
-  }
+  const auth = await requireAdmin('Создавать учеников может только администратор')
+  if ('error' in auth) return auth.error
+  const { admin: adminClient, orgId, userId } = auth
 
   const body = await request.json().catch(() => null)
   const parsed = schema.safeParse(body)
@@ -43,8 +25,6 @@ export async function POST(request: Request) {
 
   const { full_name, email, grade, password, teacher_id } = parsed.data
 
-  const adminClient = createAdminClient()
-
   // Validate the responsible teacher: role='teacher', same organization
   const { data: teacher } = await adminClient
     .from('profiles')
@@ -52,7 +32,7 @@ export async function POST(request: Request) {
     .eq('id', teacher_id)
     .single()
 
-  if (!teacher || teacher.role !== 'teacher' || teacher.organization_id !== profile.organization_id) {
+  if (!teacher || teacher.role !== 'teacher' || teacher.organization_id !== orgId) {
     return NextResponse.json({ error: 'Учитель не найден в вашей организации' }, { status: 422 })
   }
 
@@ -76,7 +56,7 @@ export async function POST(request: Request) {
   const { error: updateError } = await adminClient
     .from('profiles')
     .update({
-      organization_id: profile.organization_id,
+      organization_id: orgId,
       grade: grade || null,
       full_name,
       role: 'student',
@@ -92,7 +72,7 @@ export async function POST(request: Request) {
   // остаётся как «первый учитель/создатель» (информационно)
   const { error: linkError } = await adminClient
     .from('teacher_students')
-    .upsert({ teacher_id, student_id: authData.user.id, assigned_by: user.id }, { onConflict: 'teacher_id,student_id' })
+    .upsert({ teacher_id, student_id: authData.user.id, assigned_by: userId }, { onConflict: 'teacher_id,student_id' })
   if (linkError) {
     console.error('Failed to link student to teacher:', linkError)
   }

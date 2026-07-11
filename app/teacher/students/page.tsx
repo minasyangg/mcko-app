@@ -1,5 +1,4 @@
 import { createClient } from '@/lib/supabase/server'
-import { getEmailMap } from '@/lib/auth/emails'
 import { StudentsClient as StudentsTableClient } from '@/components/teacher/StudentsClient'
 import { Button } from '@/components/ui/button'
 import { Users, Plus, UsersRound } from 'lucide-react'
@@ -23,7 +22,7 @@ export default async function StudentsPage() {
   // RLS сам ограничивает выборку прикреплёнными, доп. фильтр не нужен.
   const { data: students } = await supabase
     .from('profiles')
-    .select('id, full_name, grade, is_active, created_at, created_by')
+    .select('id, full_name, grade, is_active, created_at, created_by, email')
     .eq('role', 'student')
     .eq('organization_id', profile?.organization_id || '')
     .order('is_active', { ascending: false, nullsFirst: false })
@@ -41,10 +40,8 @@ export default async function StudentsPage() {
     teachers = teacherRows ?? []
   }
 
-  // Emails — из auth, одним listUsers вместо N getUserById
-  const emailMap = await getEmailMap((students ?? []).map(s => s.id))
-
-  const studentsWithEmail = (students ?? []).map(s => ({ ...s, email: emailMap[s.id] ?? '' }))
+  // email теперь живёт в profiles (миграция 025)
+  const studentsWithEmail = (students ?? []).map(s => ({ ...s, email: s.email ?? '' }))
 
   const count = studentsWithEmail.length
   const suffix = count % 10 === 1 && count % 100 !== 11 ? '' : count % 10 < 5 && !(count % 100 >= 11 && count % 100 <= 19) ? 'а' : 'ов'

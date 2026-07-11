@@ -1025,6 +1025,33 @@ export type Database = {
           },
         ]
       }
+      login_events: {
+        Row: {
+          created_at: string
+          id: string
+          ip: string | null
+          session_id: string | null
+          user_agent: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          ip?: string | null
+          session_id?: string | null
+          user_agent?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          ip?: string | null
+          session_id?: string | null
+          user_agent?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       organizations: {
         Row: {
           created_at: string | null
@@ -1204,6 +1231,7 @@ export type Database = {
           created_at: string | null
           created_by: string | null
           deleted_at: string | null
+          email: string | null
           full_name: string
           grade: string | null
           id: string
@@ -1215,6 +1243,7 @@ export type Database = {
           created_at?: string | null
           created_by?: string | null
           deleted_at?: string | null
+          email?: string | null
           full_name: string
           grade?: string | null
           id: string
@@ -1226,6 +1255,7 @@ export type Database = {
           created_at?: string | null
           created_by?: string | null
           deleted_at?: string | null
+          email?: string | null
           full_name?: string
           grade?: string | null
           id?: string
@@ -2116,6 +2146,14 @@ export type Database = {
         Args: { p_group_id: string }
         Returns: boolean
       }
+      check_parsing_job_in_auth_org: {
+        Args: { p_job_id: string }
+        Returns: boolean
+      }
+      check_parsing_job_owned_by_auth: {
+        Args: { p_job_id: string }
+        Returns: boolean
+      }
       check_roadmap_in_auth_org: {
         Args: { p_roadmap_id: string }
         Returns: boolean
@@ -2123,6 +2161,14 @@ export type Database = {
       check_roadmap_member: { Args: { p_roadmap_id: string }; Returns: boolean }
       check_roadmap_owned_by_auth: {
         Args: { p_roadmap_id: string }
+        Returns: boolean
+      }
+      check_solution_in_auth_org: {
+        Args: { p_solution_id: string }
+        Returns: boolean
+      }
+      check_solution_owned_by_auth: {
+        Args: { p_solution_id: string }
         Returns: boolean
       }
       check_student_in_auth_org: {

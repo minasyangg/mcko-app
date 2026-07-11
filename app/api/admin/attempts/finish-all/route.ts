@@ -1,6 +1,5 @@
-import { createClient } from '@/lib/supabase/server'
-import { createAdminClient } from '@/lib/supabase/admin'
 import { NextResponse } from 'next/server'
+import { requireAdmin } from '@/lib/auth/authorize'
 import { finalizeAttempt } from '@/lib/grading/finalize'
 
 // POST /api/admin/attempts/finish-all — принудительно завершить ВСЕ активные
@@ -8,24 +7,16 @@ import { finalizeAttempt } from '@/lib/grading/finalize'
 // Только admin. in_progress → финализируются (авто-проверка + итог);
 // not_started (ученик не приступал) → помечаются expired, чтобы не висели.
 export async function POST() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
-  const { data: profile } = await supabase
-    .from('profiles').select('role, organization_id').eq('id', user.id).single()
-  if (!profile || profile.role !== 'admin' || !profile.organization_id) {
-    return NextResponse.json({ error: 'Доступно только администратору' }, { status: 403 })
-  }
-
-  const admin = createAdminClient()
+  const auth = await requireAdmin()
+  if ('error' in auth) return auth.error
+  const { admin, orgId } = auth
 
   // Активные попытки организации (через assignment.organization_id)
   const { data: active } = await admin
     .from('attempts')
     .select('id, status, assignments!inner(organization_id)')
     .in('status', ['in_progress', 'not_started'])
-    .eq('assignments.organization_id', profile.organization_id)
+    .eq('assignments.organization_id', orgId)
 
   const rows = active ?? []
   const inProgress = rows.filter(a => a.status === 'in_progress')
