@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import MarkdownContent from '@/components/shared/MarkdownContent'
 import { AddToTestDialog } from '@/components/teacher/AddToTestDialog'
+import { AddTargetBanner } from '@/components/teacher/AddTargetBanner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -790,7 +791,8 @@ export function BookReader({
       {/* ── Content ── */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Header: поиск */}
-        <div className="border-b p-3 shrink-0 relative">
+        <div className="border-b p-3 shrink-0 relative space-y-2">
+          <AddTargetBanner />
           <form onSubmit={handleSearch} className="flex gap-2 max-w-xl">
             <div className="relative flex-1">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />

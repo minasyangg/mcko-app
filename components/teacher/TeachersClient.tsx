@@ -112,19 +112,28 @@ export function TeachersClient({ teachers, students }: { teachers: TeacherRow[];
             )}
             {teachers.map(t => (
               <tr key={t.id} className="hover:bg-muted/30 transition-colors">
-                <td className="px-4 py-3 font-medium">{t.full_name}</td>
+                <td className="px-4 py-3 font-medium">
+                  <div className="flex items-center gap-1.5">
+                    <Button
+                      asChild
+                      size="icon"
+                      variant="ghost"
+                      className="h-7 w-7 shrink-0 text-muted-foreground hover:text-primary"
+                      title="Кабинет учителя"
+                    >
+                      <Link href={`/teacher/users/${t.id}/cabinet`}>
+                        <LayoutDashboard className="h-4 w-4" />
+                      </Link>
+                    </Button>
+                    <span>{t.full_name}</span>
+                  </div>
+                </td>
                 <td className="px-4 py-3 text-muted-foreground text-xs">{t.email || '—'}</td>
                 <td className="px-4 py-3">
                   <Badge variant="secondary">{t.student_count}</Badge>
                 </td>
                 <td className="px-4 py-3 text-right">
                   <div className="flex items-center justify-end gap-1.5">
-                    <Button asChild size="sm" variant="ghost">
-                      <Link href={`/teacher/users/${t.id}/cabinet`}>
-                        <LayoutDashboard className="h-3.5 w-3.5 mr-1.5" />
-                        Кабинет
-                      </Link>
-                    </Button>
                     <Button size="sm" variant="outline" onClick={() => openAssign(t)}>
                       <Users className="h-3.5 w-3.5 mr-1.5" />
                       Ученики

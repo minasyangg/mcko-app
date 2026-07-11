@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { ShieldCheck } from 'lucide-react'
 import { BooksCatalog, type CatalogBook } from '@/components/teacher/BooksCatalog'
+import { AddTargetBanner } from '@/components/teacher/AddTargetBanner'
 
 export default async function BooksPage() {
   const supabase = await createClient()
@@ -39,6 +40,7 @@ export default async function BooksPage() {
 
   return (
     <div className="max-w-5xl mx-auto py-8 px-4 space-y-6">
+      <AddTargetBanner />
       <div className="flex items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold">Книги</h1>

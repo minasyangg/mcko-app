@@ -983,7 +983,7 @@ export function TestDetailClient({
     try {
       sessionStorage.setItem(
         'mcko:add-to-test',
-        JSON.stringify({ versionId, title: test.title, ts: Date.now() })
+        JSON.stringify({ testId, versionId, title: test.title, ts: Date.now() })
       )
     } catch { /* sessionStorage недоступен — не критично */ }
   }
