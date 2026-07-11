@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
-import { createAdminClient } from '@/lib/supabase/admin'
+import { getEmailMap } from '@/lib/auth/emails'
 import { StudentsClient as StudentsTableClient } from '@/components/teacher/StudentsClient'
 import { Button } from '@/components/ui/button'
 import { Users, Plus, UsersRound } from 'lucide-react'
@@ -41,17 +41,8 @@ export default async function StudentsPage() {
     teachers = teacherRows ?? []
   }
 
-  // Fetch emails from auth using admin client
-  const adminClient = createAdminClient()
-  const emailMap: Record<string, string> = {}
-  if (students?.length) {
-    const results = await Promise.all(
-      students.map(s => adminClient.auth.admin.getUserById(s.id))
-    )
-    results.forEach((r, i) => {
-      if (r.data.user?.email) emailMap[students[i].id] = r.data.user.email
-    })
-  }
+  // Emails — из auth, одним listUsers вместо N getUserById
+  const emailMap = await getEmailMap((students ?? []).map(s => s.id))
 
   const studentsWithEmail = (students ?? []).map(s => ({ ...s, email: emailMap[s.id] ?? '' }))
 

@@ -11,31 +11,30 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 
 const schema = z.object({
   full_name: z.string().min(2, 'Минимум 2 символа'),
   email: z.string().email('Некорректный email'),
   password: z.string().min(6, 'Минимум 6 символов'),
-  role: z.enum(['student', 'teacher']),
 })
 type FormData = z.infer<typeof schema>
 
 export default function RegisterPage() {
   const router = useRouter()
-  const { register, handleSubmit, setValue, watch, formState: { errors, isSubmitting } } = useForm<FormData>({
+  const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<FormData>({
     resolver: zodResolver(schema),
-    defaultValues: { role: 'student' },
   })
-  const role = watch('role')
 
   async function onSubmit(data: FormData) {
     const supabase = createClient()
+    // Публичная регистрация — всегда ученик. Аккаунты учителей создаёт
+    // администратор в панели «Пользователи» (роль из формы позволяла любому
+    // анониму зарегистрироваться учителем — закрыто аудитом).
     const { error } = await supabase.auth.signUp({
       email: data.email,
       password: data.password,
       options: {
-        data: { full_name: data.full_name, role: data.role },
+        data: { full_name: data.full_name, role: 'student' },
       },
     })
     if (error) {
@@ -69,18 +68,9 @@ export default function RegisterPage() {
             <Input id="password" type="password" {...register('password')} />
             {errors.password && <p className="text-sm text-destructive">{errors.password.message}</p>}
           </div>
-          <div className="space-y-1">
-            <Label>Роль</Label>
-            <Select value={role} onValueChange={(v) => setValue('role', v as 'student' | 'teacher')}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="student">Ученик</SelectItem>
-                <SelectItem value="teacher">Учитель</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
+          <p className="text-xs text-muted-foreground">
+            Регистрация создаёт аккаунт ученика. Аккаунты учителей выдаёт администратор.
+          </p>
           <Button type="submit" className="w-full" disabled={isSubmitting}>
             {isSubmitting ? 'Создание...' : 'Создать аккаунт'}
           </Button>

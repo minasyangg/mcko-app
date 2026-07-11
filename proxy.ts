@@ -33,7 +33,12 @@ export async function proxy(request: NextRequest) {
     return response
   }
 
-  // Fetch role from profiles
+  // Роль нужна только для guarded-путей — на остальных не тратим запрос
+  const needsRole =
+    pathname.startsWith('/login') || pathname.startsWith('/register') ||
+    pathname.startsWith('/student') || pathname.startsWith('/teacher')
+  if (!needsRole) return response
+
   const { data: profile } = await supabase
     .from('profiles')
     .select('role')
@@ -62,7 +67,10 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
+  // /api/* исключён целиком: каждый роут сам аутентифицирует запрос
+  // (getUser/authorize-хелперы), а прогон через proxy добавлял к каждому
+  // API-вызову два лишних запроса к Supabase (getUser + profiles.role).
   matcher: [
-    '/((?!_next/static|_next/image|favicon.ico|api/auth).*)',
+    '/((?!_next/static|_next/image|favicon.ico|api/).*)',
   ],
 }

@@ -39,15 +39,17 @@ export async function POST(request: Request, { params }: Params) {
   const userId = body?.user_id as string | undefined
   if (!userId) return NextResponse.json({ error: 'user_id required' }, { status: 400 })
 
-  // Учитель добавляет только закреплённых за ним учеников
+  // Учитель добавляет только закреплённых за ним учеников — по M:N
+  // teacher_students (миграция 019), не по одиночному created_by.
   // (RLS with check подстрахует на уровне БД, но отдаём внятную ошибку заранее)
   if (profile.role !== 'admin') {
-    const { data: student } = await supabase
-      .from('profiles')
-      .select('id, role, created_by')
-      .eq('id', userId)
-      .single()
-    if (!student || student.role !== 'student' || student.created_by !== user.id) {
+    const { data: link } = await supabase
+      .from('teacher_students')
+      .select('student_id')
+      .eq('teacher_id', user.id)
+      .eq('student_id', userId)
+      .maybeSingle()
+    if (!link) {
       return NextResponse.json({ error: 'Можно добавлять только своих учеников' }, { status: 403 })
     }
   }
