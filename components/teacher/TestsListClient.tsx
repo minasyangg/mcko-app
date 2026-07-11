@@ -36,7 +36,8 @@ const statusVariant: Record<string, 'secondary' | 'default' | 'outline' | 'destr
 
 type Tab = 'test' | 'homework'
 
-function TestsTable({ rows }: { rows: TestRow[] }) {
+// showExamType=false — вкладка ДЗ: у домашних заданий нет типа экзамена
+function TestsTable({ rows, showExamType = true }: { rows: TestRow[]; showExamType?: boolean }) {
   return (
     <div className="rounded-md border overflow-hidden">
       <table className="w-full text-sm">
@@ -45,7 +46,7 @@ function TestsTable({ rows }: { rows: TestRow[] }) {
             <th className="text-left px-4 py-3 font-medium">Название</th>
             <th className="text-left px-4 py-3 font-medium">Предмет</th>
             <th className="text-left px-4 py-3 font-medium">Класс</th>
-            <th className="text-left px-4 py-3 font-medium">Тип</th>
+            {showExamType && <th className="text-left px-4 py-3 font-medium">Тип</th>}
             <th className="text-left px-4 py-3 font-medium">Статус</th>
             <th className="text-left px-4 py-3 font-medium">Создан</th>
             <th className="px-4 py-3" />
@@ -57,7 +58,7 @@ function TestsTable({ rows }: { rows: TestRow[] }) {
               <td className="px-4 py-3 font-medium">{test.title}</td>
               <td className="px-4 py-3 text-muted-foreground">{test.subject ?? '—'}</td>
               <td className="px-4 py-3 text-muted-foreground">{test.grade ?? '—'}</td>
-              <td className="px-4 py-3 text-muted-foreground">{test.exam_type ?? '—'}</td>
+              {showExamType && <td className="px-4 py-3 text-muted-foreground">{test.exam_type ?? '—'}</td>}
               <td className="px-4 py-3">
                 <div className="flex items-center gap-1.5 flex-wrap">
                   <Badge variant={statusVariant[test.status] ?? 'secondary'}>
@@ -138,7 +139,7 @@ export function TestsListClient({ rows }: { rows: TestRow[] }) {
       <p className="text-xs text-muted-foreground">
         {tab === 'test'
           ? 'Тесты имеют тип, разбаловку и критерии, привязанные к правилам оценивания — проверяются автоматически по правилам.'
-          : 'Домашнее задание — тест, баллы которого задаёт сам учитель при составлении или назначении.'}
+          : 'Домашнее задание собирается из готовых заданий книг или библиотеки задач; баллы задаёт сам учитель.'}
       </p>
 
       {current.length === 0 ? (
@@ -152,7 +153,7 @@ export function TestsListClient({ rows }: { rows: TestRow[] }) {
           </Button>
         </div>
       ) : (
-        <TestsTable rows={current} />
+        <TestsTable rows={current} showExamType={tab === 'test'} />
       )}
     </>
   )

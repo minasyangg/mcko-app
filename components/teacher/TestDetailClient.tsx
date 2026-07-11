@@ -41,6 +41,8 @@ import {
   EyeOff,
   Eye,
   ImagePlus,
+  BookMarked,
+  Library,
 } from 'lucide-react'
 import MarkdownContent from '@/components/shared/MarkdownContent'
 import { ImageGallery } from '@/components/shared/ImageGallery'
@@ -85,6 +87,7 @@ export interface TestDetailClientProps {
     description: string | null
     status: string
     is_active: boolean
+    kind?: string
   }
   versionId: string | null
   versionStatus: string | null
@@ -826,6 +829,9 @@ export function TestDetailClient({
   initialScoringRuleId = '',
 }: TestDetailClientProps) {
   const router = useRouter()
+  // ДЗ собирается из готовых заданий книг/библиотеки — без пайплайна PDF
+  // и без правил оценивания (баллы задаёт учитель)
+  const isHomework = initialTest.kind === 'homework'
   const [tasks, setTasks] = useState<TestTask[]>(initialTasks)
   const [showAddForm, setShowAddForm] = useState(false)
   const [deleting, setDeleting] = useState(false)
@@ -1012,6 +1018,11 @@ export function TestDetailClient({
               <>
                 <div className="flex items-center gap-3 flex-wrap">
                   <h1 className="text-2xl font-semibold">{test.title}</h1>
+                  {isHomework && (
+                    <Badge variant="outline" className="text-blue-600 border-blue-300">
+                      Домашнее задание
+                    </Badge>
+                  )}
                   <Badge variant={statusVariant[test.status] ?? 'secondary'}>
                     {statusLabel[test.status] ?? test.status}
                   </Badge>
@@ -1024,7 +1035,7 @@ export function TestDetailClient({
                 <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
                   {test.subject && <span>Предмет: {test.subject}</span>}
                   {test.grade && <span>Класс: {test.grade}</span>}
-                  {test.exam_type && <span>Тип: {test.exam_type}</span>}
+                  {!isHomework && test.exam_type && <span>Тип: {test.exam_type}</span>}
                 </div>
                 {test.description && (
                   <p className="text-sm text-muted-foreground">{test.description}</p>
@@ -1042,7 +1053,7 @@ export function TestDetailClient({
                       className="h-8 text-sm"
                     />
                   </div>
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className={isHomework ? 'grid grid-cols-2 gap-2' : 'grid grid-cols-3 gap-2'}>
                     <div className="space-y-1">
                       <Label className="text-xs">Предмет</Label>
                       <Input
@@ -1061,15 +1072,17 @@ export function TestDetailClient({
                         placeholder="8"
                       />
                     </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs">Тип</Label>
-                      <Input
-                        value={metaForm.exam_type}
-                        onChange={(e) => setMetaForm((p) => ({ ...p, exam_type: e.target.value }))}
-                        className="h-8 text-sm"
-                        placeholder="ВПР"
-                      />
-                    </div>
+                    {!isHomework && (
+                      <div className="space-y-1">
+                        <Label className="text-xs">Тип</Label>
+                        <Input
+                          value={metaForm.exam_type}
+                          onChange={(e) => setMetaForm((p) => ({ ...p, exam_type: e.target.value }))}
+                          className="h-8 text-sm"
+                          placeholder="ВПР"
+                        />
+                      </div>
+                    )}
                   </div>
                   <div className="space-y-1">
                     <Label className="text-xs">Описание</Label>
@@ -1108,12 +1121,29 @@ export function TestDetailClient({
               Предпросмотр
             </Button>
           )}
-          <Button asChild size="sm" variant="outline">
-            <Link href={`/teacher/tests/${testId}/import`}>
-              <Upload className="h-4 w-4 mr-1.5" />
-              Загрузить PDF
-            </Link>
-          </Button>
+          {isHomework ? (
+            <>
+              <Button asChild size="sm" variant="outline">
+                <Link href="/teacher/books">
+                  <BookMarked className="h-4 w-4 mr-1.5" />
+                  Подобрать из книг
+                </Link>
+              </Button>
+              <Button asChild size="sm" variant="outline">
+                <Link href="/teacher/library">
+                  <Library className="h-4 w-4 mr-1.5" />
+                  Из библиотеки задач
+                </Link>
+              </Button>
+            </>
+          ) : (
+            <Button asChild size="sm" variant="outline">
+              <Link href={`/teacher/tests/${testId}/import`}>
+                <Upload className="h-4 w-4 mr-1.5" />
+                Загрузить PDF
+              </Link>
+            </Button>
+          )}
           <Button asChild size="sm" variant="outline">
             <Link href={`/teacher/assignments/new?test=${testId}`}>
               <UserPlus className="h-4 w-4 mr-1.5" />
@@ -1157,7 +1187,8 @@ export function TestDetailClient({
               )}
             </div>
           )}
-          {canEdit && scoringRules.length > 0 && (
+          {/* Правила оценки — только для тестов; в ДЗ баллы задаёт учитель */}
+          {canEdit && !isHomework && scoringRules.length > 0 && (
             <div className="flex items-center gap-1.5">
               <Select value={selectedRuleId || '_none'} onValueChange={v => setSelectedRuleId(v === '_none' ? '' : v)}>
                 <SelectTrigger className="h-8 text-xs w-48">
@@ -1259,13 +1290,35 @@ export function TestDetailClient({
         {/* No version state */}
         {!versionId && (
           <div className="flex flex-col items-center justify-center py-12 text-center gap-3 text-muted-foreground">
-            <p>Задачи не найдены. Загрузите PDF или добавьте задачи вручную.</p>
-            <Button asChild size="sm" variant="outline">
-              <Link href={`/teacher/tests/${testId}/import`}>
-                <Upload className="h-4 w-4 mr-1.5" />
-                Загрузить PDF
-              </Link>
-            </Button>
+            {isHomework ? (
+              <>
+                <p>Заданий пока нет. Подберите их из книг или библиотеки задач.</p>
+                <div className="flex flex-wrap gap-2 justify-center">
+                  <Button asChild size="sm" variant="outline">
+                    <Link href="/teacher/books">
+                      <BookMarked className="h-4 w-4 mr-1.5" />
+                      Книги
+                    </Link>
+                  </Button>
+                  <Button asChild size="sm" variant="outline">
+                    <Link href="/teacher/library">
+                      <Library className="h-4 w-4 mr-1.5" />
+                      Библиотека задач
+                    </Link>
+                  </Button>
+                </div>
+              </>
+            ) : (
+              <>
+                <p>Задачи не найдены. Загрузите PDF или добавьте задачи вручную.</p>
+                <Button asChild size="sm" variant="outline">
+                  <Link href={`/teacher/tests/${testId}/import`}>
+                    <Upload className="h-4 w-4 mr-1.5" />
+                    Загрузить PDF
+                  </Link>
+                </Button>
+              </>
+            )}
           </div>
         )}
 
@@ -1282,12 +1335,43 @@ export function TestDetailClient({
         {/* Task list */}
         {versionId && tasks.length === 0 && !showAddForm && (
           <div className="flex flex-col items-center justify-center py-12 text-center gap-3 text-muted-foreground">
-            <p>Задачи не найдены. Загрузите PDF или добавьте задачи вручную.</p>
-            {canEdit && (
-              <Button size="sm" variant="outline" onClick={() => setShowAddForm(true)}>
-                <Plus className="h-4 w-4 mr-1.5" />
-                Добавить задачу
-              </Button>
+            {isHomework ? (
+              <>
+                <p>
+                  Заданий пока нет. Откройте книгу или библиотеку задач и нажмите
+                  «+» у нужного задания — оно попадёт сюда.
+                </p>
+                <div className="flex flex-wrap gap-2 justify-center">
+                  <Button asChild size="sm" variant="outline">
+                    <Link href="/teacher/books">
+                      <BookMarked className="h-4 w-4 mr-1.5" />
+                      Книги
+                    </Link>
+                  </Button>
+                  <Button asChild size="sm" variant="outline">
+                    <Link href="/teacher/library">
+                      <Library className="h-4 w-4 mr-1.5" />
+                      Библиотека задач
+                    </Link>
+                  </Button>
+                  {canEdit && (
+                    <Button size="sm" variant="ghost" onClick={() => setShowAddForm(true)}>
+                      <Plus className="h-4 w-4 mr-1.5" />
+                      Добавить вручную
+                    </Button>
+                  )}
+                </div>
+              </>
+            ) : (
+              <>
+                <p>Задачи не найдены. Загрузите PDF или добавьте задачи вручную.</p>
+                {canEdit && (
+                  <Button size="sm" variant="outline" onClick={() => setShowAddForm(true)}>
+                    <Plus className="h-4 w-4 mr-1.5" />
+                    Добавить задачу
+                  </Button>
+                )}
+              </>
             )}
           </div>
         )}

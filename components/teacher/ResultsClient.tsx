@@ -34,6 +34,8 @@ export function ResultsClient({ rows, tests, groups }: Props) {
   const [filterTest, setFilterTest] = useState('all')
   const [filterGroup, setFilterGroup] = useState('all')
   const [filterStatus, setFilterStatus] = useState('all')
+  // тест/ДЗ считаются с одинаковым весом; фильтр даёт прогресс по каждому типу
+  const [filterKind, setFilterKind] = useState('all')
   const [selectedAttemptId, setSelectedAttemptId] = useState<string | null>(null)
   const [updatedRows, setUpdatedRows] = useState<AttemptRow[]>(rows)
 
@@ -43,9 +45,10 @@ export function ResultsClient({ rows, tests, groups }: Props) {
       if (filterTest !== 'all' && r.testTitle !== filterTest) return false
       if (filterGroup !== 'all' && r.groupName !== filterGroup) return false
       if (filterStatus !== 'all' && r.status !== filterStatus) return false
+      if (filterKind !== 'all' && r.kind !== filterKind) return false
       return true
     })
-  }, [updatedRows, search, filterTest, filterGroup, filterStatus])
+  }, [updatedRows, search, filterTest, filterGroup, filterStatus, filterKind])
 
   const { visible, hasMore, loadMore, total, showing } = usePagination(filtered)
   const scrollRef = useScrollTrigger(loadMore, hasMore)
@@ -126,6 +129,16 @@ export function ResultsClient({ rows, tests, groups }: Props) {
             </SelectContent>
           </Select>
         )}
+        <Select value={filterKind} onValueChange={setFilterKind}>
+          <SelectTrigger className="h-8 text-sm w-44">
+            <SelectValue placeholder="Все типы" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Тесты и ДЗ</SelectItem>
+            <SelectItem value="test">Только тесты</SelectItem>
+            <SelectItem value="homework">Только домашние</SelectItem>
+          </SelectContent>
+        </Select>
         <Select value={filterStatus} onValueChange={setFilterStatus}>
           <SelectTrigger className="h-8 text-sm w-40">
             <SelectValue placeholder="Все статусы" />
@@ -136,9 +149,9 @@ export function ResultsClient({ rows, tests, groups }: Props) {
             <SelectItem value="checked">Завершён</SelectItem>
           </SelectContent>
         </Select>
-        {(search || filterTest !== 'all' || filterGroup !== 'all' || filterStatus !== 'all') && (
+        {(search || filterTest !== 'all' || filterGroup !== 'all' || filterStatus !== 'all' || filterKind !== 'all') && (
           <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => {
-            setSearch(''); setFilterTest('all'); setFilterGroup('all'); setFilterStatus('all')
+            setSearch(''); setFilterTest('all'); setFilterGroup('all'); setFilterStatus('all'); setFilterKind('all')
           }}>
             Сбросить
           </Button>
@@ -159,7 +172,7 @@ export function ResultsClient({ rows, tests, groups }: Props) {
                 <th className="text-left px-4 py-3 font-medium">Ученик</th>
                 <th className="text-left px-4 py-3 font-medium">Класс</th>
                 <th className="text-left px-4 py-3 font-medium">Группа</th>
-                <th className="text-left px-4 py-3 font-medium">Тест</th>
+                <th className="text-left px-4 py-3 font-medium">Задание</th>
                 <th className="text-center px-4 py-3 font-medium">Балл</th>
                 <th className="text-center px-4 py-3 font-medium">%</th>
                 <th className="text-left px-4 py-3 font-medium">Статус</th>
@@ -173,8 +186,15 @@ export function ResultsClient({ rows, tests, groups }: Props) {
                   <td className="px-4 py-3 font-medium">{r.studentName}</td>
                   <td className="px-4 py-3 text-muted-foreground">{r.grade ?? '—'}</td>
                   <td className="px-4 py-3 text-muted-foreground">{r.groupName ?? '—'}</td>
-                  <td className="px-4 py-3 text-muted-foreground max-w-40 truncate" title={r.testTitle}>
-                    {r.testTitle}
+                  <td className="px-4 py-3 text-muted-foreground max-w-40" title={r.testTitle}>
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <span className="truncate">{r.testTitle}</span>
+                      {r.kind === 'homework' && (
+                        <Badge variant="outline" className="text-[10px] px-1 py-0 shrink-0 text-blue-600 border-blue-300">
+                          ДЗ
+                        </Badge>
+                      )}
+                    </div>
                   </td>
                   <td className="px-4 py-3 text-center tabular-nums">
                     <span className="font-semibold">{r.score}</span>

@@ -516,7 +516,7 @@ function PageBlock({
                   size="sm"
                   variant="outline"
                   onClick={() => onAdd(seg.problem)}
-                  title="Добавить в тест"
+                  title="Добавить в тест или ДЗ"
                   className="h-7 w-7 p-0 rounded-full opacity-60 group-hover:opacity-100 hover:bg-primary hover:text-primary-foreground transition-all"
                 >
                   <Plus className="h-4 w-4" />

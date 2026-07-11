@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
 import MarkdownContent from '@/components/shared/MarkdownContent'
+import { AddToTestDialog } from '@/components/teacher/AddToTestDialog'
 
 interface Problem {
   id: string
@@ -46,6 +47,7 @@ export function LibraryProblemCard({ problem }: Props) {
   const [localAnswer, setLocalAnswer] = useState<unknown>(problem.correct_answer)
   const [saving,      setSaving]      = useState(false)
   const [saveError,   setSaveError]   = useState<string | null>(null)
+  const [addOpen,     setAddOpen]     = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
   const topic     = problem.canonical_topic
@@ -223,11 +225,18 @@ export function LibraryProblemCard({ problem }: Props) {
             )}
           </Button>
 
-          <Button size="sm" className="h-7 text-xs">
-            + В тест
+          <Button size="sm" className="h-7 text-xs" onClick={() => setAddOpen(true)}>
+            + В тест или ДЗ
           </Button>
         </div>
       </div>
+
+      <AddToTestDialog
+        open={addOpen}
+        onClose={() => setAddOpen(false)}
+        addUrl={`/api/library/problems/${problem.id}/add-to-test`}
+        problemLabel={codeLabel ?? ''}
+      />
     </div>
   )
 }
