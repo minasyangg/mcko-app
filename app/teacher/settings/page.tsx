@@ -10,7 +10,7 @@ export default async function TeacherSettingsPage() {
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('telegram_username, telegram_chat_id')
+    .select('telegram_username, telegram_chat_id, notifications_enabled')
     .eq('id', user.id)
     .single()
 
@@ -28,6 +28,7 @@ export default async function TeacherSettingsPage() {
         initialUsername={profile?.telegram_username ?? ''}
         connected={!!profile?.telegram_chat_id}
         botUsername={botUsername}
+        notificationsEnabled={profile?.notifications_enabled ?? true}
       />
     </div>
   )

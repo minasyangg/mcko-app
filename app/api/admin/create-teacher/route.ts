@@ -6,6 +6,7 @@ const schema = z.object({
   full_name: z.string().min(2, 'Минимум 2 символа'),
   email: z.string().email('Некорректный email'),
   password: z.string().min(6, 'Минимум 6 символов'),
+  telegram_username: z.string().regex(/^[A-Za-z0-9_]{5,32}$/, 'Ник Telegram — 5–32 символа: латиница, цифры, _').optional(),
 })
 
 // POST /api/admin/create-teacher — создать пользователя с ролью teacher.
@@ -21,7 +22,7 @@ export async function POST(request: Request) {
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.issues[0]?.message ?? 'Validation error' }, { status: 400 })
   }
-  const { full_name, email, password } = parsed.data
+  const { full_name, email, password, telegram_username } = parsed.data
 
   const { data: authData, error: createError } = await adminClient.auth.admin.createUser({
     email,
@@ -44,6 +45,7 @@ export async function POST(request: Request) {
       organization_id: orgId,
       full_name,
       role: 'teacher',
+      telegram_username: telegram_username || null,
     })
     .eq('id', authData.user.id)
 

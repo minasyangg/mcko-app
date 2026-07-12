@@ -9,6 +9,7 @@ const schema = z.object({
   grade: z.string().optional(),
   password: z.string().min(6, 'Минимум 6 символов'),
   teacher_id: zUuid('Выберите учителя'),
+  telegram_username: z.string().regex(/^[A-Za-z0-9_]{5,32}$/, 'Ник Telegram — 5–32 символа: латиница, цифры, _').optional(),
 })
 
 export async function POST(request: Request) {
@@ -23,7 +24,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: parsed.error.issues[0]?.message ?? 'Validation error' }, { status: 400 })
   }
 
-  const { full_name, email, grade, password, teacher_id } = parsed.data
+  const { full_name, email, grade, password, teacher_id, telegram_username } = parsed.data
 
   // Validate the responsible teacher: role='teacher', same organization
   const { data: teacher } = await adminClient
@@ -61,6 +62,7 @@ export async function POST(request: Request) {
       full_name,
       role: 'student',
       created_by: teacher_id,
+      telegram_username: telegram_username || null,
     })
     .eq('id', authData.user.id)
 
