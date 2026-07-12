@@ -10,8 +10,12 @@ import { sendTelegramMessage } from '@/lib/notifications/telegram'
 // Подлинность запроса — заголовок X-Telegram-Bot-Api-Secret-Token, который
 // Telegram присылает, если webhook установлен с secret_token (см. setup).
 export async function POST(request: NextRequest) {
+  // fail-closed: без настроенного секрета webhook не работает вовсе — иначе
+  // публичный эндпоинт принимал бы фейковые /start и позволял привязать
+  // чужой профиль (по известному нику) к чату злоумышленника
   const secret = process.env.TELEGRAM_WEBHOOK_SECRET
-  if (secret && request.headers.get('x-telegram-bot-api-secret-token') !== secret) {
+  if (!secret) return Response.json({ error: 'webhook not configured' }, { status: 503 })
+  if (request.headers.get('x-telegram-bot-api-secret-token') !== secret) {
     return Response.json({ ok: false }, { status: 401 })
   }
 

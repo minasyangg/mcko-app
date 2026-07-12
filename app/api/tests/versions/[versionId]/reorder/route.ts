@@ -51,21 +51,19 @@ export async function PUT(
   // Уникальный индекс (test_version_id, task_number) не даёт менять номера
   // «в лоб» — сначала уводим все в отрицательный диапазон, затем ставим финал.
   // Пишем RLS-клиентом: политика разрешает учителю править только свои задачи.
+  // Внутри фазы обновления независимы — параллелим, фазы строго по очереди.
   const ids = taskIds as string[]
-  for (let i = 0; i < ids.length; i++) {
-    const { error } = await supabase
-      .from('test_tasks')
-      .update({ task_number: -(i + 1) })
-      .eq('id', ids[i])
-    if (error) return Response.json({ error: error.message }, { status: 500 })
-  }
-  for (let i = 0; i < ids.length; i++) {
-    const { error } = await supabase
-      .from('test_tasks')
-      .update({ task_number: i + 1, sort_order: i + 1 })
-      .eq('id', ids[i])
-    if (error) return Response.json({ error: error.message }, { status: 500 })
-  }
+  const phase1 = await Promise.all(ids.map((id, i) =>
+    supabase.from('test_tasks').update({ task_number: -(i + 1) }).eq('id', id)
+  ))
+  const err1 = phase1.find(r => r.error)?.error
+  if (err1) return Response.json({ error: err1.message }, { status: 500 })
+
+  const phase2 = await Promise.all(ids.map((id, i) =>
+    supabase.from('test_tasks').update({ task_number: i + 1, sort_order: i + 1 }).eq('id', id)
+  ))
+  const err2 = phase2.find(r => r.error)?.error
+  if (err2) return Response.json({ error: err2.message }, { status: 500 })
 
   return Response.json({ ok: true })
 }
