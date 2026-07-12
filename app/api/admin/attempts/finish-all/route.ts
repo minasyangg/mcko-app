@@ -1,6 +1,7 @@
-import { NextResponse } from 'next/server'
+import { NextResponse, after } from 'next/server'
 import { requireAdmin } from '@/lib/auth/authorize'
 import { finalizeAttempt } from '@/lib/grading/finalize'
+import { notifyAttemptFinalized } from '@/lib/notifications/send'
 
 // POST /api/admin/attempts/finish-all — принудительно завершить ВСЕ активные
 // попытки организации, даже если время не истекло и попытки не израсходованы.
@@ -24,10 +25,15 @@ export async function POST() {
 
   // Финализируем начатые (последовательно — внутри AI-запросы, бережём лимиты)
   let finished = 0
+  const finishedIds: string[] = []
   for (const a of inProgress) {
     const res = await finalizeAttempt(a.id, { admin })
-    if (res) finished++
+    if (res) { finished++; finishedIds.push(a.id) }
   }
+  // уведомления — после ответа, последовательно (лимиты Bot API)
+  after(async () => {
+    for (const id of finishedIds) await notifyAttemptFinalized(id)
+  })
 
   // Не начатые — помечаем истёкшими
   let expired = 0

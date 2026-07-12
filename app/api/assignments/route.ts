@@ -1,8 +1,9 @@
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { NextResponse } from 'next/server'
+import { NextResponse, after } from 'next/server'
 import { z } from 'zod'
 import { zUuid } from '@/lib/uuid'
+import { notifyAssignmentCreated } from '@/lib/notifications/send'
 
 const schema = z.object({
   test_id: zUuid(),
@@ -120,5 +121,9 @@ export async function POST(request: Request) {
   }).select('id').single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  // телеграм-уведомление ученикам цели — после ответа, не задерживая запрос
+  after(() => notifyAssignmentCreated(assignment.id))
+
   return NextResponse.json({ id: assignment.id }, { status: 201 })
 }

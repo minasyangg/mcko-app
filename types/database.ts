@@ -1052,6 +1052,92 @@ export type Database = {
         }
         Relationships: []
       }
+      notification_log: {
+        Row: {
+          channel: string
+          created_at: string
+          error: string | null
+          event_type: string
+          id: string
+          message: string | null
+          organization_id: string | null
+          status: string
+          user_id: string | null
+        }
+        Insert: {
+          channel: string
+          created_at?: string
+          error?: string | null
+          event_type: string
+          id?: string
+          message?: string | null
+          organization_id?: string | null
+          status?: string
+          user_id?: string | null
+        }
+        Update: {
+          channel?: string
+          created_at?: string
+          error?: string | null
+          event_type?: string
+          id?: string
+          message?: string | null
+          organization_id?: string | null
+          status?: string
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notification_log_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "notification_log_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      notification_settings: {
+        Row: {
+          channel: string
+          enabled: boolean
+          event_type: string
+          id: string
+          organization_id: string
+          updated_at: string
+        }
+        Insert: {
+          channel?: string
+          enabled?: boolean
+          event_type: string
+          id?: string
+          organization_id: string
+          updated_at?: string
+        }
+        Update: {
+          channel?: string
+          enabled?: boolean
+          event_type?: string
+          id?: string
+          organization_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notification_settings_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       organizations: {
         Row: {
           created_at: string | null
@@ -1238,6 +1324,8 @@ export type Database = {
           is_active: boolean | null
           organization_id: string | null
           role: string
+          telegram_chat_id: number | null
+          telegram_username: string | null
         }
         Insert: {
           created_at?: string | null
@@ -1250,6 +1338,8 @@ export type Database = {
           is_active?: boolean | null
           organization_id?: string | null
           role: string
+          telegram_chat_id?: number | null
+          telegram_username?: string | null
         }
         Update: {
           created_at?: string | null
@@ -1262,6 +1352,8 @@ export type Database = {
           is_active?: boolean | null
           organization_id?: string | null
           role?: string
+          telegram_chat_id?: number | null
+          telegram_username?: string | null
         }
         Relationships: [
           {

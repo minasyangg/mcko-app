@@ -1,8 +1,9 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest, NextResponse, after } from 'next/server'
 import { z } from 'zod'
 import { zUuid } from '@/lib/uuid'
 import { authorizeRoadmap } from '@/lib/roadmaps/authorize'
 import { deleteAssignmentsDeep } from '@/lib/assignments/cleanup'
+import { notifyAssignmentCreated } from '@/lib/notifications/send'
 
 const schema = z.object({
   test_id: zUuid(),
@@ -61,6 +62,10 @@ export async function POST(request: NextRequest, { params }: Params) {
     created_by: userId,
   }).select('id').single()
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  // телеграм-уведомление ученикам программы — после ответа
+  after(() => notifyAssignmentCreated(assignment.id))
+
   return NextResponse.json({ id: assignment.id }, { status: 201 })
 }
 

@@ -1,6 +1,7 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest, NextResponse, after } from 'next/server'
 import { requireAdmin } from '@/lib/auth/authorize'
 import { finalizeAttempt } from '@/lib/grading/finalize'
+import { notifyAttemptFinalized } from '@/lib/notifications/send'
 
 // POST /api/admin/attempts/[id]/finish — принудительно завершить ОДНУ попытку
 // (тот же механизм, что «завершить все»): in_progress → финализация
@@ -30,6 +31,7 @@ export async function POST(
   if (attempt.status === 'in_progress') {
     const res = await finalizeAttempt(attemptId, { admin })
     if (!res) return NextResponse.json({ error: 'Не удалось завершить попытку' }, { status: 500 })
+    after(() => notifyAttemptFinalized(attemptId))
     return NextResponse.json({ ok: true, status: res.status, score: res.score, max_score: res.max_score })
   }
 

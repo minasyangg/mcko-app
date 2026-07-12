@@ -1,6 +1,8 @@
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { NextRequest } from 'next/server'
+import { after } from 'next/server'
+import { notifyAttemptFinalized } from '@/lib/notifications/send'
 
 // PATCH /api/attempts/[id]/grade
 // Body: { answers: [{ answer_id, awarded_score, is_correct, teacher_comment? }], finalize?: boolean }
@@ -150,6 +152,11 @@ export async function PATCH(
         }, { onConflict: 'student_id,test_version_id' })
       }
     }
+  }
+
+  // учитель завершил проверку → ученику уходит результат
+  if (body.finalize) {
+    after(() => notifyAttemptFinalized(attemptId))
   }
 
   return Response.json({ ok: true, ...(finalizedScore !== undefined ? { score: finalizedScore } : {}) })

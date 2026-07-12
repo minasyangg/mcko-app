@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { LogoutButton } from '@/components/shared/LogoutButton'
-import { BookOpen, BookMarked, Users, GraduationCap, Monitor, FileText, BarChart2, TrendingUp, Menu, X, ListChecks, Library, Route } from 'lucide-react'
+import { BookOpen, BookMarked, Users, GraduationCap, Monitor, FileText, BarChart2, TrendingUp, Menu, X, ListChecks, Library, Route, Bell, Settings } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
 
@@ -32,6 +32,8 @@ const navItems: NavItem[] = [
   { href: '/teacher/students', label: 'Ученики', icon: Users, teacherOnly: true },
   { href: '/teacher/solution-requests', label: 'Запросы', icon: FileText },
   { href: '/teacher/scoring-rules', label: 'Правила', icon: ListChecks },
+  // настройка событий telegram/email-уведомлений организации
+  { href: '/teacher/notifications', label: 'Уведомления', icon: Bell, adminOnly: true },
 ]
 
 interface Props {
@@ -146,6 +148,13 @@ export function TeacherNav({ fullName, isAdmin = false, pendingRequests, pending
         <NavList isAdmin={isAdmin} pendingRequests={pendingRequests} monitorBadge={monitorBadge} />
         <div className="p-4 border-t space-y-1 shrink-0">
           <p className="text-xs text-muted-foreground truncate">{fullName}</p>
+          <Link
+            href="/teacher/settings"
+            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors py-1"
+          >
+            <Settings className="h-3.5 w-3.5" />
+            Настройки
+          </Link>
           <LogoutButton size="sm" variant="ghost" className="w-full justify-start px-0" />
         </div>
       </aside>
@@ -190,6 +199,13 @@ export function TeacherNav({ fullName, isAdmin = false, pendingRequests, pending
             />
             <div className="p-4 border-t space-y-1 shrink-0">
               <p className="text-xs text-muted-foreground truncate">{fullName}</p>
+              <Link
+                href="/teacher/settings"
+                className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors py-1"
+              >
+                <Settings className="h-3.5 w-3.5" />
+                Настройки
+              </Link>
               <LogoutButton size="sm" variant="ghost" className="w-full justify-start px-0" />
             </div>
           </div>
