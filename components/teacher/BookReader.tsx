@@ -329,11 +329,12 @@ function TheoryBlock({ md }: { md: string }) {
 // ─── Page renderer: текст страницы с интерактивными врезками заданий ──────────
 
 function PageBlock({
-  page, problems, onAdd, highlightId, canEdit, bookId, onChanged,
+  page, problems, onAdd, addedProblems, highlightId, canEdit, bookId, onChanged,
 }: {
   page: PageData
   problems: ProblemAnchor[]
   onAdd: (p: ProblemAnchor) => void
+  addedProblems: Map<string, string>
   highlightId: string | null
   canEdit: boolean
   bookId: string
@@ -511,14 +512,28 @@ function PageBlock({
                 {seg.problem.used_count > 0 && (
                   <span className="text-[10px] text-muted-foreground">в тестах: {seg.problem.used_count}</span>
                 )}
+                {addedProblems.has(seg.problem.id) && (
+                  <span
+                    className="inline-flex items-center gap-1 text-[10px] text-green-600 font-medium max-w-40 truncate"
+                    title={`Добавлено в «${addedProblems.get(seg.problem.id)}»`}
+                  >
+                    <CheckCircle2 className="h-3 w-3 shrink-0" />
+                    <span className="truncate">в «{addedProblems.get(seg.problem.id)}»</span>
+                  </span>
+                )}
               </div>
               <div className="flex gap-1 shrink-0">
                 <Button
                   size="sm"
                   variant="outline"
                   onClick={() => onAdd(seg.problem)}
-                  title="Добавить в тест или ДЗ"
-                  className="h-7 w-7 p-0 rounded-full opacity-60 group-hover:opacity-100 hover:bg-primary hover:text-primary-foreground transition-all"
+                  title={addedProblems.has(seg.problem.id) ? 'Добавить ещё раз / в другой тест' : 'Добавить в тест или ДЗ'}
+                  className={cn(
+                    'h-7 w-7 p-0 rounded-full transition-all',
+                    addedProblems.has(seg.problem.id)
+                      ? 'border-green-500 text-green-600 hover:bg-green-500 hover:text-white opacity-100'
+                      : 'opacity-60 group-hover:opacity-100 hover:bg-primary hover:text-primary-foreground',
+                  )}
                 >
                   <Plus className="h-4 w-4" />
                 </Button>
@@ -664,6 +679,8 @@ export function BookReader({
   const [searching, setSearching] = useState(false)
 
   const [dialogProblem, setDialogProblem] = useState<ProblemAnchor | null>(null)
+  // id заданий, добавленных в тест в этой сессии (метка «добавлено», без reload)
+  const [addedProblems, setAddedProblems] = useState<Map<string, string>>(new Map())
   const [highlightId, setHighlightId] = useState<string | null>(initialProblemId)
   const scrollTarget = useRef<string | null>(initialTask)
 
@@ -892,6 +909,7 @@ export function BookReader({
                 page={page}
                 problems={problems.filter(p => p.page_index === page.page_index)}
                 onAdd={setDialogProblem}
+                addedProblems={addedProblems}
                 highlightId={highlightId}
                 canEdit={canEdit}
                 bookId={book.id}
@@ -907,6 +925,9 @@ export function BookReader({
         onClose={() => setDialogProblem(null)}
         addUrl={dialogProblem ? `/api/books/problems/${dialogProblem.id}/add-to-test` : null}
         problemLabel={dialogProblem ? `№ ${dialogProblem.task_number}` : ''}
+        onAdded={(title) => {
+          if (dialogProblem) setAddedProblems(prev => new Map(prev).set(dialogProblem.id, title))
+        }}
       />
     </div>
   )

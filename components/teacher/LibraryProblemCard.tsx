@@ -48,6 +48,7 @@ export function LibraryProblemCard({ problem }: Props) {
   const [saving,      setSaving]      = useState(false)
   const [saveError,   setSaveError]   = useState<string | null>(null)
   const [addOpen,     setAddOpen]     = useState(false)
+  const [addedTo,     setAddedTo]     = useState<string | null>(null) // тест, куда уже добавлено (метка)
   const inputRef = useRef<HTMLInputElement>(null)
 
   const topic     = problem.canonical_topic
@@ -225,15 +226,32 @@ export function LibraryProblemCard({ problem }: Props) {
             )}
           </Button>
 
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => setAddOpen(true)}
-            title="Добавить в тест или ДЗ"
-            className="h-7 w-7 p-0 rounded-full opacity-60 group-hover:opacity-100 hover:bg-primary hover:text-primary-foreground transition-all"
-          >
-            <Plus className="h-4 w-4" />
-          </Button>
+          <div className="flex items-center gap-2">
+            {/* Метка «добавлено» — чтобы не добавить задачу повторно */}
+            {addedTo && (
+              <span
+                className="inline-flex items-center gap-1 text-xs text-green-600 font-medium max-w-40 truncate"
+                title={`Добавлено в «${addedTo}»`}
+              >
+                <Check className="h-3.5 w-3.5 shrink-0" />
+                <span className="truncate">В «{addedTo}»</span>
+              </span>
+            )}
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setAddOpen(true)}
+              title={addedTo ? 'Добавить ещё раз / в другой тест' : 'Добавить в тест или ДЗ'}
+              className={cn(
+                'h-7 w-7 p-0 rounded-full transition-all',
+                addedTo
+                  ? 'border-green-500 text-green-600 hover:bg-green-500 hover:text-white opacity-100'
+                  : 'opacity-60 group-hover:opacity-100 hover:bg-primary hover:text-primary-foreground',
+              )}
+            >
+              <Plus className="h-4 w-4" />
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -242,6 +260,7 @@ export function LibraryProblemCard({ problem }: Props) {
         onClose={() => setAddOpen(false)}
         addUrl={`/api/library/problems/${problem.id}/add-to-test`}
         problemLabel={codeLabel ?? ''}
+        onAdded={(title) => setAddedTo(title)}
       />
     </div>
   )

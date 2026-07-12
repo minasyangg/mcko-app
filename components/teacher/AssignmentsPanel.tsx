@@ -23,6 +23,12 @@ function fmtDate(iso: string | null) {
   return iso ? new Date(iso).toLocaleDateString('ru-RU') : '—'
 }
 
+// «Начало → Конец» одной ячейкой; если обе пусты — прочерк, если одна — она
+function fmtRange(from: string | null, to: string | null) {
+  if (!from && !to) return '—'
+  return `${fmtDate(from)} — ${fmtDate(to)}`
+}
+
 // Таблица назначений — первый таб мониторинга (перенесена из /teacher/assignments).
 // Roadmap-назначения сюда не попадают: ими управляет редактор программы.
 export function AssignmentsPanel({ rows }: { rows: AssignmentRow[] }) {
@@ -50,8 +56,7 @@ export function AssignmentsPanel({ rows }: { rows: AssignmentRow[] }) {
                 <tr>
                   <th className="text-left px-4 py-3 font-medium">Тест</th>
                   <th className="text-left px-4 py-3 font-medium">Для кого</th>
-                  <th className="text-left px-4 py-3 font-medium">Начало</th>
-                  <th className="text-left px-4 py-3 font-medium">Конец</th>
+                  <th className="text-left px-4 py-3 font-medium">Сроки</th>
                   <th className="text-left px-4 py-3 font-medium">Попыток</th>
                   <th className="text-left px-4 py-3 font-medium">Создано</th>
                   <th className="px-4 py-3" />
@@ -62,8 +67,7 @@ export function AssignmentsPanel({ rows }: { rows: AssignmentRow[] }) {
                   <tr key={a.id} className="hover:bg-muted/30 transition-colors">
                     <td className="px-4 py-3 font-medium">{a.test_title}</td>
                     <td className="px-4 py-3 text-muted-foreground">{a.target}</td>
-                    <td className="px-4 py-3 text-muted-foreground">{fmtDate(a.starts_at)}</td>
-                    <td className="px-4 py-3 text-muted-foreground">{fmtDate(a.ends_at)}</td>
+                    <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{fmtRange(a.starts_at, a.ends_at)}</td>
                     <td className="px-4 py-3">
                       {a.is_group ? (
                         <span className="text-muted-foreground">{a.max_attempts} / уч.</span>
