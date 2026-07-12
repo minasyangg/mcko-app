@@ -1,20 +1,10 @@
-import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { NextRequest } from 'next/server'
+import { requireAdmin } from '@/lib/auth/authorize'
 
 // Управление точечными грантами на редактирование книги (book_editors).
 // Строго admin. Запись идёт через service role — RLS на book_editors
 // закрыт для клиентской записи.
-
-async function verifyAdmin() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return null
-  const { data: profile } = await supabase
-    .from('profiles').select('role, organization_id').eq('id', user.id).single()
-  if (!profile || profile.role !== 'admin' || !profile.organization_id) return null
-  return { userId: user.id, organizationId: profile.organization_id }
-}
 
 async function getBook(admin: ReturnType<typeof createAdminClient>, bookId: string) {
   const { data: book } = await admin
@@ -28,13 +18,13 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id: bookId } = await params
-  const ctx = await verifyAdmin()
-  if (!ctx) return Response.json({ error: 'Forbidden' }, { status: 403 })
+  const auth = await requireAdmin()
+  if ('error' in auth) return auth.error
+  const { admin, orgId } = auth
 
-  const admin = createAdminClient()
   const book = await getBook(admin, bookId)
   if (!book) return Response.json({ error: 'Book not found' }, { status: 404 })
-  if (book.organization_id !== null && book.organization_id !== ctx.organizationId) {
+  if (book.organization_id !== null && book.organization_id !== orgId) {
     return Response.json({ error: 'Forbidden' }, { status: 403 })
   }
 
@@ -52,16 +42,16 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id: bookId } = await params
-  const ctx = await verifyAdmin()
-  if (!ctx) return Response.json({ error: 'Выдавать доступ может только администратор' }, { status: 403 })
+  const auth = await requireAdmin('Выдавать доступ может только администратор')
+  if ('error' in auth) return auth.error
+  const { admin, orgId, userId } = auth
 
   const body = await request.json().catch(() => ({})) as { teacher_id?: string; can_delete?: boolean }
   if (!body.teacher_id) return Response.json({ error: 'teacher_id required' }, { status: 400 })
 
-  const admin = createAdminClient()
   const book = await getBook(admin, bookId)
   if (!book) return Response.json({ error: 'Book not found' }, { status: 404 })
-  if (book.organization_id !== null && book.organization_id !== ctx.organizationId) {
+  if (book.organization_id !== null && book.organization_id !== orgId) {
     return Response.json({ error: 'Forbidden' }, { status: 403 })
   }
 
@@ -71,7 +61,7 @@ export async function POST(
     .select('id, role, organization_id')
     .eq('id', body.teacher_id)
     .single()
-  if (!teacher || teacher.role !== 'teacher' || teacher.organization_id !== ctx.organizationId) {
+  if (!teacher || teacher.role !== 'teacher' || teacher.organization_id !== orgId) {
     return Response.json({ error: 'Учитель не найден в вашей организации' }, { status: 422 })
   }
 
@@ -79,7 +69,7 @@ export async function POST(
     book_id: bookId,
     teacher_id: body.teacher_id,
     can_delete: body.can_delete ?? false,
-    granted_by: ctx.userId,
+    granted_by: userId,
   }, { onConflict: 'book_id,teacher_id' })
   if (error) return Response.json({ error: error.message }, { status: 500 })
 
@@ -92,17 +82,17 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id: bookId } = await params
-  const ctx = await verifyAdmin()
-  if (!ctx) return Response.json({ error: 'Отзывать доступ может только администратор' }, { status: 403 })
+  const auth = await requireAdmin('Отзывать доступ может только администратор')
+  if ('error' in auth) return auth.error
+  const { admin, orgId } = auth
 
   const { searchParams } = new URL(request.url)
   const teacherId = searchParams.get('teacher_id')
   if (!teacherId) return Response.json({ error: 'teacher_id required' }, { status: 400 })
 
-  const admin = createAdminClient()
   const book = await getBook(admin, bookId)
   if (!book) return Response.json({ error: 'Book not found' }, { status: 404 })
-  if (book.organization_id !== null && book.organization_id !== ctx.organizationId) {
+  if (book.organization_id !== null && book.organization_id !== orgId) {
     return Response.json({ error: 'Forbidden' }, { status: 403 })
   }
 

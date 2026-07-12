@@ -21,9 +21,11 @@ export type Database = {
           ends_at: string | null
           group_id: string | null
           id: string
+          kind: string | null
           max_attempts: number | null
           organization_id: string
           preserve_answers: boolean
+          roadmap_topic_id: string | null
           starts_at: string | null
           student_id: string | null
           test_version_id: string
@@ -35,9 +37,11 @@ export type Database = {
           ends_at?: string | null
           group_id?: string | null
           id?: string
+          kind?: string | null
           max_attempts?: number | null
           organization_id: string
           preserve_answers?: boolean
+          roadmap_topic_id?: string | null
           starts_at?: string | null
           student_id?: string | null
           test_version_id: string
@@ -49,9 +53,11 @@ export type Database = {
           ends_at?: string | null
           group_id?: string | null
           id?: string
+          kind?: string | null
           max_attempts?: number | null
           organization_id?: string
           preserve_answers?: boolean
+          roadmap_topic_id?: string | null
           starts_at?: string | null
           student_id?: string | null
           test_version_id?: string
@@ -77,6 +83,13 @@ export type Database = {
             columns: ["organization_id"]
             isOneToOne: false
             referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "assignments_roadmap_topic_id_fkey"
+            columns: ["roadmap_topic_id"]
+            isOneToOne: false
+            referencedRelation: "roadmap_topics"
             referencedColumns: ["id"]
           },
           {
@@ -741,6 +754,7 @@ export type Database = {
           id: string
           name: string
           organization_id: string
+          roadmap_id: string | null
         }
         Insert: {
           created_at?: string | null
@@ -749,6 +763,7 @@ export type Database = {
           id?: string
           name: string
           organization_id: string
+          roadmap_id?: string | null
         }
         Update: {
           created_at?: string | null
@@ -757,6 +772,7 @@ export type Database = {
           id?: string
           name?: string
           organization_id?: string
+          roadmap_id?: string | null
         }
         Relationships: [
           {
@@ -771,6 +787,13 @@ export type Database = {
             columns: ["organization_id"]
             isOneToOne: false
             referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "groups_roadmap_id_fkey"
+            columns: ["roadmap_id"]
+            isOneToOne: false
+            referencedRelation: "roadmaps"
             referencedColumns: ["id"]
           },
         ]
@@ -1002,6 +1025,119 @@ export type Database = {
           },
         ]
       }
+      login_events: {
+        Row: {
+          created_at: string
+          id: string
+          ip: string | null
+          session_id: string | null
+          user_agent: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          ip?: string | null
+          session_id?: string | null
+          user_agent?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          ip?: string | null
+          session_id?: string | null
+          user_agent?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      notification_log: {
+        Row: {
+          channel: string
+          created_at: string
+          error: string | null
+          event_type: string
+          id: string
+          message: string | null
+          organization_id: string | null
+          status: string
+          user_id: string | null
+        }
+        Insert: {
+          channel: string
+          created_at?: string
+          error?: string | null
+          event_type: string
+          id?: string
+          message?: string | null
+          organization_id?: string | null
+          status?: string
+          user_id?: string | null
+        }
+        Update: {
+          channel?: string
+          created_at?: string
+          error?: string | null
+          event_type?: string
+          id?: string
+          message?: string | null
+          organization_id?: string | null
+          status?: string
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notification_log_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "notification_log_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      notification_settings: {
+        Row: {
+          channel: string
+          enabled: boolean
+          event_type: string
+          id: string
+          organization_id: string
+          updated_at: string
+        }
+        Insert: {
+          channel?: string
+          enabled?: boolean
+          event_type: string
+          id?: string
+          organization_id: string
+          updated_at?: string
+        }
+        Update: {
+          channel?: string
+          enabled?: boolean
+          event_type?: string
+          id?: string
+          organization_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notification_settings_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       organizations: {
         Row: {
           created_at: string | null
@@ -1181,34 +1317,43 @@ export type Database = {
           created_at: string | null
           created_by: string | null
           deleted_at: string | null
+          email: string | null
           full_name: string
           grade: string | null
           id: string
           is_active: boolean | null
           organization_id: string | null
           role: string
+          telegram_chat_id: number | null
+          telegram_username: string | null
         }
         Insert: {
           created_at?: string | null
           created_by?: string | null
           deleted_at?: string | null
+          email?: string | null
           full_name: string
           grade?: string | null
           id: string
           is_active?: boolean | null
           organization_id?: string | null
           role: string
+          telegram_chat_id?: number | null
+          telegram_username?: string | null
         }
         Update: {
           created_at?: string | null
           created_by?: string | null
           deleted_at?: string | null
+          email?: string | null
           full_name?: string
           grade?: string | null
           id?: string
           is_active?: boolean | null
           organization_id?: string | null
           role?: string
+          telegram_chat_id?: number | null
+          telegram_username?: string | null
         }
         Relationships: [
           {
@@ -1220,6 +1365,96 @@ export type Database = {
           },
           {
             foreignKeyName: "profiles_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      roadmap_topics: {
+        Row: {
+          created_at: string | null
+          description: string | null
+          id: string
+          roadmap_id: string
+          sort_order: number
+          title: string
+        }
+        Insert: {
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          roadmap_id: string
+          sort_order?: number
+          title: string
+        }
+        Update: {
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          roadmap_id?: string
+          sort_order?: number
+          title?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "roadmap_topics_roadmap_id_fkey"
+            columns: ["roadmap_id"]
+            isOneToOne: false
+            referencedRelation: "roadmaps"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      roadmaps: {
+        Row: {
+          created_at: string | null
+          created_by: string
+          description: string | null
+          group_id: string | null
+          id: string
+          organization_id: string
+          subject: string | null
+          title: string
+        }
+        Insert: {
+          created_at?: string | null
+          created_by: string
+          description?: string | null
+          group_id?: string | null
+          id?: string
+          organization_id: string
+          subject?: string | null
+          title: string
+        }
+        Update: {
+          created_at?: string | null
+          created_by?: string
+          description?: string | null
+          group_id?: string | null
+          id?: string
+          organization_id?: string
+          subject?: string | null
+          title?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "roadmaps_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "roadmaps_group_id_fkey"
+            columns: ["group_id"]
+            isOneToOne: false
+            referencedRelation: "groups"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "roadmaps_organization_id_fkey"
             columns: ["organization_id"]
             isOneToOne: false
             referencedRelation: "organizations"
@@ -1902,6 +2137,7 @@ export type Database = {
           grade: string | null
           id: string
           is_active: boolean
+          kind: string
           organization_id: string
           scoring_rule_id: string | null
           status: string
@@ -1918,6 +2154,7 @@ export type Database = {
           grade?: string | null
           id?: string
           is_active?: boolean
+          kind?: string
           organization_id: string
           scoring_rule_id?: string | null
           status?: string
@@ -1934,6 +2171,7 @@ export type Database = {
           grade?: string | null
           id?: string
           is_active?: boolean
+          kind?: string
           organization_id?: string
           scoring_rule_id?: string | null
           status?: string
@@ -2001,6 +2239,31 @@ export type Database = {
       }
       check_group_owned_by_auth: {
         Args: { p_group_id: string }
+        Returns: boolean
+      }
+      check_parsing_job_in_auth_org: {
+        Args: { p_job_id: string }
+        Returns: boolean
+      }
+      check_parsing_job_owned_by_auth: {
+        Args: { p_job_id: string }
+        Returns: boolean
+      }
+      check_roadmap_in_auth_org: {
+        Args: { p_roadmap_id: string }
+        Returns: boolean
+      }
+      check_roadmap_member: { Args: { p_roadmap_id: string }; Returns: boolean }
+      check_roadmap_owned_by_auth: {
+        Args: { p_roadmap_id: string }
+        Returns: boolean
+      }
+      check_solution_in_auth_org: {
+        Args: { p_solution_id: string }
+        Returns: boolean
+      }
+      check_solution_owned_by_auth: {
+        Args: { p_solution_id: string }
         Returns: boolean
       }
       check_student_in_auth_org: {

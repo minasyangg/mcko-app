@@ -6,19 +6,12 @@ import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import MarkdownContent from '@/components/shared/MarkdownContent'
 import { AddToTestDialog } from '@/components/teacher/AddToTestDialog'
+import { AddTargetBanner } from '@/components/teacher/AddTargetBanner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Textarea } from '@/components/ui/textarea'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -35,70 +28,14 @@ import {
   CheckCircle2, Flame, BookOpen, Pencil, Trash2, Check,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { visibleTaskNumber, taskNumberLabel } from '@/lib/books/anchors'
+import { taskNumberLabel } from '@/lib/books/anchors'
 
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-interface Book {
-  id: string
-  title: string
-  authors: string | null
-  subject: string
-  grade: string | null
-  level: string | null
-  page_count: number | null
-}
-
-interface Section {
-  id: string
-  parent_id: string | null
-  kind: string
-  number: string | null
-  title: string
-  page_start: number | null
-  page_end: number | null
-  sort_order: number
-}
-
-interface PageData {
-  page_index: number
-  printed_page: number | null
-  markdown: string
-}
-
-interface ProblemAnchor {
-  id: string
-  task_number: string
-  task_number_sort: number | null
-  page_index: number
-  md_start: number | null
-  md_end: number | null
-  prompt_md: string
-  correct_answer: { text?: string } | null
-  answer_source: string
-  difficulty: string
-  grading_method: string
-  used_count: number
-}
-
-// Методы автопроверки для ответов из книги (тот же набор, что в тестах)
-const gradingMethodLabel: Record<string, string> = {
-  normalized: 'Нормализованное сравнение',
-  exact: 'Точное совпадение',
-  numeric_tolerance: 'Числовой (допуск)',
-  sequence: 'Последовательность цифр (соответствие)',
-  set_match: 'Совпадение набора',
-  manual: 'Ручная проверка',
-}
-
-interface SearchResult {
-  id: string
-  task_number: string
-  section_id: string | null
-  page_index: number
-  answer_source: string
-  snippet: string
-}
+// Общие типы/утилиты и формы редактирования — в ./book-reader/
+import {
+  type Book, type Section, type PageData, type ProblemAnchor, type SearchResult,
+  stripTaskNumber,
+} from './book-reader/shared'
+import { ProblemEditForm, ProblemCreateForm, PageEditForm } from './book-reader/forms'
 
 // ─── TOC tree ─────────────────────────────────────────────────────────────────
 
@@ -334,330 +271,6 @@ function TocItem({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </div>
-  )
-}
-
-// ─── Номер задания ────────────────────────────────────────────────────────────
-// В markdown страницы номер обязан оставаться (по нему строятся привязки и
-// поиск), но пользователю он показывается только бейджем рамки. Из текста
-// задания перед отображением и редактированием номер вырезается; при
-// сохранении сервер восстанавливает его сам.
-
-function stripTaskNumber(md: string, taskNumber: string): string {
-  // ДКР-задание «к1.2.3» в тексте напечатано видимым номером «3.»
-  const esc = visibleTaskNumber(taskNumber).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  // глиф-символ (○/∞/⑤/кружок-OCR) касается номера вплотную; глиф-буква
-  // категории (Петерсон: К/П/Д/С — классная/повторение/дом/смекалка) —
-  // через пробел; терминатор после номера («.»/«)») необязателен (Петерсон
-  // печатает номер вообще без знака препинания: «23 Найди…»)
-  return md.replace(
-    new RegExp(`^[ \\t]*(?:(?:[^0-9A-Za-zА-Яа-яЁё#<\\s$([{]|[oOоОοΟ0])[ \\t]*|[КПДСKPDCπ][ \\t]+)?${esc}[*°]?(?:[.)][*°]?)?[ \\t]*`),
-    '',
-  )
-}
-
-// ─── Формы редактирования (по образцу EditTaskForm из тестов) ─────────────────
-
-function ProblemEditForm({
-  problem, onSaved, onCancel,
-}: {
-  problem: ProblemAnchor
-  onSaved: () => void
-  onCancel: () => void
-}) {
-  // номер задания в форму не попадает — им управляет сервер
-  const [promptMd, setPromptMd] = useState(() => stripTaskNumber(problem.prompt_md, problem.task_number))
-  const [showPreview, setShowPreview] = useState(false)
-  const [answer, setAnswer] = useState(problem.correct_answer?.text ?? '')
-  const [gradingMethod, setGradingMethod] = useState(problem.grading_method)
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  async function handleSave() {
-    setSaving(true)
-    setError(null)
-    try {
-      const res = await fetch(`/api/books/problems/${problem.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          prompt_md: promptMd,
-          correct_answer: answer,
-          grading_method: gradingMethod,
-        }),
-      })
-      if (!res.ok) {
-        const d = await res.json().catch(() => ({}))
-        setError(d.error ?? 'Ошибка сохранения')
-        return
-      }
-      toast.success(`Задание ${taskNumberLabel(problem.task_number)} сохранено`)
-      onSaved()
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  return (
-    <div className="space-y-3 mt-2 pt-3 border-t" onClick={(e) => e.stopPropagation()}>
-      <div className="space-y-1">
-        <div className="flex items-center justify-between">
-          <Label className="text-xs">Текст задания (поддерживает LaTeX: $формула$)</Label>
-          <button
-            type="button"
-            onClick={() => setShowPreview(v => !v)}
-            className="text-xs text-muted-foreground hover:text-foreground underline"
-          >
-            {showPreview ? 'Редактировать' : 'Предпросмотр'}
-          </button>
-        </div>
-        {showPreview ? (
-          <div className="min-h-24 rounded-md border bg-muted/20 px-3 py-2">
-            <MarkdownContent content={promptMd} />
-          </div>
-        ) : (
-          <Textarea
-            value={promptMd}
-            onChange={(e) => setPromptMd(e.target.value)}
-            rows={6}
-            className="text-sm font-mono"
-            placeholder="Текст задания. Формулы: $\sqrt{x}$ или $$\frac{a}{b}$$"
-          />
-        )}
-      </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <div className="space-y-1">
-          <Label className="text-xs">Правильный ответ {problem.correct_answer ? '' : '(отсутствует — можно добавить)'}</Label>
-          <Input
-            value={answer}
-            onChange={(e) => setAnswer(e.target.value)}
-            className="h-8 text-sm"
-            placeholder="Пусто = без ответа (ручная проверка)"
-          />
-        </div>
-        <div className="space-y-1">
-          <Label className="text-xs">Метод автопроверки</Label>
-          <Select value={gradingMethod} onValueChange={setGradingMethod}>
-            <SelectTrigger className="h-8 text-sm">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {Object.entries(gradingMethodLabel).map(([v, l]) => (
-                <SelectItem key={v} value={v}>{l}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-      </div>
-      {error && <p className="text-sm text-destructive">{error}</p>}
-      <div className="flex gap-2">
-        <Button size="sm" onClick={handleSave} disabled={saving || !promptMd.trim()}>
-          {saving ? 'Сохранение...' : 'Сохранить'}
-        </Button>
-        <Button size="sm" variant="outline" onClick={onCancel} disabled={saving}>
-          Отмена
-        </Button>
-      </div>
-    </div>
-  )
-}
-
-// Ручное создание задания: OCR иногда объединяет несколько задач в один атом —
-// учитель вырезает текст из соседнего задания и создаёт пропущенное здесь.
-function ProblemCreateForm({
-  bookId, pageIndex, onSaved, onCancel,
-}: {
-  bookId: string
-  pageIndex: number
-  onSaved: () => void
-  onCancel: () => void
-}) {
-  const [taskNumber, setTaskNumber] = useState('')
-  const [promptMd, setPromptMd] = useState('')
-  const [showPreview, setShowPreview] = useState(false)
-  const [answer, setAnswer] = useState('')
-  const [gradingMethod, setGradingMethod] = useState('manual')
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  async function handleSave() {
-    setSaving(true)
-    setError(null)
-    try {
-      const res = await fetch(`/api/books/${bookId}/problems`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          page_index: pageIndex,
-          task_number: taskNumber.trim(),
-          prompt_md: promptMd,
-          correct_answer: answer,
-          grading_method: gradingMethod,
-        }),
-      })
-      const d = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        setError(d.error ?? 'Ошибка создания')
-        return
-      }
-      toast.success(`Задание № ${taskNumber.trim()} создано`)
-      onSaved()
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  return (
-    <div className="space-y-3 my-4 rounded-lg border-2 border-dashed border-primary/40 p-4">
-      <p className="text-sm font-medium">Новое задание на этой странице</p>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <div className="space-y-1">
-          <Label className="text-xs">Номер задания («736» или «5.31»)</Label>
-          <Input
-            value={taskNumber}
-            onChange={(e) => setTaskNumber(e.target.value)}
-            className="h-8 text-sm"
-            placeholder="Как в книге"
-          />
-        </div>
-      </div>
-      <div className="space-y-1">
-        <div className="flex items-center justify-between">
-          <Label className="text-xs">Текст задания без номера (LaTeX: $формула$)</Label>
-          <button
-            type="button"
-            onClick={() => setShowPreview(v => !v)}
-            className="text-xs text-muted-foreground hover:text-foreground underline"
-          >
-            {showPreview ? 'Редактировать' : 'Предпросмотр'}
-          </button>
-        </div>
-        {showPreview ? (
-          <div className="min-h-24 rounded-md border bg-muted/20 px-3 py-2">
-            <MarkdownContent content={promptMd} />
-          </div>
-        ) : (
-          <Textarea
-            value={promptMd}
-            onChange={(e) => setPromptMd(e.target.value)}
-            rows={5}
-            className="text-sm font-mono"
-            placeholder="Вставьте текст задания, вырезанный из соседнего атома"
-          />
-        )}
-      </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <div className="space-y-1">
-          <Label className="text-xs">Правильный ответ (необязательно)</Label>
-          <Input
-            value={answer}
-            onChange={(e) => setAnswer(e.target.value)}
-            className="h-8 text-sm"
-            placeholder="Пусто = без ответа"
-          />
-        </div>
-        <div className="space-y-1">
-          <Label className="text-xs">Метод автопроверки</Label>
-          <Select value={gradingMethod} onValueChange={setGradingMethod}>
-            <SelectTrigger className="h-8 text-sm">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {Object.entries(gradingMethodLabel).map(([v, l]) => (
-                <SelectItem key={v} value={v}>{l}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-      </div>
-      {error && <p className="text-sm text-destructive">{error}</p>}
-      <div className="flex gap-2">
-        <Button size="sm" onClick={handleSave} disabled={saving || !promptMd.trim() || !taskNumber.trim()}>
-          {saving ? 'Создание...' : 'Создать задание'}
-        </Button>
-        <Button size="sm" variant="outline" onClick={onCancel} disabled={saving}>
-          Отмена
-        </Button>
-      </div>
-    </div>
-  )
-}
-
-function PageEditForm({
-  bookId, page, onSaved, onCancel,
-}: {
-  bookId: string
-  page: PageData
-  onSaved: () => void
-  onCancel: () => void
-}) {
-  const [md, setMd] = useState(page.markdown)
-  const [showPreview, setShowPreview] = useState(false)
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  async function handleSave() {
-    setSaving(true)
-    setError(null)
-    try {
-      const res = await fetch(`/api/books/${bookId}/pages/${page.page_index}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ markdown: md }),
-      })
-      const d = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        setError(d.error ?? 'Ошибка сохранения')
-        return
-      }
-      if (d.anchors_lost > 0) {
-        toast.warning(`Страница сохранена, но ${d.anchors_lost} заданий потеряли привязку (номер исчез из текста)`)
-      } else {
-        toast.success('Страница сохранена')
-      }
-      onSaved()
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  return (
-    <div className="space-y-3 my-4 rounded-lg border-2 border-dashed p-4">
-      <div className="flex items-center justify-between">
-        <Label className="text-xs">
-          Текст страницы{page.printed_page !== null ? ` ${page.printed_page}` : ''} (LaTeX: $формула$).
-          Не удаляйте номера заданий в начале строк — по ним строится привязка.
-        </Label>
-        <button
-          type="button"
-          onClick={() => setShowPreview(v => !v)}
-          className="text-xs text-muted-foreground hover:text-foreground underline shrink-0 ml-2"
-        >
-          {showPreview ? 'Редактировать' : 'Предпросмотр'}
-        </button>
-      </div>
-      {showPreview ? (
-        <div className="min-h-32 rounded-md border bg-muted/20 px-3 py-2">
-          <MarkdownContent content={md} />
-        </div>
-      ) : (
-        <Textarea
-          value={md}
-          onChange={(e) => setMd(e.target.value)}
-          rows={16}
-          className="text-sm font-mono"
-        />
-      )}
-      {error && <p className="text-sm text-destructive">{error}</p>}
-      <div className="flex gap-2">
-        <Button size="sm" onClick={handleSave} disabled={saving || !md.trim()}>
-          {saving ? 'Сохранение...' : 'Сохранить страницу'}
-        </Button>
-        <Button size="sm" variant="outline" onClick={onCancel} disabled={saving}>
-          Отмена
-        </Button>
-      </div>
     </div>
   )
 }
@@ -904,7 +517,7 @@ function PageBlock({
                   size="sm"
                   variant="outline"
                   onClick={() => onAdd(seg.problem)}
-                  title="Добавить в тест"
+                  title="Добавить в тест или ДЗ"
                   className="h-7 w-7 p-0 rounded-full opacity-60 group-hover:opacity-100 hover:bg-primary hover:text-primary-foreground transition-all"
                 >
                   <Plus className="h-4 w-4" />
@@ -975,7 +588,20 @@ function PageBlock({
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
-export function BookReader({ book, sections: initialSections, canEdit = false, canDelete = false, editorsPanel = null }: { book: Book; sections: Section[]; canEdit?: boolean; canDelete?: boolean; editorsPanel?: React.ReactNode }) {
+export function BookReader({
+  book, sections: initialSections, canEdit = false, canDelete = false, editorsPanel = null,
+  initialSectionId = null, initialTask = null, initialProblemId = null,
+}: {
+  book: Book
+  sections: Section[]
+  canEdit?: boolean
+  canDelete?: boolean
+  editorsPanel?: React.ReactNode
+  // Deep-link из общего поиска каталога: открыть раздел и проскроллить к заданию
+  initialSectionId?: string | null
+  initialTask?: string | null
+  initialProblemId?: string | null
+}) {
   const router = useRouter()
   const [deletingBook, setDeletingBook] = useState(false)
 
@@ -1004,7 +630,13 @@ export function BookReader({ book, sections: initialSections, canEdit = false, c
     return leaves[0] ?? null
   }, [sections])
 
-  const [selected, setSelected] = useState<Section | null>(firstLeaf)
+  const [selected, setSelected] = useState<Section | null>(() => {
+    if (initialSectionId) {
+      const s = initialSections.find(x => x.id === initialSectionId && x.page_start !== null)
+      if (s) return s
+    }
+    return firstLeaf
+  })
 
   // После переименования/удаления раздела — перечитать дерево; если выбранный
   // раздел (или его предок) был удалён, выбрать первый доступный лист
@@ -1032,8 +664,8 @@ export function BookReader({ book, sections: initialSections, canEdit = false, c
   const [searching, setSearching] = useState(false)
 
   const [dialogProblem, setDialogProblem] = useState<ProblemAnchor | null>(null)
-  const [highlightId, setHighlightId] = useState<string | null>(null)
-  const scrollTarget = useRef<string | null>(null)
+  const [highlightId, setHighlightId] = useState<string | null>(initialProblemId)
+  const scrollTarget = useRef<string | null>(initialTask)
 
   const loadSection = useCallback(async (s: Section) => {
     if (s.page_start === null) return
@@ -1159,7 +791,8 @@ export function BookReader({ book, sections: initialSections, canEdit = false, c
       {/* ── Content ── */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Header: поиск */}
-        <div className="border-b p-3 shrink-0 relative">
+        <div className="border-b p-3 shrink-0 relative space-y-2">
+          <AddTargetBanner />
           <form onSubmit={handleSearch} className="flex gap-2 max-w-xl">
             <div className="relative flex-1">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />

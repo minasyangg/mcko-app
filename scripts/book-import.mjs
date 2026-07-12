@@ -620,6 +620,69 @@ for (const w of didacticWorks) {
   didacticWorksByPage.set(w.page, arr)
 }
 
+// ── Склейка разрывных заданий на уровне страниц (до извлечения) ──────────────
+// Задание, начавшееся внизу страницы N и продолжающееся вверху страницы N+1,
+// собираем в ОДНУ страницу: хвост (начало N+1 до первого нового задания/
+// заголовка) переносим в конец N. Делается ДО фаз 1–3, поэтому атом извлекается
+// целиком на странице N с корректными якорями, а в читалке рамка задания не
+// рвётся на развороте.
+//
+// Отличить продолжение задания от начала теории пункта (у неё не всегда есть
+// «#»-заголовок): маркеры теории/примера в хвосте → это не хвост; сильный
+// признак продолжения — подпункт «в)», оборванное слово (строчная), формула,
+// цифра; заглавный длинный абзац без признака — тоже теория.
+const THEORY_START = /^(Определени|Теорем|Лемм|Следстви|Пример|Правил|Свойств|Доказательств|Решени|Замечани|Обозначим|Итак|В этой глав|В этом параграф|В предыдущ)/i
+const THEORY_ANYWHERE = /(^|[\s.,;(»])(Пример|Приведём|Приведем|Определени|Теорем|Действительно|Вообще|Доказательств|Замечани|Обозначим|Следовательно|Свойств)/
+// подпункт «в)», «г)» в начале — продолжение перечня задания, тянем всегда
+const SUBPOINT_START = /^[а-еa-zё6ΓB]\)/
+// прочий признак продолжения: строчная буква, формула, цифра, скобка
+const CONT_START = /^([а-яё]|\$|\d|\(|\\)/
+let continuationsPulled = 0
+
+// регэксп извлечения задания для страницы idx (composite вне спец-зон, иначе SEQ)
+function taskReFor(idx) {
+  return scheme === 'composite' && !(isDidactic || inRepetition(idx) || dkrByPage.has(idx))
+    ? COMPOSITE_RE : SEQ_RE
+}
+
+// Дидактические сборники не трогаем: задания короткие (разрывов почти нет),
+// а перенос текста сбил бы конечный автомат работ/вариантов в фазе 1.
+if (!isDidactic) {
+  for (let n = 0; n < pages.length - 1; n++) {
+    if (pages[n].contentBlocks.length > 0) continue
+    if (answersStart !== null && n >= answersStart) break
+    // на странице N должно быть хотя бы одно задание — иначе хвосту не к чему цепляться
+    const reN = taskReFor(n); reN.lastIndex = 0
+    if (!reN.test(pages[n].markdown)) continue
+    // ближайшая содержательная следующая страница (пропускаем пустые/колонцифры)
+    let j = n + 1
+    while (j < pages.length && (pages[j].markdown.trim() === '' || /^\d{1,4}$/.test(pages[j].markdown.trim()))) j++
+    if (j >= pages.length || pages[j].contentBlocks.length > 0) continue
+    if (answersStart !== null && j >= answersStart) continue
+
+    const nextMd = pages[j].markdown
+    const reNext = taskReFor(j); reNext.lastIndex = 0
+    const nextTask = reNext.exec(nextMd)
+    const nextHeading = nextMd.search(/^#{1,6}\s/m)
+    let cut = nextMd.length
+    if (nextTask) cut = Math.min(cut, nextTask.index)
+    if (nextHeading >= 0) cut = Math.min(cut, nextHeading)
+    if (cut >= nextMd.length) continue      // нет границы задания/заголовка ниже — не тянем целую страницу (риск теории)
+
+    const cont = nextMd.slice(0, cut).trim()
+    if (!cont || /^#/.test(cont)) continue                              // страница сразу с задания/заголовка
+    if (THEORY_START.test(cont) || THEORY_ANYWHERE.test(cont)) continue // теория пункта, а не хвост
+    // подпункты продолжаем всегда; прочий хвост — только короткий и с явным
+    // признаком продолжения (иначе это проза-теория, а не остаток задания)
+    if (!SUBPOINT_START.test(cont) && !(CONT_START.test(cont) && cont.length <= 200)) continue
+
+    // переносим хвост в конец страницы N, вырезаем его из начала страницы N+1
+    pages[n].markdown = pages[n].markdown.replace(/\s+$/, '') + '\n\n' + cont
+    pages[j].markdown = nextMd.slice(cut).replace(/^\s+/, '')
+    continuationsPulled++
+  }
+}
+
 const problems = []
 let lastNum = 0            // максимальный принятый сквозной номер (plain/повторение)
 let lastPara = 0, lastSub = 0  // composite-схема
@@ -812,24 +875,9 @@ for (const e of pageEntries) {
   for (let i = 0; i < accepted.length; i++) {
     const s = accepted[i]
     const end = i + 1 < accepted.length ? accepted[i + 1].at : md.length
-    let prompt = md.slice(s.at, end).trim()
-
-    // перенос на следующую страницу: если следующая страница начинается не с задания/заголовка
-    if (i === accepted.length - 1 && p.index + 1 < pages.length) {
-      const nextMd = pages[p.index + 1]?.markdown ?? ''
-      const nextRe = scheme === 'composite' && !(isDidactic || inRepetition(p.index + 1) || dkrByPage.has(p.index + 1))
-        ? COMPOSITE_RE : SEQ_RE
-      nextRe.lastIndex = 0
-      const nextTask = nextRe.exec(nextMd)
-      const nextHeading = nextMd.search(/^#{1,6}\s/m)
-      let cut = nextMd.length
-      if (nextTask) cut = Math.min(cut, nextTask.index)
-      if (nextHeading >= 0) cut = Math.min(cut, nextHeading)
-      const cont = nextMd.slice(0, cut).trim()
-      if (cont && cut > 0 && cut < 900 && !/^#/.test(cont)) {
-        prompt += '\n\n' + cont
-      }
-    }
+    // хвост разрывного задания уже перенесён в конец этой страницы пред-проходом
+    // joinSplitTasks (до фазы 1), поэтому здесь просто режем по якорям
+    const prompt = md.slice(s.at, end).trim()
 
     problems.push({
       taskNumber: s.taskNumber,
@@ -1032,6 +1080,7 @@ console.log(`  из домашних контрольных: ${uniqueProblems.fi
 console.log(`  с ответами из книги: ${answersFound}`)
 console.log(`  с автопроверкой:     ${uniqueProblems.filter(p => p.gradingMethod && p.gradingMethod !== 'manual').length}`)
 console.log(`  с картинками:        ${uniqueProblems.filter(p => p.hasImages).length}`)
+console.log(`  разрывных (склеено): ${continuationsPulled}`)
 console.log(`  повышенной трудности: ${uniqueProblems.filter(p => p.difficulty === 'advanced').length}`)
 console.log(`  без раздела:         ${uniqueProblems.filter(p => !p.section).length}`)
 console.log(`Предупреждений: ${warnings.length}`)

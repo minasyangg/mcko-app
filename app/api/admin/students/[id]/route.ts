@@ -1,20 +1,10 @@
-import { createAdminClient } from '@/lib/supabase/admin'
-import { createClient } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { zUuid } from '@/lib/uuid'
+import { requireAdmin } from '@/lib/auth/authorize'
 
 // Управление учениками (создание/правка/удаление/переназначение учителю) —
 // только admin. Учитель видит своих учеников read-only.
-async function verifyAdmin() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return null
-  const { data: profile } = await supabase
-    .from('profiles').select('id, role, organization_id').eq('id', user.id).single()
-  if (!profile || profile.role !== 'admin') return null
-  return profile
-}
 
 // PATCH /api/admin/students/[id]  — update student info, reassign teacher OR deactivate
 const patchSchema = z.object({
@@ -33,9 +23,9 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params
-  const profile = await verifyAdmin()
-  if (!profile) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-  if (!profile.organization_id) return NextResponse.json({ error: 'No organization' }, { status: 400 })
+  const auth = await requireAdmin()
+  if ('error' in auth) return auth.error
+  const { admin, orgId, userId } = auth
 
   const body = await request.json().catch(() => null)
   const parsed = patchSchema.safeParse(body)
@@ -43,12 +33,10 @@ export async function PATCH(
     return NextResponse.json({ error: parsed.error.issues[0]?.message }, { status: 400 })
   }
 
-  const admin = createAdminClient()
-
   const { data: student } = await admin
     .from('profiles').select('id, organization_id, role').eq('id', id).single()
 
-  if (!student || student.organization_id !== profile.organization_id || student.role !== 'student') {
+  if (!student || student.organization_id !== orgId || student.role !== 'student') {
     return NextResponse.json({ error: 'Student not found' }, { status: 404 })
   }
 
@@ -78,7 +66,7 @@ export async function PATCH(
     if (unique.length > 0) {
       const { data: valid } = await admin
         .from('profiles').select('id')
-        .in('id', unique).eq('role', 'teacher').eq('organization_id', profile.organization_id)
+        .in('id', unique).eq('role', 'teacher').eq('organization_id', orgId)
       if ((valid?.length ?? 0) !== unique.length) {
         return NextResponse.json({ error: 'Один из учителей не найден в вашей организации' }, { status: 422 })
       }
@@ -90,7 +78,7 @@ export async function PATCH(
     if (delErr) return NextResponse.json({ error: delErr.message }, { status: 500 })
     // добавить недостающие
     if (unique.length > 0) {
-      const rows = unique.map(tid => ({ teacher_id: tid, student_id: id, assigned_by: profile.id }))
+      const rows = unique.map(tid => ({ teacher_id: tid, student_id: id, assigned_by: userId }))
       const { error: insErr } = await admin
         .from('teacher_students').upsert(rows, { onConflict: 'teacher_id,student_id' })
       if (insErr) return NextResponse.json({ error: insErr.message }, { status: 500 })
@@ -103,6 +91,8 @@ export async function PATCH(
     if (password) authUpdate.password = password
     const { error } = await admin.auth.admin.updateUserById(id, authUpdate)
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    // profiles.email — копия auth-email (миграция 025), синхронизируем
+    if (email) await admin.from('profiles').update({ email }).eq('id', id)
   }
 
   return NextResponse.json({ ok: true })
@@ -115,15 +105,14 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params
-  const profile = await verifyAdmin()
-  if (!profile) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-
-  const admin = createAdminClient()
+  const auth = await requireAdmin()
+  if ('error' in auth) return auth.error
+  const { admin, orgId } = auth
 
   const { data: student } = await admin
     .from('profiles').select('id, organization_id, role').eq('id', id).single()
 
-  if (!student || student.organization_id !== profile.organization_id || student.role !== 'student') {
+  if (!student || student.organization_id !== orgId || student.role !== 'student') {
     return NextResponse.json({ error: 'Student not found' }, { status: 404 })
   }
 

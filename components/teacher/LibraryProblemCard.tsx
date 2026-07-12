@@ -1,12 +1,13 @@
 'use client'
 
 import { useState, useRef } from 'react'
-import { ChevronDown, ChevronUp, ExternalLink, CheckCircle2, BookOpen, Pencil, Check, X } from 'lucide-react'
+import { ChevronDown, ChevronUp, ExternalLink, CheckCircle2, BookOpen, Pencil, Check, X, Plus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
 import MarkdownContent from '@/components/shared/MarkdownContent'
+import { AddToTestDialog } from '@/components/teacher/AddToTestDialog'
 
 interface Problem {
   id: string
@@ -46,6 +47,7 @@ export function LibraryProblemCard({ problem }: Props) {
   const [localAnswer, setLocalAnswer] = useState<unknown>(problem.correct_answer)
   const [saving,      setSaving]      = useState(false)
   const [saveError,   setSaveError]   = useState<string | null>(null)
+  const [addOpen,     setAddOpen]     = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
   const topic     = problem.canonical_topic
@@ -93,7 +95,7 @@ export function LibraryProblemCard({ problem }: Props) {
 
   return (
     <div className={cn(
-      'rounded-lg border bg-card transition-shadow',
+      'group rounded-lg border bg-card transition-shadow',
       expanded ? 'shadow-sm' : 'hover:shadow-sm'
     )}>
       <div className="p-4 space-y-2">
@@ -223,11 +225,24 @@ export function LibraryProblemCard({ problem }: Props) {
             )}
           </Button>
 
-          <Button size="sm" className="h-7 text-xs">
-            + В тест
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setAddOpen(true)}
+            title="Добавить в тест или ДЗ"
+            className="h-7 w-7 p-0 rounded-full opacity-60 group-hover:opacity-100 hover:bg-primary hover:text-primary-foreground transition-all"
+          >
+            <Plus className="h-4 w-4" />
           </Button>
         </div>
       </div>
+
+      <AddToTestDialog
+        open={addOpen}
+        onClose={() => setAddOpen(false)}
+        addUrl={`/api/library/problems/${problem.id}/add-to-test`}
+        problemLabel={codeLabel ?? ''}
+      />
     </div>
   )
 }

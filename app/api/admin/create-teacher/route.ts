@@ -1,7 +1,6 @@
-import { createClient } from '@/lib/supabase/server'
-import { createAdminClient } from '@/lib/supabase/admin'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
+import { requireAdmin } from '@/lib/auth/authorize'
 
 const schema = z.object({
   full_name: z.string().min(2, 'Минимум 2 символа'),
@@ -10,28 +9,12 @@ const schema = z.object({
 })
 
 // POST /api/admin/create-teacher — создать пользователя с ролью teacher.
-// Только admin. Роль назначается через user_metadata (триггер handle_new_user),
-// организация — та же, что у админа.
+// Только admin. Триггер handle_new_user создаёт профиль (всегда student,
+// миграция 022) — роль teacher и организацию проставляем здесь service role.
 export async function POST(request: Request) {
-  const supabase = await createClient()
-
-  const { data: { user }, error: authError } = await supabase.auth.getUser()
-  if (authError || !user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
-
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('role, organization_id')
-    .eq('id', user.id)
-    .single()
-
-  if (!profile || profile.role !== 'admin') {
-    return NextResponse.json({ error: 'Создавать учителей может только администратор' }, { status: 403 })
-  }
-  if (!profile.organization_id) {
-    return NextResponse.json({ error: 'No organization' }, { status: 400 })
-  }
+  const auth = await requireAdmin('Создавать учителей может только администратор')
+  if ('error' in auth) return auth.error
+  const { admin: adminClient, orgId } = auth
 
   const body = await request.json().catch(() => null)
   const parsed = schema.safeParse(body)
@@ -39,8 +22,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: parsed.error.issues[0]?.message ?? 'Validation error' }, { status: 400 })
   }
   const { full_name, email, password } = parsed.data
-
-  const adminClient = createAdminClient()
 
   const { data: authData, error: createError } = await adminClient.auth.admin.createUser({
     email,
@@ -60,7 +41,7 @@ export async function POST(request: Request) {
   const { error: updateError } = await adminClient
     .from('profiles')
     .update({
-      organization_id: profile.organization_id,
+      organization_id: orgId,
       full_name,
       role: 'teacher',
     })

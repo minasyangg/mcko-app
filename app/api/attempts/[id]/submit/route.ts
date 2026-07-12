@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
-import { NextResponse } from 'next/server'
+import { NextResponse, after } from 'next/server'
 import { finalizeAttempt } from '@/lib/grading/finalize'
+import { notifyAttemptFinalized } from '@/lib/notifications/send'
 
 // Ученик сдаёт свою попытку. Проверка владения + статуса, затем общая
 // финализация (авто-проверка + пересчёт итога) в lib/grading/finalize.
@@ -37,6 +38,9 @@ export async function POST(
   if (!result) {
     return NextResponse.json({ error: 'Failed to finalize attempt' }, { status: 500 })
   }
+
+  // checked → ученику результат; submitted → учителю «ждёт проверки»
+  after(() => notifyAttemptFinalized(attemptId))
 
   return NextResponse.json({
     attempt_id: attemptId,

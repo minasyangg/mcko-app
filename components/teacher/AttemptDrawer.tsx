@@ -358,7 +358,15 @@ export function AttemptDrawer({ attemptId, onClose, onGraded }: Props) {
 
   return (
     <Sheet open={!!attemptId} onOpenChange={(v) => { if (!v) onClose() }}>
-      <SheetContent side="right" className="w-full sm:max-w-4xl overflow-y-auto">
+      {/* Закрытие — только крестиком: клик по фону и Escape не закрывают,
+          чтобы случайно не потерять введённые при проверке баллы/комментарии */}
+      <SheetContent
+        side="right"
+        className="w-full sm:max-w-4xl overflow-y-auto"
+        onInteractOutside={(e) => e.preventDefault()}
+        onPointerDownOutside={(e) => e.preventDefault()}
+        onEscapeKeyDown={(e) => e.preventDefault()}
+      >
         <SheetHeader className="pb-4 border-b">
           <SheetTitle>Попытка студента</SheetTitle>
         </SheetHeader>

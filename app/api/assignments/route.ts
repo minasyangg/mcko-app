@@ -1,8 +1,9 @@
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { NextResponse } from 'next/server'
+import { NextResponse, after } from 'next/server'
 import { z } from 'zod'
 import { zUuid } from '@/lib/uuid'
+import { notifyAssignmentCreated } from '@/lib/notifications/send'
 
 const schema = z.object({
   test_id: zUuid(),
@@ -79,9 +80,13 @@ export async function POST(request: Request) {
       }
     }
     if (target_type === 'student' && student_id) {
-      const { data: student } = await admin
-        .from('profiles').select('id, role, created_by').eq('id', student_id).single()
-      if (!student || student.role !== 'student' || student.created_by !== user.id) {
+      // «Свой ученик» = прикреплён через M:N teacher_students (миграция 019),
+      // а не по одиночному profiles.created_by — иначе второй учитель ученика
+      // не мог назначать ему тесты
+      const { data: link } = await admin
+        .from('teacher_students').select('student_id')
+        .eq('teacher_id', user.id).eq('student_id', student_id).maybeSingle()
+      if (!link) {
         return NextResponse.json({ error: 'Назначать можно только своим ученикам' }, { status: 403 })
       }
     }
@@ -116,5 +121,9 @@ export async function POST(request: Request) {
   }).select('id').single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  // телеграм-уведомление ученикам цели — после ответа, не задерживая запрос
+  after(() => notifyAssignmentCreated(assignment.id))
+
   return NextResponse.json({ id: assignment.id }, { status: 201 })
 }

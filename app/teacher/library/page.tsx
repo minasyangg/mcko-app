@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { LibraryClient } from '@/components/teacher/LibraryClient'
+import { AddTargetBanner } from '@/components/teacher/AddTargetBanner'
 
 export default async function LibraryPage() {
   const supabase = await createClient()
@@ -21,9 +22,12 @@ export default async function LibraryPage() {
     .eq('is_active', true)
 
   return (
-    <LibraryClient
-      initialTopics={allTopics ?? []}
-      totalProblems={totalProblems ?? 0}
-    />
+    <div className="space-y-4">
+      <AddTargetBanner />
+      <LibraryClient
+        initialTopics={allTopics ?? []}
+        totalProblems={totalProblems ?? 0}
+      />
+    </div>
   )
 }

@@ -25,7 +25,7 @@ export async function GET(request: Request) {
       .from('assignments').select('id').eq('test_version_id', testVersionId)
     assignmentIds = (asgns ?? []).map(a => a.id)
     if (assignmentIds.length === 0) {
-      return new Response('Ученик,Класс,Группа,Тест,Балл,Макс балл,Процент,Статус,Дата\n', {
+      return new Response('Ученик,Класс,Группа,Тест,Тип,Балл,Макс балл,Процент,Статус,Дата\n', {
         headers: { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': 'attachment; filename="results.csv"' }
       })
     }
@@ -39,8 +39,9 @@ export async function GET(request: Request) {
       profiles ( full_name, grade ),
       assignments (
         group_id,
+        kind,
         groups ( name ),
-        test_versions ( tests ( title ) )
+        test_versions ( tests ( title, kind ) )
       )
     `)
     .in('status', ['submitted', 'checked'])
@@ -87,7 +88,7 @@ export async function GET(request: Request) {
   }
 
   // Build CSV
-  const headers = ['Ученик', 'Класс', 'Группа', 'Тест', 'Балл', 'Макс балл', 'Процент', 'Статус', 'Дата', ...taskHeaders]
+  const headers = ['Ученик', 'Класс', 'Группа', 'Тест', 'Тип', 'Балл', 'Макс балл', 'Процент', 'Статус', 'Дата', ...taskHeaders]
 
   const escapeCell = (v: string | number | null | undefined) => {
     const s = String(v ?? '')
@@ -110,12 +111,15 @@ export async function GET(request: Request) {
     const pct = maxScore > 0 ? Math.round((score / maxScore) * 100) : 0
     const status = a.status === 'checked' ? 'Проверено' : 'Отправлено'
     const date = a.submitted_at ? new Date(a.submitted_at).toLocaleDateString('ru-RU') : ''
+    // метка назначения важнее типа теста (roadmap может назначить тест как ДЗ)
+    const kind = (assignment?.kind ?? test?.kind) === 'homework' ? 'ДЗ' : 'Тест'
 
     const base = [
       profile?.full_name ?? '',
       profile?.grade ?? '',
       group?.name ?? '',
       test?.title ?? '',
+      kind,
       score,
       maxScore,
       `${pct}%`,

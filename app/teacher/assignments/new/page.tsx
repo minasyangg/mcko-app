@@ -73,7 +73,7 @@ export default function NewAssignmentPage() {
           supabase.from('tests').select('id, title')
             .eq('organization_id', org).eq('status', 'published').eq('is_active', true)
             .not('current_published_version_id', 'is', null).order('title'),
-          supabase.from('groups').select('id, name').eq('organization_id', org).order('name'),
+          supabase.from('groups').select('id, name').eq('organization_id', org).is('roadmap_id', null).order('name'),
           supabase.from('profiles').select('id, full_name, grade')
             .eq('role', 'student').eq('organization_id', org).order('full_name'),
         ])

@@ -6,10 +6,14 @@ import { BookEditorsPanel } from '@/components/teacher/BookEditorsPanel'
 
 export default async function BookPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>
+  // deep-link из общего поиска каталога: ?section=&task=&pid=
+  searchParams: Promise<{ section?: string; task?: string; pid?: string }>
 }) {
   const { id } = await params
+  const { section, task, pid } = await searchParams
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
@@ -86,6 +90,9 @@ export default async function BookPage({
       canEdit={canEdit}
       canDelete={canDelete}
       editorsPanel={editorsPanel}
+      initialSectionId={section ?? null}
+      initialTask={task ?? null}
+      initialProblemId={pid ?? null}
     />
   )
 }

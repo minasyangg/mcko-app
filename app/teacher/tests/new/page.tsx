@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { z } from 'zod'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -35,6 +35,10 @@ const SUBJECTS = ['Математика', 'Физика', 'ТВИС', 'Русс�
 
 export default function NewTestPage() {
   const router = useRouter()
+  // ?kind=homework — создание домашнего задания (баллы задаёт учитель),
+  // по умолчанию — тест (разбаловка/критерии по правилам оценивания)
+  const kind = useSearchParams().get('kind') === 'homework' ? 'homework' : 'test'
+  const isHomework = kind === 'homework'
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -88,11 +92,14 @@ export default function NewTestPage() {
           title: values.title,
           subject: values.subject || null,
           grade: values.grade || null,
-          exam_type: values.exam_type || null,
+          // у домашнего задания нет типа экзамена — оно собирается из заданий
+          // книг/библиотеки, баллы задаёт учитель
+          exam_type: isHomework ? null : values.exam_type || null,
           description: values.description || null,
           organization_id: profile.organization_id,
           created_by: user.id,
           status: 'draft',
+          kind,
         })
         .select('id')
         .single()
@@ -113,7 +120,9 @@ export default function NewTestPage() {
         throw new Error(versionError?.message || 'Ошибка создания версии теста')
       }
 
-      router.push(`/teacher/tests/${test.id}/import`)
+      // ДЗ собирается из готовых заданий (книги/библиотека) — сразу в редактор;
+      // тест — через загрузку PDF
+      router.push(isHomework ? `/teacher/tests/${test.id}` : `/teacher/tests/${test.id}/import`)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Неизвестная ошибка')
       setIsSubmitting(false)
@@ -124,17 +133,21 @@ export default function NewTestPage() {
     <div className="max-w-2xl mx-auto py-8 px-4">
       <div className="mb-6">
         <Button asChild variant="ghost" size="sm" className="mb-4">
-          <Link href="/teacher/tests">← Назад к тестам</Link>
+          <Link href="/teacher/tests">← Назад к заданиям</Link>
         </Button>
-        <h1 className="text-2xl font-semibold">Создать новый тест</h1>
+        <h1 className="text-2xl font-semibold">
+          {isHomework ? 'Создать домашнее задание' : 'Создать новый тест'}
+        </h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Заполните информацию о тесте, затем загрузите PDF с заданиями
+          {isHomework
+            ? 'Домашнее задание собирается из готовых заданий — из книг или библиотеки задач. Баллы задаёте вы сами.'
+            : 'Заполните информацию о тесте, затем загрузите PDF с заданиями'}
         </p>
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle>Информация о тесте</CardTitle>
+          <CardTitle>{isHomework ? 'Информация о задании' : 'Информация о тесте'}</CardTitle>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
@@ -176,25 +189,27 @@ export default function NewTestPage() {
               </div>
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="exam_type">Тип экзамена</Label>
-              <Select
-                value={examTypeValue || '_none'}
-                onValueChange={(val) => setValue('exam_type', val === '_none' ? '' : val)}
-              >
-                <SelectTrigger id="exam_type">
-                  <SelectValue placeholder="Выберите тип..." />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="_none">— Не указан —</SelectItem>
-                  {EXAM_TYPES.map((t) => (
-                    <SelectItem key={t} value={t}>
-                      {t}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            {!isHomework && (
+              <div className="space-y-2">
+                <Label htmlFor="exam_type">Тип экзамена</Label>
+                <Select
+                  value={examTypeValue || '_none'}
+                  onValueChange={(val) => setValue('exam_type', val === '_none' ? '' : val)}
+                >
+                  <SelectTrigger id="exam_type">
+                    <SelectValue placeholder="Выберите тип..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="_none">— Не указан —</SelectItem>
+                    {EXAM_TYPES.map((t) => (
+                      <SelectItem key={t} value={t}>
+                        {t}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
 
             <div className="space-y-2">
               <Label htmlFor="description">Описание</Label>
@@ -214,7 +229,9 @@ export default function NewTestPage() {
 
             <div className="flex gap-3 pt-2">
               <Button type="submit" disabled={isSubmitting}>
-                {isSubmitting ? 'Создание...' : 'Создать и загрузить PDF'}
+                {isSubmitting
+                  ? 'Создание...'
+                  : isHomework ? 'Создать и подобрать задания' : 'Создать и загрузить PDF'}
               </Button>
               <Button asChild type="button" variant="outline">
                 <Link href="/teacher/tests">Отмена</Link>

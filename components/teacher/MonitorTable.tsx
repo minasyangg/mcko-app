@@ -9,6 +9,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from '@/components/ui/alert-dialog'
 import { AttemptDrawer } from '@/components/teacher/AttemptDrawer'
+import { AssignmentsPanel, type AssignmentRow } from '@/components/teacher/AssignmentsPanel'
 import { TableFilterBar, useTableFilter, type FilterField } from '@/components/shared/TableFilter'
 import { Trash2, CheckCheck, Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -34,6 +35,7 @@ export interface AttemptRow {
 interface Props {
   initialAttempts: AttemptRow[]
   isAdmin?: boolean
+  assignments?: AssignmentRow[]
 }
 
 const STATUS_LABELS: Record<string, string> = {
@@ -89,14 +91,15 @@ function formatTime(iso: string | null) {
   return new Date(iso).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
 }
 
-type Tab = 'active' | 'review' | 'checked'
+type Tab = 'assignments' | 'active' | 'review' | 'checked'
 
-function TableView({ rows, tab, isAdmin, onSelect, onDelete }: {
+function TableView({ rows, tab, isAdmin, onSelect, onDelete, onFinish }: {
   rows: AttemptRow[]
   tab: Tab
   isAdmin: boolean
   onSelect: (id: string) => void
   onDelete: (a: AttemptRow) => void
+  onFinish: (a: AttemptRow) => void
 }) {
   if (rows.length === 0) {
     return (
@@ -152,6 +155,34 @@ function TableView({ rows, tab, isAdmin, onSelect, onDelete }: {
                     <Button variant="ghost" size="sm" onClick={() => onSelect(a.id)}>
                       {['submitted', 'under_review'].includes(a.status) ? 'Проверить' : 'Подробнее'}
                     </Button>
+                    {isAdmin && tab === 'active' && (
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button variant="ghost" size="sm"
+                            className="h-8 px-2 text-xs text-orange-600 hover:text-orange-700 hover:bg-orange-50"
+                            title="Принудительно завершить попытку">
+                            <CheckCheck className="h-3.5 w-3.5 mr-1" />
+                            Завершить
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Завершить попытку?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              Попытка ученика <b>{a.full_name}</b> по тесту «{a.test_title}» будет
+                              принудительно завершена и проверена автоматически — даже если время
+                              не истекло. Не начатая попытка получит статус «истекла».
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Отмена</AlertDialogCancel>
+                            <AlertDialogAction onClick={() => onFinish(a)}>
+                              Завершить
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    )}
                     {showDelete && (
                       <AlertDialog>
                         <AlertDialogTrigger asChild>
@@ -197,10 +228,10 @@ const FILTER_FIELDS: FilterField[] = [
   { key: 'test_title',  label: 'Тест',   type: 'text',   placeholder: 'Поиск по тесту', width: 'w-48' },
 ]
 
-export function MonitorTable({ initialAttempts, isAdmin = false }: Props) {
+export function MonitorTable({ initialAttempts, isAdmin = false, assignments = [] }: Props) {
   const [attempts, setAttempts] = useState<AttemptRow[]>(initialAttempts)
   const [selectedAttemptId, setSelectedAttemptId] = useState<string | null>(null)
-  const [tab, setTab] = useState<Tab>('active')
+  const [tab, setTab] = useState<Tab>('assignments')
   const [finishingAll, setFinishingAll] = useState(false)
   const supabase = createClient()
 
@@ -213,6 +244,19 @@ export function MonitorTable({ initialAttempts, isAdmin = false }: Props) {
     const max = json.max_attempts ?? 1
     const last = json.last_score != null ? `, результат последней: ${json.last_score}/${json.last_max ?? '?'}` : ''
     toast.success(`Попытка удалена. Использовано ${used} из ${max}${last}`)
+  }
+
+  async function handleFinish(a: AttemptRow) {
+    const res = await fetch(`/api/admin/attempts/${a.id}/finish`, { method: 'POST' })
+    const json = await res.json().catch(() => ({}))
+    if (!res.ok) { toast.error(json.error ?? 'Ошибка завершения'); return }
+    setAttempts(prev => prev.map(x => x.id === a.id
+      ? { ...x, status: json.status ?? 'submitted', score: json.score ?? x.score, max_score: json.max_score ?? x.max_score }
+      : x
+    ))
+    toast.success(json.status === 'expired'
+      ? 'Попытка помечена как истёкшая (ученик не приступал)'
+      : `Попытка завершена: ${json.score ?? 0}/${json.max_score ?? '?'}`)
   }
 
   async function handleFinishAll() {
@@ -263,25 +307,17 @@ export function MonitorTable({ initialAttempts, isAdmin = false }: Props) {
   const review  = attempts.filter((a) => ['submitted', 'under_review'].includes(a.status))
   const checked = attempts.filter((a) => ['checked', 'completed'].includes(a.status))
 
-  const tabRows = tab === 'active' ? active : tab === 'review' ? review : checked
+  const tabRows = tab === 'active' ? active : tab === 'review' ? review : tab === 'checked' ? checked : []
 
   const { filtered, filters, setFilter, clearFilters, hasActiveFilters } =
     useTableFilter(tabRows, FILTER_FIELDS)
 
   const tabs: { key: Tab; label: string; count: number }[] = [
+    { key: 'assignments', label: 'Назначения', count: assignments.length },
     { key: 'active',  label: 'В процессе',  count: active.length },
     { key: 'review',  label: 'На проверке', count: review.length },
     { key: 'checked', label: 'Проверено',   count: checked.length },
   ]
-
-  if (attempts.length === 0) {
-    return (
-      <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
-        <p className="text-lg font-medium">Нет попыток</p>
-        <p className="text-sm mt-1">Когда ученики начнут тест, они появятся здесь.</p>
-      </div>
-    )
-  }
 
   return (
     <>
@@ -309,7 +345,11 @@ export function MonitorTable({ initialAttempts, isAdmin = false }: Props) {
         ))}
       </div>
 
+      {/* Первый таб — назначения (перенесены из отдельного раздела) */}
+      {tab === 'assignments' && <AssignmentsPanel rows={assignments} />}
+
       {/* Filters + bulk action */}
+      {tab !== 'assignments' && (
       <div className="flex items-start justify-between gap-3">
         <TableFilterBar
           fields={FILTER_FIELDS}
@@ -346,10 +386,13 @@ export function MonitorTable({ initialAttempts, isAdmin = false }: Props) {
           </AlertDialog>
         )}
       </div>
+      )}
 
+      {tab !== 'assignments' && (
       <div className="rounded-md border overflow-hidden">
-        <TableView rows={filtered} tab={tab} isAdmin={isAdmin} onSelect={setSelectedAttemptId} onDelete={handleDelete} />
+        <TableView rows={filtered} tab={tab} isAdmin={isAdmin} onSelect={setSelectedAttemptId} onDelete={handleDelete} onFinish={handleFinish} />
       </div>
+      )}
 
       <AttemptDrawer
         attemptId={selectedAttemptId}

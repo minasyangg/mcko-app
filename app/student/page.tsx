@@ -49,6 +49,9 @@ export default async function StudentHomePage() {
     query = query.eq('student_id', user.id)
   }
 
+  // Задания из программ (road map) показываем во вкладке «Программа», не здесь
+  query = query.is('roadmap_topic_id', null)
+
   const { data: rawAssignments } = await query.order('created_at', { ascending: false })
 
   // Filter out assignments for inactive tests

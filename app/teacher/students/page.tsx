@@ -1,8 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
-import { createAdminClient } from '@/lib/supabase/admin'
 import { StudentsClient as StudentsTableClient } from '@/components/teacher/StudentsClient'
 import { Button } from '@/components/ui/button'
-import { Users, Plus } from 'lucide-react'
+import { Users, Plus, UsersRound } from 'lucide-react'
 import Link from 'next/link'
 
 export default async function StudentsPage() {
@@ -23,7 +22,7 @@ export default async function StudentsPage() {
   // RLS сам ограничивает выборку прикреплёнными, доп. фильтр не нужен.
   const { data: students } = await supabase
     .from('profiles')
-    .select('id, full_name, grade, is_active, created_at, created_by')
+    .select('id, full_name, grade, is_active, created_at, created_by, email')
     .eq('role', 'student')
     .eq('organization_id', profile?.organization_id || '')
     .order('is_active', { ascending: false, nullsFirst: false })
@@ -41,19 +40,8 @@ export default async function StudentsPage() {
     teachers = teacherRows ?? []
   }
 
-  // Fetch emails from auth using admin client
-  const adminClient = createAdminClient()
-  const emailMap: Record<string, string> = {}
-  if (students?.length) {
-    const results = await Promise.all(
-      students.map(s => adminClient.auth.admin.getUserById(s.id))
-    )
-    results.forEach((r, i) => {
-      if (r.data.user?.email) emailMap[students[i].id] = r.data.user.email
-    })
-  }
-
-  const studentsWithEmail = (students ?? []).map(s => ({ ...s, email: emailMap[s.id] ?? '' }))
+  // email теперь живёт в profiles (миграция 025)
+  const studentsWithEmail = (students ?? []).map(s => ({ ...s, email: s.email ?? '' }))
 
   const count = studentsWithEmail.length
   const suffix = count % 10 === 1 && count % 100 !== 11 ? '' : count % 10 < 5 && !(count % 100 >= 11 && count % 100 <= 19) ? 'а' : 'ов'
@@ -68,14 +56,22 @@ export default async function StudentsPage() {
             {!isAdmin && ' (закреплённых за вами)'}
           </p>
         </div>
-        {isAdmin && (
-          <Button asChild>
-            <Link href="/teacher/students/new">
-              <Plus className="h-4 w-4 mr-2" />
-              Добавить ученика
+        <div className="flex items-center gap-2">
+          <Button asChild variant="outline">
+            <Link href="/teacher/groups">
+              <UsersRound className="h-4 w-4 mr-2" />
+              Группы
             </Link>
           </Button>
-        )}
+          {isAdmin && (
+            <Button asChild>
+              <Link href="/teacher/students/new">
+                <Plus className="h-4 w-4 mr-2" />
+                Добавить ученика
+              </Link>
+            </Button>
+          )}
+        </div>
       </div>
 
       {!studentsWithEmail.length ? (

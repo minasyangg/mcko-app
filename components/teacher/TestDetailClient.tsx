@@ -41,11 +41,16 @@ import {
   EyeOff,
   Eye,
   ImagePlus,
+  BookMarked,
+  Library,
+  GripVertical,
 } from 'lucide-react'
 import MarkdownContent from '@/components/shared/MarkdownContent'
 import { ImageGallery } from '@/components/shared/ImageGallery'
 import { TestPreviewModal } from '@/components/teacher/TestPreviewModal'
 import type { TaskMediaWithUrl } from '@/types/domain'
+import { toast } from 'sonner'
+import { cn } from '@/lib/utils'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -85,6 +90,7 @@ export interface TestDetailClientProps {
     description: string | null
     status: string
     is_active: boolean
+    kind?: string
   }
   versionId: string | null
   versionStatus: string | null
@@ -408,9 +414,21 @@ interface TaskCardProps {
   canEdit: boolean
   onUpdate: (updated: TestTask) => void
   onDelete: (taskId: string) => void
+  // drag-and-drop переупорядочивание (только черновик/на проверке)
+  index: number
+  canReorder: boolean
+  isDragging: boolean
+  isOver: boolean
+  onDragStart: (index: number) => void
+  onDragEnter: (index: number) => void
+  onDrop: (index: number) => void
+  onDragEnd: () => void
 }
 
-function TaskCard({ task, canEdit, onUpdate, onDelete }: TaskCardProps) {
+function TaskCard({
+  task, canEdit, onUpdate, onDelete,
+  index, canReorder, isDragging, isOver, onDragStart, onDragEnter, onDrop, onDragEnd,
+}: TaskCardProps) {
   const [expanded, setExpanded] = useState(false)
   const [editing, setEditing] = useState(false)
   const [deleting, setDeleting] = useState(false)
@@ -449,10 +467,33 @@ function TaskCard({ task, canEdit, onUpdate, onDelete }: TaskCardProps) {
   }
 
   return (
-    <Card className="overflow-hidden">
+    <Card
+      className={cn(
+        'overflow-hidden transition-shadow',
+        isOver && 'ring-2 ring-primary',
+        isDragging && 'opacity-50',
+      )}
+      onDragOver={canReorder ? (e) => { e.preventDefault(); onDragEnter(index) } : undefined}
+      onDrop={canReorder ? (e) => { e.preventDefault(); onDrop(index) } : undefined}
+    >
       <CardContent className="p-4">
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-center gap-2 flex-wrap">
+            {canReorder && (
+              <span
+                draggable
+                onDragStart={(e) => {
+                  e.dataTransfer.effectAllowed = 'move'
+                  e.dataTransfer.setData('text/plain', String(index))
+                  onDragStart(index)
+                }}
+                onDragEnd={onDragEnd}
+                className="cursor-grab active:cursor-grabbing text-muted-foreground/40 hover:text-muted-foreground -ml-1"
+                title="Перетащите, чтобы изменить порядок"
+              >
+                <GripVertical className="h-4 w-4" />
+              </span>
+            )}
             <span className="text-sm font-semibold text-muted-foreground w-6">#{task.task_number}</span>
             <Badge variant="outline" className="text-xs">
               {taskTypeLabel[task.task_type] ?? task.task_type}
@@ -826,6 +867,9 @@ export function TestDetailClient({
   initialScoringRuleId = '',
 }: TestDetailClientProps) {
   const router = useRouter()
+  // ДЗ собирается из готовых заданий книг/библиотеки — без пайплайна PDF
+  // и без правил оценивания (баллы задаёт учитель)
+  const isHomework = initialTest.kind === 'homework'
   const [tasks, setTasks] = useState<TestTask[]>(initialTasks)
   const [showAddForm, setShowAddForm] = useState(false)
   const [deleting, setDeleting] = useState(false)
@@ -965,6 +1009,56 @@ export function TestDetailClient({
   }
 
   const nextTaskNumber = tasks.length > 0 ? Math.max(...tasks.map((t) => t.task_number)) + 1 : 1
+  // Назначение и аналитика доступны только после публикации
+  const isPublished = test.status === 'published'
+
+  // ── Drag-and-drop переупорядочивание задач (только когда версия правится) ──
+  const [dragIndex, setDragIndex] = useState<number | null>(null)
+  const [overIndex, setOverIndex] = useState<number | null>(null)
+  const canReorder = canEdit && !!versionId && tasks.length > 1
+
+  async function persistOrder(ordered: TestTask[]) {
+    if (!versionId) return
+    const res = await fetch(`/api/tests/versions/${versionId}/reorder`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ task_ids: ordered.map((t) => t.id) }),
+    })
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}))
+      toast.error(d.error ?? 'Не удалось сохранить порядок')
+      router.refresh()
+    }
+  }
+
+  function handleReorderDrop(to: number) {
+    const from = dragIndex
+    setDragIndex(null)
+    setOverIndex(null)
+    if (from === null || from === to) return
+    setTasks((prev) => {
+      const next = [...prev]
+      const [moved] = next.splice(from, 1)
+      next.splice(to, 0, moved)
+      const renumbered = next.map((t, i) => ({ ...t, task_number: i + 1, sort_order: i + 1 }))
+      persistOrder(renumbered)
+      return renumbered
+    })
+  }
+  // существительное для подписей: домашнее задание vs тест
+  const entityNoun = isHomework ? 'задание' : 'тест'
+
+  // Запоминаем, в какой тест/ДЗ добавлять задания, чтобы в книгах/библиотеке
+  // диалог «Добавить в тест» открылся с уже выбранной целью (её можно сменить)
+  function rememberAddTarget() {
+    if (!versionId) return
+    try {
+      sessionStorage.setItem(
+        'mcko:add-to-test',
+        JSON.stringify({ testId, versionId, title: test.title, ts: Date.now() })
+      )
+    } catch { /* sessionStorage недоступен — не критично */ }
+  }
 
   function handleTaskUpdate(updated: TestTask) {
     setTasks((prev) => prev.map((t) => (t.id === updated.id ? updated : t)))
@@ -1012,6 +1106,11 @@ export function TestDetailClient({
               <>
                 <div className="flex items-center gap-3 flex-wrap">
                   <h1 className="text-2xl font-semibold">{test.title}</h1>
+                  {isHomework && (
+                    <Badge variant="outline" className="text-blue-600 border-blue-300">
+                      Домашнее задание
+                    </Badge>
+                  )}
                   <Badge variant={statusVariant[test.status] ?? 'secondary'}>
                     {statusLabel[test.status] ?? test.status}
                   </Badge>
@@ -1024,7 +1123,7 @@ export function TestDetailClient({
                 <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
                   {test.subject && <span>Предмет: {test.subject}</span>}
                   {test.grade && <span>Класс: {test.grade}</span>}
-                  {test.exam_type && <span>Тип: {test.exam_type}</span>}
+                  {!isHomework && test.exam_type && <span>Тип: {test.exam_type}</span>}
                 </div>
                 {test.description && (
                   <p className="text-sm text-muted-foreground">{test.description}</p>
@@ -1042,7 +1141,7 @@ export function TestDetailClient({
                       className="h-8 text-sm"
                     />
                   </div>
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className={isHomework ? 'grid grid-cols-2 gap-2' : 'grid grid-cols-3 gap-2'}>
                     <div className="space-y-1">
                       <Label className="text-xs">Предмет</Label>
                       <Input
@@ -1061,15 +1160,17 @@ export function TestDetailClient({
                         placeholder="8"
                       />
                     </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs">Тип</Label>
-                      <Input
-                        value={metaForm.exam_type}
-                        onChange={(e) => setMetaForm((p) => ({ ...p, exam_type: e.target.value }))}
-                        className="h-8 text-sm"
-                        placeholder="ВПР"
-                      />
-                    </div>
+                    {!isHomework && (
+                      <div className="space-y-1">
+                        <Label className="text-xs">Тип</Label>
+                        <Input
+                          value={metaForm.exam_type}
+                          onChange={(e) => setMetaForm((p) => ({ ...p, exam_type: e.target.value }))}
+                          className="h-8 text-sm"
+                          placeholder="ВПР"
+                        />
+                      </div>
+                    )}
                   </div>
                   <div className="space-y-1">
                     <Label className="text-xs">Описание</Label>
@@ -1108,24 +1209,57 @@ export function TestDetailClient({
               Предпросмотр
             </Button>
           )}
-          <Button asChild size="sm" variant="outline">
-            <Link href={`/teacher/tests/${testId}/import`}>
-              <Upload className="h-4 w-4 mr-1.5" />
-              Загрузить PDF
-            </Link>
-          </Button>
-          <Button asChild size="sm" variant="outline">
-            <Link href={`/teacher/assignments/new?test=${testId}`}>
+          {isHomework ? (
+            <>
+              <Button asChild size="sm" variant="outline">
+                <Link href="/teacher/books" onClick={rememberAddTarget}>
+                  <BookMarked className="h-4 w-4 mr-1.5" />
+                  Подобрать из книг
+                </Link>
+              </Button>
+              <Button asChild size="sm" variant="outline">
+                <Link href="/teacher/library" onClick={rememberAddTarget}>
+                  <Library className="h-4 w-4 mr-1.5" />
+                  Из библиотеки задач
+                </Link>
+              </Button>
+            </>
+          ) : (
+            <Button asChild size="sm" variant="outline">
+              <Link href={`/teacher/tests/${testId}/import`}>
+                <Upload className="h-4 w-4 mr-1.5" />
+                Загрузить PDF
+              </Link>
+            </Button>
+          )}
+          {/* «Назначить» активна только после публикации */}
+          {isPublished ? (
+            <Button asChild size="sm" variant="outline">
+              <Link href={`/teacher/assignments/new?test=${testId}`}>
+                <UserPlus className="h-4 w-4 mr-1.5" />
+                Назначить
+              </Link>
+            </Button>
+          ) : (
+            <Button
+              size="sm"
+              variant="outline"
+              disabled
+              title={`Сначала опубликуйте ${entityNoun}`}
+            >
               <UserPlus className="h-4 w-4 mr-1.5" />
               Назначить
-            </Link>
-          </Button>
-          <Button asChild size="sm" variant="outline">
-            <Link href={`/teacher/tests/${testId}/analytics`}>
-              <BarChart2 className="h-4 w-4 mr-1.5" />
-              Аналитика
-            </Link>
-          </Button>
+            </Button>
+          )}
+          {/* Аналитика — только для опубликованных */}
+          {isPublished && (
+            <Button asChild size="sm" variant="outline">
+              <Link href={`/teacher/tests/${testId}/analytics`}>
+                <BarChart2 className="h-4 w-4 mr-1.5" />
+                Аналитика
+              </Link>
+            </Button>
+          )}
           {/* "Опубликовать" — для тестов, ещё ни разу не публиковавшихся.
               status='in_review' выставляется только пайплайном разбора PDF;
               тест, собранный вручную (библиотека/книги), так и остаётся
@@ -1157,7 +1291,8 @@ export function TestDetailClient({
               )}
             </div>
           )}
-          {canEdit && scoringRules.length > 0 && (
+          {/* Правила оценки — только для тестов; в ДЗ баллы задаёт учитель */}
+          {canEdit && !isHomework && scoringRules.length > 0 && (
             <div className="flex items-center gap-1.5">
               <Select value={selectedRuleId || '_none'} onValueChange={v => setSelectedRuleId(v === '_none' ? '' : v)}>
                 <SelectTrigger className="h-8 text-xs w-48">
@@ -1207,14 +1342,14 @@ export function TestDetailClient({
                 disabled={deleting}
               >
                 <Trash2 className="h-4 w-4 mr-1.5" />
-                {deleting ? 'Удаление...' : 'Удалить тест'}
+                {deleting ? 'Удаление...' : isHomework ? 'Удалить задание' : 'Удалить тест'}
               </Button>
             </AlertDialogTrigger>
             <AlertDialogContent>
               <AlertDialogHeader>
-                <AlertDialogTitle>Удалить тест?</AlertDialogTitle>
+                <AlertDialogTitle>{isHomework ? 'Удалить задание?' : 'Удалить тест?'}</AlertDialogTitle>
                 <AlertDialogDescription>
-                  Тест <span className="font-semibold">&quot;{test.title}&quot;</span> и все его данные
+                  {isHomework ? 'Задание' : 'Тест'} <span className="font-semibold">&quot;{test.title}&quot;</span> и все его данные
                   (версии, задачи, назначения, попытки) будут удалены без возможности восстановления.
                 </AlertDialogDescription>
               </AlertDialogHeader>
@@ -1252,20 +1387,42 @@ export function TestDetailClient({
         {/* Published read-only notice */}
         {!canEdit && versionStatus === 'published' && (
           <div className="rounded-md bg-muted px-4 py-3 text-sm text-muted-foreground border">
-            Тест опубликован — задачи заблокированы для редактирования.
+            {isHomework ? 'Задание опубликовано' : 'Тест опубликован'} — задачи заблокированы для редактирования.
           </div>
         )}
 
         {/* No version state */}
         {!versionId && (
           <div className="flex flex-col items-center justify-center py-12 text-center gap-3 text-muted-foreground">
-            <p>Задачи не найдены. Загрузите PDF или добавьте задачи вручную.</p>
-            <Button asChild size="sm" variant="outline">
-              <Link href={`/teacher/tests/${testId}/import`}>
-                <Upload className="h-4 w-4 mr-1.5" />
-                Загрузить PDF
-              </Link>
-            </Button>
+            {isHomework ? (
+              <>
+                <p>Заданий пока нет. Подберите их из книг или библиотеки задач.</p>
+                <div className="flex flex-wrap gap-2 justify-center">
+                  <Button asChild size="sm" variant="outline">
+                    <Link href="/teacher/books">
+                      <BookMarked className="h-4 w-4 mr-1.5" />
+                      Книги
+                    </Link>
+                  </Button>
+                  <Button asChild size="sm" variant="outline">
+                    <Link href="/teacher/library">
+                      <Library className="h-4 w-4 mr-1.5" />
+                      Библиотека задач
+                    </Link>
+                  </Button>
+                </div>
+              </>
+            ) : (
+              <>
+                <p>Задачи не найдены. Загрузите PDF или добавьте задачи вручную.</p>
+                <Button asChild size="sm" variant="outline">
+                  <Link href={`/teacher/tests/${testId}/import`}>
+                    <Upload className="h-4 w-4 mr-1.5" />
+                    Загрузить PDF
+                  </Link>
+                </Button>
+              </>
+            )}
           </div>
         )}
 
@@ -1282,28 +1439,74 @@ export function TestDetailClient({
         {/* Task list */}
         {versionId && tasks.length === 0 && !showAddForm && (
           <div className="flex flex-col items-center justify-center py-12 text-center gap-3 text-muted-foreground">
-            <p>Задачи не найдены. Загрузите PDF или добавьте задачи вручную.</p>
-            {canEdit && (
-              <Button size="sm" variant="outline" onClick={() => setShowAddForm(true)}>
-                <Plus className="h-4 w-4 mr-1.5" />
-                Добавить задачу
-              </Button>
+            {isHomework ? (
+              <>
+                <p>
+                  Заданий пока нет. Откройте книгу или библиотеку задач и нажмите
+                  «+» у нужного задания — оно попадёт сюда.
+                </p>
+                <div className="flex flex-wrap gap-2 justify-center">
+                  <Button asChild size="sm" variant="outline">
+                    <Link href="/teacher/books" onClick={rememberAddTarget}>
+                      <BookMarked className="h-4 w-4 mr-1.5" />
+                      Книги
+                    </Link>
+                  </Button>
+                  <Button asChild size="sm" variant="outline">
+                    <Link href="/teacher/library" onClick={rememberAddTarget}>
+                      <Library className="h-4 w-4 mr-1.5" />
+                      Библиотека задач
+                    </Link>
+                  </Button>
+                  {canEdit && (
+                    <Button size="sm" variant="ghost" onClick={() => setShowAddForm(true)}>
+                      <Plus className="h-4 w-4 mr-1.5" />
+                      Добавить вручную
+                    </Button>
+                  )}
+                </div>
+              </>
+            ) : (
+              <>
+                <p>Задачи не найдены. Загрузите PDF или добавьте задачи вручную.</p>
+                {canEdit && (
+                  <Button size="sm" variant="outline" onClick={() => setShowAddForm(true)}>
+                    <Plus className="h-4 w-4 mr-1.5" />
+                    Добавить задачу
+                  </Button>
+                )}
+              </>
             )}
           </div>
         )}
 
         {tasks.length > 0 && (
-          <div className="space-y-3">
-            {tasks.map((task) => (
-              <TaskCard
-                key={task.id}
-                task={task}
-                canEdit={canEdit}
-                onUpdate={handleTaskUpdate}
-                onDelete={handleTaskDelete}
-              />
-            ))}
-          </div>
+          <>
+            {canReorder && (
+              <p className="text-xs text-muted-foreground">
+                Перетаскивайте задачи за значок <GripVertical className="inline h-3.5 w-3.5 -mt-0.5" />, чтобы изменить порядок.
+              </p>
+            )}
+            <div className="space-y-3">
+              {tasks.map((task, i) => (
+                <TaskCard
+                  key={task.id}
+                  task={task}
+                  canEdit={canEdit}
+                  onUpdate={handleTaskUpdate}
+                  onDelete={handleTaskDelete}
+                  index={i}
+                  canReorder={canReorder}
+                  isDragging={dragIndex === i}
+                  isOver={overIndex === i && dragIndex !== i}
+                  onDragStart={setDragIndex}
+                  onDragEnter={setOverIndex}
+                  onDrop={handleReorderDrop}
+                  onDragEnd={() => { setDragIndex(null); setOverIndex(null) }}
+                />
+              ))}
+            </div>
+          </>
         )}
       </div>
 

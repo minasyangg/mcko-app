@@ -1,5 +1,4 @@
 import { createClient } from '@/lib/supabase/server'
-import { createAdminClient } from '@/lib/supabase/admin'
 import { redirect } from 'next/navigation'
 import { UsersClient } from '@/components/teacher/UsersClient'
 
@@ -19,14 +18,14 @@ export default async function UsersPage() {
   const [{ data: studentRows }, { data: teacherRows }, { data: links }] = await Promise.all([
     supabase
       .from('profiles')
-      .select('id, full_name, grade, is_active, created_at, created_by')
+      .select('id, full_name, grade, is_active, created_at, created_by, email')
       .eq('role', 'student')
       .eq('organization_id', org)
       .order('is_active', { ascending: false, nullsFirst: false })
       .order('full_name'),
     supabase
       .from('profiles')
-      .select('id, full_name, is_active, created_at')
+      .select('id, full_name, is_active, created_at, email')
       .eq('role', 'teacher')
       .eq('organization_id', org)
       .order('full_name'),
@@ -36,36 +35,28 @@ export default async function UsersPage() {
   const students = studentRows ?? []
   const teachers = teacherRows ?? []
 
-  // Прикрепления M:N: карта ученик → id учителей
+  // Прикрепления M:N: ученик → id учителей и счётчик учеников на учителя
   const teachersByStudent = new Map<string, string[]>()
+  const countByTeacher = new Map<string, number>()
   for (const l of links ?? []) {
     const arr = teachersByStudent.get(l.student_id) ?? []
     arr.push(l.teacher_id)
     teachersByStudent.set(l.student_id, arr)
+    countByTeacher.set(l.teacher_id, (countByTeacher.get(l.teacher_id) ?? 0) + 1)
   }
 
-  // Emails — из auth (в profiles их нет), одним проходом по всем id
-  const adminClient = createAdminClient()
-  const emailMap: Record<string, string> = {}
-  const allIds = [...students.map(s => s.id), ...teachers.map(t => t.id)]
-  if (allIds.length) {
-    const results = await Promise.all(allIds.map(id => adminClient.auth.admin.getUserById(id)))
-    results.forEach((r, i) => {
-      if (r.data.user?.email) emailMap[allIds[i]] = r.data.user.email
-    })
-  }
-
+  // email теперь живёт в profiles (миграция 025) — Auth Admin API не нужен
   const studentsWithEmail = students.map(s => ({
     ...s,
-    email: emailMap[s.id] ?? '',
+    email: s.email ?? '',
     teacher_ids: teachersByStudent.get(s.id) ?? [],
   }))
   const teachersWithMeta = teachers.map(t => ({
     id: t.id,
     full_name: t.full_name,
     is_active: t.is_active,
-    email: emailMap[t.id] ?? '',
-    student_count: (links ?? []).filter(l => l.teacher_id === t.id).length,
+    email: t.email ?? '',
+    student_count: countByTeacher.get(t.id) ?? 0,
   }))
 
   return (

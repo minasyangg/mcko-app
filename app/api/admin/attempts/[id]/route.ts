@@ -1,6 +1,5 @@
-import { createClient } from '@/lib/supabase/server'
-import { createAdminClient } from '@/lib/supabase/admin'
 import { NextRequest, NextResponse } from 'next/server'
+import { requireAdmin } from '@/lib/auth/authorize'
 
 // DELETE /api/admin/attempts/[id] — удалить попытку ученика. Только admin.
 // Каскадом удаляются ответы (attempt_task_answers) и события присутствия
@@ -13,17 +12,9 @@ export async function DELETE(
 ) {
   const { id: attemptId } = await params
 
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
-  const { data: profile } = await supabase
-    .from('profiles').select('role, organization_id').eq('id', user.id).single()
-  if (!profile || profile.role !== 'admin' || !profile.organization_id) {
-    return NextResponse.json({ error: 'Доступно только администратору' }, { status: 403 })
-  }
-
-  const admin = createAdminClient()
+  const auth = await requireAdmin()
+  if ('error' in auth) return auth.error
+  const { admin, orgId } = auth
 
   // Попытка + организация (через assignment) — не даём удалять чужую орг
   const { data: attempt } = await admin
@@ -34,7 +25,7 @@ export async function DELETE(
   if (!attempt) return NextResponse.json({ error: 'Attempt not found' }, { status: 404 })
 
   const asgn = attempt.assignments as unknown as { organization_id: string; test_version_id: string }
-  if (asgn.organization_id !== profile.organization_id) {
+  if (asgn.organization_id !== orgId) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 

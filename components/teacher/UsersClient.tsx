@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -13,7 +14,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
-import { Plus, Eye, EyeOff, UserPlus } from 'lucide-react'
+import { Plus, Eye, EyeOff, UserPlus, UsersRound } from 'lucide-react'
 import { StudentsClient, type StudentRow, type TeacherOption } from '@/components/teacher/StudentsClient'
 import { TeachersClient } from '@/components/teacher/TeachersClient'
 
@@ -86,7 +87,13 @@ export function UsersClient({
 
   return (
     <>
-      <div className="flex justify-end">
+      <div className="flex justify-end gap-2">
+        <Button asChild variant="outline">
+          <Link href="/teacher/groups">
+            <UsersRound className="h-4 w-4 mr-2" />
+            Группы
+          </Link>
+        </Button>
         <Button onClick={() => { reset(); setOpen(true) }}>
           <UserPlus className="h-4 w-4 mr-2" />
           Создать пользователя

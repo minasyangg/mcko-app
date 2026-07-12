@@ -30,6 +30,9 @@ export interface AttemptRow {
   grade: string | null
   groupName: string | null
   testTitle: string
+  // тип задания: обычный тест или домашнее задание; вес результата одинаковый,
+  // kind нужен только для фильтрации прогресса по типу
+  kind: 'test' | 'homework'
   score: number
   maxScore: number
   percentage: number
@@ -155,10 +158,11 @@ export async function getAttemptRows(
       profiles ( full_name, grade ),
       assignments (
         group_id,
+        kind,
         groups ( name ),
         test_versions!test_version_id (
           id,
-          tests!test_id ( title )
+          tests!test_id ( title, kind )
         )
       )
     `)
@@ -183,6 +187,10 @@ export async function getAttemptRows(
     const tv = assignment?.test_versions as any
     const test = tv?.tests as any
     const maxScore = a.max_score ?? 0
+    // приоритет — метка назначения (roadmap может назначить тест как ДЗ),
+    // иначе тип самого теста
+    const kind: 'test' | 'homework' =
+      (assignment?.kind ?? test?.kind) === 'homework' ? 'homework' : 'test'
 
     return {
       attemptId: a.id,
@@ -191,6 +199,7 @@ export async function getAttemptRows(
       grade: profile?.grade ?? null,
       groupName: group?.name ?? null,
       testTitle: test?.title ?? '—',
+      kind,
       score: a.score ?? 0,
       maxScore,
       percentage: maxScore > 0 ? Math.round(((a.score ?? 0) / maxScore) * 100) : 0,

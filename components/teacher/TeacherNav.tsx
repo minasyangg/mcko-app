@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { LogoutButton } from '@/components/shared/LogoutButton'
-import { BookOpen, BookMarked, Users, GraduationCap, Monitor, FileText, ClipboardList, BarChart2, TrendingUp, Menu, X, ListChecks, Library } from 'lucide-react'
+import { BookOpen, BookMarked, Users, GraduationCap, Monitor, FileText, BarChart2, TrendingUp, Menu, X, ListChecks, Library, Route, Bell, Settings } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
 
@@ -19,18 +19,21 @@ interface NavItem {
 
 const navItems: NavItem[] = [
   { href: '/teacher', label: 'Дашборд', icon: BarChart2, exact: true },
-  { href: '/teacher/tests', label: 'Тесты', icon: BookOpen },
+  { href: '/teacher/tests', label: 'Задания', icon: BookOpen },
   { href: '/teacher/library', label: 'Библиотека', icon: Library },
   { href: '/teacher/books', label: 'Книги', icon: BookMarked },
-  { href: '/teacher/assignments', label: 'Назначения', icon: ClipboardList },
+  // «Назначения» — первый таб внутри «Мониторинга»
+  { href: '/teacher/roadmaps', label: 'Программы', icon: Route, teacherOnly: true },
   { href: '/teacher/monitor', label: 'Мониторинг', icon: Monitor },
   { href: '/teacher/results', label: 'Результаты', icon: TrendingUp },
-  { href: '/teacher/groups', label: 'Группы', icon: Users },
   // admin: единая панель пользователей; teacher: только свои ученики (read-only)
+  // «Группы» — внутри «Ученики»/«Пользователи» (ссылка в шапке), не в меню
   { href: '/teacher/users', label: 'Пользователи', icon: GraduationCap, adminOnly: true },
   { href: '/teacher/students', label: 'Ученики', icon: Users, teacherOnly: true },
   { href: '/teacher/solution-requests', label: 'Запросы', icon: FileText },
   { href: '/teacher/scoring-rules', label: 'Правила', icon: ListChecks },
+  // настройка событий telegram/email-уведомлений организации
+  { href: '/teacher/notifications', label: 'Уведомления', icon: Bell, adminOnly: true },
 ]
 
 interface Props {
@@ -145,6 +148,13 @@ export function TeacherNav({ fullName, isAdmin = false, pendingRequests, pending
         <NavList isAdmin={isAdmin} pendingRequests={pendingRequests} monitorBadge={monitorBadge} />
         <div className="p-4 border-t space-y-1 shrink-0">
           <p className="text-xs text-muted-foreground truncate">{fullName}</p>
+          <Link
+            href="/teacher/settings"
+            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors py-1"
+          >
+            <Settings className="h-3.5 w-3.5" />
+            Настройки
+          </Link>
           <LogoutButton size="sm" variant="ghost" className="w-full justify-start px-0" />
         </div>
       </aside>
@@ -189,6 +199,13 @@ export function TeacherNav({ fullName, isAdmin = false, pendingRequests, pending
             />
             <div className="p-4 border-t space-y-1 shrink-0">
               <p className="text-xs text-muted-foreground truncate">{fullName}</p>
+              <Link
+                href="/teacher/settings"
+                className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors py-1"
+              >
+                <Settings className="h-3.5 w-3.5" />
+                Настройки
+              </Link>
               <LogoutButton size="sm" variant="ghost" className="w-full justify-start px-0" />
             </div>
           </div>
