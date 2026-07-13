@@ -35,11 +35,14 @@ export interface AddToTestDialogProps {
   addUrl: string | null
   // подпись задания в заголовке диалога, например "№ 735"
   problemLabel: string
+  // вызывается после успешного добавления — родитель помечает задачу
+  // «добавлено в <testTitle>» (без перезагрузки страницы)
+  onAdded?: (testTitle: string) => void
 }
 
 // Универсальный диалог «добавить задание в тест/ДЗ»: работает и для книг,
 // и для библиотеки — отличается только addUrl.
-export function AddToTestDialog({ open, onClose, addUrl, problemLabel }: AddToTestDialogProps) {
+export function AddToTestDialog({ open, onClose, addUrl, problemLabel, onAdded }: AddToTestDialogProps) {
   const [tests, setTests] = useState<EditableTest[] | null>(null)
   const [versionId, setVersionId] = useState('')
   const [maxScore, setMaxScore] = useState('1')
@@ -107,7 +110,9 @@ export function AddToTestDialog({ open, onClose, addUrl, problemLabel }: AddToTe
         return
       }
       const test = tests?.find(t => t.versionId === versionId)
-      toast.success(`Задание ${problemLabel} добавлено в «${test?.title ?? 'тест'}» под № ${data.task_number}`)
+      const title = test?.title ?? 'тест'
+      toast.success(`Задание ${problemLabel} добавлено в «${title}» под № ${data.task_number}`)
+      onAdded?.(title)
       onClose()
     } catch {
       toast.error('Ошибка сети')
@@ -118,7 +123,10 @@ export function AddToTestDialog({ open, onClose, addUrl, problemLabel }: AddToTe
 
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) onClose() }}>
-      <DialogContent className="sm:max-w-md">
+      {/* onCloseAutoFocus preventDefault — не возвращать фокус на кнопку «+»
+          при закрытии: иначе браузер прокручивает страницу к ней (у длинных
+          списков книг/библиотеки это выглядит как прыжок в начало) */}
+      <DialogContent className="sm:max-w-md" onCloseAutoFocus={(e) => e.preventDefault()}>
         <DialogHeader>
           <DialogTitle>Добавить задание {problemLabel}</DialogTitle>
           <DialogDescription>

@@ -18,7 +18,7 @@ export default async function UsersPage() {
   const [{ data: studentRows }, { data: teacherRows }, { data: links }] = await Promise.all([
     supabase
       .from('profiles')
-      .select('id, full_name, grade, is_active, created_at, created_by, email')
+      .select('id, full_name, grade, is_active, created_at, created_by, email, telegram_username')
       .eq('role', 'student')
       .eq('organization_id', org)
       .order('is_active', { ascending: false, nullsFirst: false })

@@ -36,8 +36,9 @@ export async function notifyUsers(opts: {
 
     const { data: profiles } = await admin
       .from('profiles')
-      .select('id, telegram_chat_id')
+      .select('id, telegram_chat_id, notifications_enabled')
       .in('id', [...new Set(userIds)])
+      .neq('notifications_enabled', false) // персональный выключатель пользователя
 
     const rows: {
       organization_id: string | null

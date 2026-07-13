@@ -26,6 +26,7 @@ export interface StudentRow {
   created_by?: string | null
   teacher_ids?: string[]  // прикреплённые учителя (M:N)
   email?: string
+  telegram_username?: string | null
 }
 
 export interface TeacherOption {
@@ -45,7 +46,7 @@ export function StudentsClient({ students: initial, isAdmin = false, teachers = 
   const router = useRouter()
   const [students, setStudents] = useState<StudentRow[]>(initial)
   const [editTarget, setEditTarget] = useState<StudentRow | null>(null)
-  const [editForm, setEditForm] = useState({ full_name: '', grade: '', email: '', password: '' })
+  const [editForm, setEditForm] = useState({ full_name: '', grade: '', email: '', password: '', telegram: '' })
   const [showPwd, setShowPwd] = useState(false)
   const [saving, setSaving] = useState(false)
 
@@ -83,12 +84,16 @@ export function StudentsClient({ students: initial, isAdmin = false, teachers = 
 
   function openEdit(s: StudentRow) {
     setEditTarget(s)
-    setEditForm({ full_name: s.full_name, grade: s.grade ?? '', email: '', password: '' })
+    setEditForm({ full_name: s.full_name, grade: s.grade ?? '', email: '', password: '', telegram: s.telegram_username ?? '' })
     setShowPwd(false)
   }
 
+  const editTelegram = editForm.telegram.trim().replace(/^@/, '')
+  const editTelegramValid = editTelegram === '' || /^[A-Za-z0-9_]{5,32}$/.test(editTelegram)
+
   async function handleSave() {
     if (!editTarget) return
+    if (!editTelegramValid) { toast.error('Ник Telegram: 5–32 символа, латиница/цифры/_'); return }
     setSaving(true)
     try {
       const body: Record<string, string | null> = {}
@@ -98,6 +103,8 @@ export function StudentsClient({ students: initial, isAdmin = false, teachers = 
         body.grade = editForm.grade.trim() || null
       if (editForm.email.trim()) body.email = editForm.email.trim()
       if (editForm.password.trim()) body.password = editForm.password.trim()
+      if (editTelegram !== (editTarget.telegram_username ?? ''))
+        body.telegram_username = editTelegram
 
       if (Object.keys(body).length === 0) { setEditTarget(null); return }
 
@@ -111,7 +118,12 @@ export function StudentsClient({ students: initial, isAdmin = false, teachers = 
 
       setStudents((prev) => prev.map((s) =>
         s.id === editTarget.id
-          ? { ...s, full_name: body.full_name ?? s.full_name, grade: body.grade !== undefined ? body.grade : s.grade }
+          ? {
+              ...s,
+              full_name: body.full_name ?? s.full_name,
+              grade: body.grade !== undefined ? body.grade : s.grade,
+              telegram_username: body.telegram_username !== undefined ? body.telegram_username : s.telegram_username,
+            }
           : s
       ))
       toast.success('Данные обновлены')
@@ -324,6 +336,23 @@ export function StudentsClient({ students: initial, isAdmin = false, teachers = 
                   onChange={(e) => setEditForm((p) => ({ ...p, grade: e.target.value }))}
                   placeholder="10А, 9Б..."
                 />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="edit-tg">
+                  Ник Telegram <span className="text-muted-foreground text-xs">(необязательно)</span>
+                </Label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">@</span>
+                  <Input
+                    id="edit-tg"
+                    value={editForm.telegram}
+                    onChange={(e) => setEditForm((p) => ({ ...p, telegram: e.target.value.replace(/^@/, '') }))}
+                    placeholder="username"
+                    className="pl-7"
+                  />
+                </div>
+                {!editTelegramValid && <p className="text-xs text-destructive">5–32 символа: латиница, цифры, _</p>}
+                <p className="text-xs text-muted-foreground">Смена ника отвяжет старый чат — ученик заново нажмёт «Start».</p>
               </div>
               {editTarget?.email && (
                 <div className="space-y-1">

@@ -13,6 +13,8 @@ const patchSchema = z.object({
   grade: z.string().nullable().optional(),
   email: z.string().includes('@').optional(),
   password: z.string().min(6).optional(),
+  // '' = отвязать ник; иначе валидный ник Telegram
+  telegram_username: z.string().regex(/^([A-Za-z0-9_]{5,32})?$/, 'Ник Telegram — 5–32 символа: латиница, цифры, _').optional(),
   // Полный набор прикреплённых учителей (M:N teacher_students). Если передан —
   // заменяет текущий набор для этого ученика (можно закрепить за несколькими).
   teacher_ids: z.array(zUuid()).optional(),
@@ -34,7 +36,7 @@ export async function PATCH(
   }
 
   const { data: student } = await admin
-    .from('profiles').select('id, organization_id, role').eq('id', id).single()
+    .from('profiles').select('id, organization_id, role, telegram_username').eq('id', id).single()
 
   if (!student || student.organization_id !== orgId || student.role !== 'student') {
     return NextResponse.json({ error: 'Student not found' }, { status: 404 })
@@ -49,14 +51,24 @@ export async function PATCH(
     return NextResponse.json({ ok: true })
   }
 
-  const { full_name, grade, email, password, teacher_ids } = parsed.data
+  const { full_name, grade, email, password, teacher_ids, telegram_username } = parsed.data
 
-  if (full_name !== undefined || grade !== undefined) {
-    const update: { full_name?: string; grade?: string | null } = {}
+  if (full_name !== undefined || grade !== undefined || telegram_username !== undefined) {
+    const update: { full_name?: string; grade?: string | null; telegram_username?: string | null; telegram_chat_id?: null } = {}
     if (full_name !== undefined) update.full_name = full_name
     if (grade !== undefined) update.grade = grade
-    const { error } = await admin.from('profiles').update(update).eq('id', id)
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    // смена ника админом сбрасывает привязку chat_id — новый ученик сам жмёт /start
+    if (telegram_username !== undefined) {
+      const uname = telegram_username || null
+      if (uname !== (student as { telegram_username?: string | null }).telegram_username) {
+        update.telegram_username = uname
+        update.telegram_chat_id = null
+      }
+    }
+    if (Object.keys(update).length > 0) {
+      const { error } = await admin.from('profiles').update(update).eq('id', id)
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    }
   }
 
   // Полный набор прикреплённых учителей (M:N): валидируем, затем приводим

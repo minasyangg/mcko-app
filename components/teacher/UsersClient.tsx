@@ -43,20 +43,23 @@ export function UsersClient({
   // ── Единый диалог создания пользователя ──
   const [open, setOpen] = useState(false)
   const [role, setRole] = useState<Role>('student')
-  const [form, setForm] = useState({ full_name: '', email: '', password: '', grade: '', teacher_id: '' })
+  const [form, setForm] = useState({ full_name: '', email: '', password: '', grade: '', teacher_id: '', telegram: '' })
   const [showPwd, setShowPwd] = useState(false)
   const [creating, setCreating] = useState(false)
 
   function reset() {
-    setForm({ full_name: '', email: '', password: '', grade: '', teacher_id: '' })
+    setForm({ full_name: '', email: '', password: '', grade: '', teacher_id: '', telegram: '' })
     setRole('student')
     setShowPwd(false)
   }
 
+  const telegram = form.telegram.trim().replace(/^@/, '')
+  const telegramValid = telegram === '' || /^[A-Za-z0-9_]{5,32}$/.test(telegram)
   const valid =
     form.full_name.trim().length >= 2 &&
     form.email.includes('@') &&
     form.password.length >= 6 &&
+    telegramValid &&
     (role === 'teacher' || !!form.teacher_id)
 
   async function handleCreate() {
@@ -64,10 +67,11 @@ export function UsersClient({
     try {
       const url = role === 'teacher' ? '/api/admin/create-teacher' : '/api/admin/create-student'
       const payload = role === 'teacher'
-        ? { full_name: form.full_name, email: form.email, password: form.password }
+        ? { full_name: form.full_name, email: form.email, password: form.password, telegram_username: telegram || undefined }
         : {
             full_name: form.full_name, email: form.email, password: form.password,
             grade: form.grade || undefined, teacher_id: form.teacher_id,
+            telegram_username: telegram || undefined,
           }
       const res = await fetch(url, {
         method: 'POST',
@@ -188,6 +192,24 @@ export function UsersClient({
                   {showPwd ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
               </div>
+            </div>
+
+            <div className="space-y-1">
+              <Label htmlFor="u-tg">
+                Ник Telegram <span className="text-muted-foreground text-xs">(необязательно)</span>
+              </Label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">@</span>
+                <Input id="u-tg" value={form.telegram}
+                  onChange={(e) => setForm(p => ({ ...p, telegram: e.target.value.replace(/^@/, '') }))}
+                  placeholder="username" className="pl-7" />
+              </div>
+              {!telegramValid && (
+                <p className="text-xs text-destructive">5–32 символа: латиница, цифры, _</p>
+              )}
+              <p className="text-xs text-muted-foreground">
+                Для уведомлений: пользователь затем откроет бота и нажмёт «Start».
+              </p>
             </div>
 
             <p className="text-xs text-muted-foreground">

@@ -1322,6 +1322,7 @@ export type Database = {
           grade: string | null
           id: string
           is_active: boolean | null
+          notifications_enabled: boolean
           organization_id: string | null
           role: string
           telegram_chat_id: number | null
@@ -1336,6 +1337,7 @@ export type Database = {
           grade?: string | null
           id: string
           is_active?: boolean | null
+          notifications_enabled?: boolean
           organization_id?: string | null
           role: string
           telegram_chat_id?: number | null
@@ -1350,6 +1352,7 @@ export type Database = {
           grade?: string | null
           id?: string
           is_active?: boolean | null
+          notifications_enabled?: boolean
           organization_id?: string | null
           role?: string
           telegram_chat_id?: number | null
