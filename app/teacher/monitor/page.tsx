@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { MonitorTable, type AttemptRow } from '@/components/teacher/MonitorTable'
 import type { AssignmentRow } from '@/components/teacher/AssignmentsPanel'
+import { getRoadmapSummaries } from '@/lib/roadmaps/progress'
 
 export default async function MonitorPage() {
   const supabase = await createClient()
@@ -121,9 +122,9 @@ export default async function MonitorPage() {
   const { data: asgnRows } = await supabase
     .from('assignments')
     .select(`
-      id, starts_at, ends_at, max_attempts, created_at,
+      id, starts_at, ends_at, max_attempts, created_at, kind,
       group_id, student_id, test_version_id,
-      test_versions!test_version_id ( tests!test_id ( title ) ),
+      test_versions!test_version_id ( tests!test_id ( title, kind ) ),
       groups ( name ),
       profiles!student_id ( full_name ),
       attempts ( id, status, student_id )
@@ -154,6 +155,8 @@ export default async function MonitorPage() {
     const sfr = !isGroup && a.student_id ? asgnFinalMap.get(`${a.student_id}_${a.test_version_id}`) : undefined
     const liveCompleted = allAttempts.filter(at => ['submitted', 'checked'].includes(at.status)).length
     const completedCount = isGroup ? 0 : (sfr?.attempt_count ?? liveCompleted)
+    // метка назначения важнее типа теста (roadmap может назначить тест как ДЗ)
+    const kind: 'test' | 'homework' = (a.kind ?? test?.kind) === 'homework' ? 'homework' : 'test'
     return {
       id: a.id,
       test_title: test?.title ?? '—',
@@ -166,8 +169,12 @@ export default async function MonitorPage() {
       completed_count: completedCount,
       is_completed: !isGroup && completedCount >= maxAttempts && completedCount > 0,
       last_result: sfr && sfr.final_score != null ? `${sfr.final_score}/${sfr.max_score ?? '?'}` : null,
+      kind,
     }
   })
+
+  // ── Сводка программ (для фильтра «Программы» внутри «Назначения») ──
+  const programSummaries = await getRoadmapSummaries(supabase, { resolveOwners: isAdmin })
 
   return (
     <div className="space-y-6">
@@ -177,7 +184,7 @@ export default async function MonitorPage() {
           Назначения тестов и текущий статус попыток
         </p>
       </div>
-      <MonitorTable initialAttempts={rows} isAdmin={isAdmin} assignments={assignments} />
+      <MonitorTable initialAttempts={rows} isAdmin={isAdmin} assignments={assignments} programSummaries={programSummaries} />
     </div>
   )
 }

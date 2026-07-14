@@ -1,9 +1,16 @@
 'use client'
 
+import { useMemo, useState } from 'react'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select'
 import { Plus, ClipboardList } from 'lucide-react'
 import { DeleteAssignmentButton } from '@/components/teacher/DeleteAssignmentButton'
+import { ProgramSummaryTable } from '@/components/teacher/ProgramSummaryTable'
+import { ProgramDetailSheet } from '@/components/teacher/ProgramDetailSheet'
+import type { ProgramSummaryRow } from '@/lib/roadmaps/progress'
 
 export interface AssignmentRow {
   id: string
@@ -17,7 +24,10 @@ export interface AssignmentRow {
   completed_count: number
   is_completed: boolean
   last_result: string | null
+  kind: 'test' | 'homework'
 }
+
+type TypeFilter = 'all' | 'test' | 'homework' | 'programs'
 
 function fmtDate(iso: string | null) {
   return iso ? new Date(iso).toLocaleDateString('ru-RU') : '—'
@@ -30,20 +40,53 @@ function fmtRange(from: string | null, to: string | null) {
 }
 
 // Таблица назначений — первый таб мониторинга (перенесена из /teacher/assignments).
-// Roadmap-назначения сюда не попадают: ими управляет редактор программы.
-export function AssignmentsPanel({ rows }: { rows: AssignmentRow[] }) {
+// Roadmap-назначения не смешиваются со строками обычных назначений (разная
+// форма данных — сводка программы vs конкретное назначение), а доступны через
+// фильтр «Программы»: сводная строка на программу → клик → ProgramDetailSheet
+// с полной детализацией. Так не плодим табы и не грузим тяжёлую детализацию
+// для всех программ сразу.
+export function AssignmentsPanel({
+  rows, programSummaries = [], isAdmin = false,
+}: {
+  rows: AssignmentRow[]
+  programSummaries?: ProgramSummaryRow[]
+  isAdmin?: boolean
+}) {
+  const [filter, setFilter] = useState<TypeFilter>('all')
+  const [openRoadmapId, setOpenRoadmapId] = useState<string | null>(null)
+
+  const filteredRows = useMemo(
+    () => filter === 'all' ? rows : filter === 'programs' ? [] : rows.filter(r => r.kind === filter),
+    [rows, filter],
+  )
+
   return (
     <>
-      <div className="flex justify-end">
-        <Button asChild size="sm">
-          <Link href="/teacher/assignments/new">
-            <Plus className="h-4 w-4 mr-2" />
-            Назначить тест
-          </Link>
-        </Button>
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <Select value={filter} onValueChange={(v) => setFilter(v as TypeFilter)}>
+          <SelectTrigger className="h-8 text-sm w-44">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Все назначения</SelectItem>
+            <SelectItem value="test">Тесты</SelectItem>
+            <SelectItem value="homework">Домашние задания</SelectItem>
+            <SelectItem value="programs">Программы{programSummaries.length > 0 ? ` (${programSummaries.length})` : ''}</SelectItem>
+          </SelectContent>
+        </Select>
+        {filter !== 'programs' && (
+          <Button asChild size="sm">
+            <Link href="/teacher/assignments/new">
+              <Plus className="h-4 w-4 mr-2" />
+              Назначить тест
+            </Link>
+          </Button>
+        )}
       </div>
 
-      {rows.length === 0 ? (
+      {filter === 'programs' ? (
+        <ProgramSummaryTable rows={programSummaries} isAdmin={isAdmin} onOpen={setOpenRoadmapId} />
+      ) : filteredRows.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-16 text-center text-muted-foreground gap-3">
           <ClipboardList className="h-10 w-10 opacity-40" />
           <p>Нет назначений. Назначьте тест группе или ученику.</p>
@@ -63,7 +106,7 @@ export function AssignmentsPanel({ rows }: { rows: AssignmentRow[] }) {
                 </tr>
               </thead>
               <tbody className="divide-y">
-                {rows.map(a => (
+                {filteredRows.map(a => (
                   <tr key={a.id} className="hover:bg-muted/30 transition-colors">
                     <td className="px-4 py-3 font-medium">{a.test_title}</td>
                     <td className="px-4 py-3 text-muted-foreground">{a.target}</td>
@@ -94,6 +137,8 @@ export function AssignmentsPanel({ rows }: { rows: AssignmentRow[] }) {
           </div>
         </div>
       )}
+
+      <ProgramDetailSheet roadmapId={openRoadmapId} onClose={() => setOpenRoadmapId(null)} />
     </>
   )
 }
