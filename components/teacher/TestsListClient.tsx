@@ -1,9 +1,12 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import Link from 'next/link'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select'
 import { Plus, BookOpen, PencilLine } from 'lucide-react'
 import { DeleteTestButton } from '@/components/teacher/DeleteTestButton'
 import { cn } from '@/lib/utils'
@@ -18,6 +21,8 @@ export interface TestRow {
   is_active: boolean
   created_at: string | null
   kind: string
+  owner_id?: string | null
+  owner_name?: string | null
 }
 
 const statusLabel: Record<string, string> = {
@@ -37,13 +42,15 @@ const statusVariant: Record<string, 'secondary' | 'default' | 'outline' | 'destr
 type Tab = 'test' | 'homework'
 
 // showExamType=false — вкладка ДЗ: у домашних заданий нет типа экзамена
-function TestsTable({ rows, showExamType = true }: { rows: TestRow[]; showExamType?: boolean }) {
+// showOwner=true — админ видит тесты всех учителей, показываем автора
+function TestsTable({ rows, showExamType = true, showOwner = false }: { rows: TestRow[]; showExamType?: boolean; showOwner?: boolean }) {
   return (
     <div className="rounded-md border overflow-hidden">
       <table className="w-full text-sm">
         <thead className="bg-muted/50">
           <tr>
             <th className="text-left px-4 py-3 font-medium">Название</th>
+            {showOwner && <th className="text-left px-4 py-3 font-medium">Учитель</th>}
             <th className="text-left px-4 py-3 font-medium">Предмет</th>
             <th className="text-left px-4 py-3 font-medium">Класс</th>
             {showExamType && <th className="text-left px-4 py-3 font-medium">Тип</th>}
@@ -56,6 +63,7 @@ function TestsTable({ rows, showExamType = true }: { rows: TestRow[]; showExamTy
           {rows.map((test) => (
             <tr key={test.id} className="hover:bg-muted/30 transition-colors">
               <td className="px-4 py-3 font-medium">{test.title}</td>
+              {showOwner && <td className="px-4 py-3 text-muted-foreground">{test.owner_name ?? '—'}</td>}
               <td className="px-4 py-3 text-muted-foreground">{test.subject ?? '—'}</td>
               <td className="px-4 py-3 text-muted-foreground">{test.grade ?? '—'}</td>
               {showExamType && <td className="px-4 py-3 text-muted-foreground">{test.exam_type ?? '—'}</td>}
@@ -93,10 +101,26 @@ function TestsTable({ rows, showExamType = true }: { rows: TestRow[]; showExamTy
 // Раздел «Задания»: вкладки «Тесты» (тип/разбаловка/критерии по правилам,
 // автопроверка) и «Домашние задания» (баллы задаёт сам учитель при
 // составлении/назначении). Механика прохождения общая, kind — маркер.
-export function TestsListClient({ rows }: { rows: TestRow[] }) {
+export function TestsListClient({
+  rows, isAdmin = false, teachers = [],
+}: {
+  rows: TestRow[]
+  isAdmin?: boolean
+  teachers?: { id: string; full_name: string }[]
+}) {
   const [tab, setTab] = useState<Tab>('test')
-  const tests = rows.filter(r => r.kind !== 'homework')
-  const homework = rows.filter(r => r.kind === 'homework')
+  // фильтр по учителю — только у админа (видит тесты всех)
+  const [filterTeacher, setFilterTeacher] = useState<string>('all')
+
+  const filtered = useMemo(
+    () => (isAdmin && filterTeacher !== 'all')
+      ? rows.filter(r => r.owner_id === filterTeacher)
+      : rows,
+    [rows, isAdmin, filterTeacher],
+  )
+
+  const tests = filtered.filter(r => r.kind !== 'homework')
+  const homework = filtered.filter(r => r.kind === 'homework')
   const current = tab === 'test' ? tests : homework
 
   const tabs: { key: Tab; label: string; count: number }[] = [
@@ -136,11 +160,27 @@ export function TestsListClient({ rows }: { rows: TestRow[] }) {
         </Button>
       </div>
 
-      <p className="text-xs text-muted-foreground">
-        {tab === 'test'
-          ? 'Тесты имеют тип, разбаловку и критерии, привязанные к правилам оценивания — проверяются автоматически по правилам.'
-          : 'Домашнее задание собирается из готовых заданий книг или библиотеки задач; баллы задаёт сам учитель.'}
-      </p>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-xs text-muted-foreground max-w-2xl">
+          {tab === 'test'
+            ? 'Тесты имеют тип, разбаловку и критерии, привязанные к правилам оценивания — проверяются автоматически по правилам.'
+            : 'Домашнее задание собирается из готовых заданий книг или библиотеки задач; баллы задаёт сам учитель.'}
+        </p>
+        {/* Фильтр по учителю — только админу (видит все тесты организации) */}
+        {isAdmin && teachers.length > 1 && (
+          <Select value={filterTeacher} onValueChange={setFilterTeacher}>
+            <SelectTrigger className="h-8 text-sm w-56 shrink-0">
+              <SelectValue placeholder="Все учителя" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Все учителя</SelectItem>
+              {teachers.map(t => (
+                <SelectItem key={t.id} value={t.id}>{t.full_name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+      </div>
 
       {current.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-16 text-center text-muted-foreground gap-3">
@@ -153,7 +193,7 @@ export function TestsListClient({ rows }: { rows: TestRow[] }) {
           </Button>
         </div>
       ) : (
-        <TestsTable rows={current} showExamType={tab === 'test'} />
+        <TestsTable rows={current} showExamType={tab === 'test'} showOwner={isAdmin} />
       )}
     </>
   )
