@@ -6,12 +6,14 @@ export default async function ResultsPage() {
   const supabase = await createClient()
   const rows = await getAttemptRows(supabase, {})
 
-  // Collect distinct tests and groups for filters
+  // Collect distinct tests/groups/programs for filters
   const testsMap = new Map<string, string>()
   const groupsMap = new Map<string, string>()
+  const programsMap = new Map<string, string>()
   for (const r of rows) {
     if (r.testTitle !== '—') testsMap.set(r.testTitle, r.testTitle)
     if (r.groupName) groupsMap.set(r.groupName, r.groupName)
+    if (r.programTitle) programsMap.set(r.programTitle, r.programTitle)
   }
 
   return (
@@ -36,6 +38,7 @@ export default async function ResultsPage() {
         rows={rows}
         tests={[...testsMap.keys()]}
         groups={[...groupsMap.keys()]}
+        programs={[...programsMap.keys()]}
       />
     </div>
   )

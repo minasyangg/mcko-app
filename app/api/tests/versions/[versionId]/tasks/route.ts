@@ -48,6 +48,7 @@ export async function POST(
     const {
       task_number,
       prompt_text,
+      prompt_html,
       task_type,
       options,
       answer_format_hint,
@@ -69,6 +70,7 @@ export async function POST(
         task_number: task_number ?? 1,
         sort_order: task_number ?? 1,
         prompt_text,
+        prompt_html: prompt_html ?? null,
         task_type: task_type ?? 'free_response',
         options: options ?? null,
         answer_format_hint: answer_format_hint ?? null,

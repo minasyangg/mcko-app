@@ -25,7 +25,7 @@ export async function GET(request: Request) {
       .from('assignments').select('id').eq('test_version_id', testVersionId)
     assignmentIds = (asgns ?? []).map(a => a.id)
     if (assignmentIds.length === 0) {
-      return new Response('Ученик,Класс,Группа,Тест,Тип,Балл,Макс балл,Процент,Статус,Дата\n', {
+      return new Response('Ученик,Класс,Группа,Тест,Тип,Программа,Тема,Балл,Макс балл,Процент,Статус,Дата\n', {
         headers: { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': 'attachment; filename="results.csv"' }
       })
     }
@@ -41,7 +41,8 @@ export async function GET(request: Request) {
         group_id,
         kind,
         groups ( name ),
-        test_versions ( tests ( title, kind ) )
+        test_versions ( tests ( title, kind ) ),
+        roadmap_topics ( title, roadmaps ( title ) )
       )
     `)
     .in('status', ['submitted', 'checked'])
@@ -88,7 +89,7 @@ export async function GET(request: Request) {
   }
 
   // Build CSV
-  const headers = ['Ученик', 'Класс', 'Группа', 'Тест', 'Тип', 'Балл', 'Макс балл', 'Процент', 'Статус', 'Дата', ...taskHeaders]
+  const headers = ['Ученик', 'Класс', 'Группа', 'Тест', 'Тип', 'Программа', 'Тема', 'Балл', 'Макс балл', 'Процент', 'Статус', 'Дата', ...taskHeaders]
 
   const escapeCell = (v: string | number | null | undefined) => {
     const s = String(v ?? '')
@@ -113,6 +114,7 @@ export async function GET(request: Request) {
     const date = a.submitted_at ? new Date(a.submitted_at).toLocaleDateString('ru-RU') : ''
     // метка назначения важнее типа теста (roadmap может назначить тест как ДЗ)
     const kind = (assignment?.kind ?? test?.kind) === 'homework' ? 'ДЗ' : 'Тест'
+    const topic = assignment?.roadmap_topics as { title?: string; roadmaps?: { title?: string } | null } | null
 
     const base = [
       profile?.full_name ?? '',
@@ -120,6 +122,8 @@ export async function GET(request: Request) {
       group?.name ?? '',
       test?.title ?? '',
       kind,
+      topic?.roadmaps?.title ?? '',
+      topic?.title ?? '',
       score,
       maxScore,
       `${pct}%`,

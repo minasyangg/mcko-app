@@ -9,7 +9,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
 import { AttemptDrawer } from '@/components/teacher/AttemptDrawer'
-import { TrendingUp, ChevronDown, ChevronRight, Search } from 'lucide-react'
+import { TrendingUp, ChevronDown, ChevronRight, Search, Route } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { AttemptRow } from '@/lib/analytics/queries'
 
@@ -17,6 +17,7 @@ interface Props {
   rows: AttemptRow[]
   tests: string[]
   groups: string[]
+  programs: string[]
 }
 
 function StatCard({ label, value, sub }: { label: string; value: string | number; sub?: string }) {
@@ -29,13 +30,15 @@ function StatCard({ label, value, sub }: { label: string; value: string | number
   )
 }
 
-export function ResultsClient({ rows, tests, groups }: Props) {
+export function ResultsClient({ rows, tests, groups, programs }: Props) {
   const [search, setSearch] = useState('')
   const [filterTest, setFilterTest] = useState('all')
   const [filterGroup, setFilterGroup] = useState('all')
   const [filterStatus, setFilterStatus] = useState('all')
   // тест/ДЗ считаются с одинаковым весом; фильтр даёт прогресс по каждому типу
   const [filterKind, setFilterKind] = useState('all')
+  // результаты по конкретной учебной программе (задания, привязанные к теме)
+  const [filterProgram, setFilterProgram] = useState('all')
   const [selectedAttemptId, setSelectedAttemptId] = useState<string | null>(null)
   const [updatedRows, setUpdatedRows] = useState<AttemptRow[]>(rows)
 
@@ -46,9 +49,10 @@ export function ResultsClient({ rows, tests, groups }: Props) {
       if (filterGroup !== 'all' && r.groupName !== filterGroup) return false
       if (filterStatus !== 'all' && r.status !== filterStatus) return false
       if (filterKind !== 'all' && r.kind !== filterKind) return false
+      if (filterProgram !== 'all' && r.programTitle !== filterProgram) return false
       return true
     })
-  }, [updatedRows, search, filterTest, filterGroup, filterStatus, filterKind])
+  }, [updatedRows, search, filterTest, filterGroup, filterStatus, filterKind, filterProgram])
 
   const { visible, hasMore, loadMore, total, showing } = usePagination(filtered)
   const scrollRef = useScrollTrigger(loadMore, hasMore)
@@ -149,9 +153,20 @@ export function ResultsClient({ rows, tests, groups }: Props) {
             <SelectItem value="checked">Завершён</SelectItem>
           </SelectContent>
         </Select>
-        {(search || filterTest !== 'all' || filterGroup !== 'all' || filterStatus !== 'all' || filterKind !== 'all') && (
+        {programs.length > 0 && (
+          <Select value={filterProgram} onValueChange={setFilterProgram}>
+            <SelectTrigger className="h-8 text-sm w-48">
+              <SelectValue placeholder="Все программы" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Все программы</SelectItem>
+              {programs.map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        )}
+        {(search || filterTest !== 'all' || filterGroup !== 'all' || filterStatus !== 'all' || filterKind !== 'all' || filterProgram !== 'all') && (
           <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => {
-            setSearch(''); setFilterTest('all'); setFilterGroup('all'); setFilterStatus('all'); setFilterKind('all')
+            setSearch(''); setFilterTest('all'); setFilterGroup('all'); setFilterStatus('all'); setFilterKind('all'); setFilterProgram('all')
           }}>
             Сбросить
           </Button>
@@ -186,7 +201,7 @@ export function ResultsClient({ rows, tests, groups }: Props) {
                   <td className="px-4 py-3 font-medium">{r.studentName}</td>
                   <td className="px-4 py-3 text-muted-foreground">{r.grade ?? '—'}</td>
                   <td className="px-4 py-3 text-muted-foreground">{r.groupName ?? '—'}</td>
-                  <td className="px-4 py-3 text-muted-foreground max-w-40" title={r.testTitle}>
+                  <td className="px-4 py-3 text-muted-foreground max-w-48" title={r.testTitle}>
                     <div className="flex items-center gap-1.5 min-w-0">
                       <span className="truncate">{r.testTitle}</span>
                       {r.kind === 'homework' && (
@@ -195,6 +210,12 @@ export function ResultsClient({ rows, tests, groups }: Props) {
                         </Badge>
                       )}
                     </div>
+                    {r.programTitle && (
+                      <div className="flex items-center gap-1 text-[11px] text-indigo-600 dark:text-indigo-400 truncate mt-0.5">
+                        <Route className="h-3 w-3 shrink-0" />
+                        <span className="truncate">{r.programTitle}{r.topicTitle ? ` · ${r.topicTitle}` : ''}</span>
+                      </div>
+                    )}
                   </td>
                   <td className="px-4 py-3 text-center tabular-nums">
                     <span className="font-semibold">{r.score}</span>

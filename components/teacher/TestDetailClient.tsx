@@ -46,6 +46,7 @@ import {
   GripVertical,
 } from 'lucide-react'
 import MarkdownContent from '@/components/shared/MarkdownContent'
+import { derivePromptText } from '@/lib/tasks/prompt'
 import { ImageGallery } from '@/components/shared/ImageGallery'
 import { TestPreviewModal } from '@/components/teacher/TestPreviewModal'
 import type { TaskMediaWithUrl } from '@/types/domain'
@@ -215,16 +216,6 @@ function EditTaskForm({ task, onSave, onCancel }: EditTaskFormProps) {
   async function handleImageDelete(mediaId: string) {
     const res = await fetch(`/api/tasks/${task.id}/media/${mediaId}`, { method: 'DELETE' })
     if (res.ok) setImages(prev => prev.filter(img => img.id !== mediaId))
-  }
-
-  // Derive plain prompt_text from prompt_html for storage
-  function derivePromptText(html: string): string {
-    return html
-      .replace(/<[^>]+>/g, ' ')
-      .replace(/\$\$[\s\S]+?\$\$/g, '[формула]')
-      .replace(/\$[^$\n]+\$/g, '[формула]')
-      .replace(/\s+/g, ' ')
-      .trim() || html.slice(0, 200)
   }
 
   async function handleSave() {
@@ -617,7 +608,10 @@ interface InlineTaskFormProps {
 
 function InlineTaskForm({ versionId, nextTaskNumber, onCreated, onCancel }: InlineTaskFormProps) {
   const [taskNumber, setTaskNumber] = useState(String(nextTaskNumber))
+  // promptText — это LaTeX/markdown-исходник (поддерживает $формула$), не
+  // готовый plain text; отсюда же деривится prompt_text для хранения/поиска
   const [promptText, setPromptText] = useState('')
+  const [showPreview, setShowPreview] = useState(false)
   const [taskType, setTaskType] = useState('short_text')
   const [maxScore, setMaxScore] = useState('1')
   const [answerFormatHint, setAnswerFormatHint] = useState('')
@@ -668,7 +662,8 @@ function InlineTaskForm({ versionId, nextTaskNumber, onCreated, onCancel }: Inli
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           task_number: Number(taskNumber) || nextTaskNumber,
-          prompt_text: promptText.trim(),
+          prompt_html: promptText.trim(),
+          prompt_text: derivePromptText(promptText.trim()),
           task_type: taskType,
           max_score: Number(maxScore) || 1,
           answer_format_hint: answerFormatHint || null,
@@ -784,14 +779,29 @@ function InlineTaskForm({ versionId, nextTaskNumber, onCreated, onCancel }: Inli
             </div>
           </div>
           <div className="space-y-1">
-            <Label className="text-xs">Текст задачи *</Label>
-            <Textarea
-              value={promptText}
-              onChange={(e) => setPromptText(e.target.value)}
-              rows={3}
-              className="text-sm"
-              placeholder="Введите текст задачи..."
-            />
+            <div className="flex items-center justify-between">
+              <Label className="text-xs">Текст задачи * (поддерживает LaTeX: $формула$)</Label>
+              <button
+                type="button"
+                onClick={() => setShowPreview(v => !v)}
+                className="text-xs text-muted-foreground hover:text-foreground underline"
+              >
+                {showPreview ? 'Редактировать' : 'Предпросмотр'}
+              </button>
+            </div>
+            {showPreview ? (
+              <div className="min-h-18 rounded-md border bg-muted/20 px-3 py-2">
+                <MarkdownContent content={promptText} />
+              </div>
+            ) : (
+              <Textarea
+                value={promptText}
+                onChange={(e) => setPromptText(e.target.value)}
+                rows={3}
+                className="text-sm font-mono"
+                placeholder="Введите текст задачи. Формулы: $\sqrt{x}$ или $$\frac{a}{b}$$"
+              />
+            )}
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
