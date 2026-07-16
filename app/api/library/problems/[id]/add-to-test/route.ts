@@ -1,9 +1,15 @@
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { NextRequest } from 'next/server'
+import { generateAndSaveAnswer } from '@/lib/ai/generate-answer'
+import { NextRequest, after } from 'next/server'
+
+// Фоновая ИИ-генерация ответа (after) может занять до 30 c
+export const maxDuration = 60
 
 // POST /api/library/problems/[id]/add-to-test
 // Body: { test_version_id: string, task_number?: number, max_score?: number }
+// Если у задачи нет ответа — после ответа клиенту ИИ решает её в фоне и
+// создаёт ключ для только что созданного test_task (answer_source='ai').
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -139,5 +145,15 @@ export async function POST(
     .update({ used_count: (problem.used_count ?? 0) + 1 })
     .eq('id', libraryProblemId)
 
-  return Response.json({ ok: true, task_id: taskId, task_number: taskNumber })
+  // Нет ответа — решаем ИИ в фоне и вешаем ключ на созданный task.
+  // Задачи с картинками (кроме картинок решения) текстовому ИИ не даём.
+  const hasConditionImages = ((problem.library_problem_media as any[]) ?? [])
+    .some(m => m.placement !== 'solution')
+  const aiAnswerPending =
+    problem.correct_answer == null && !hasConditionImages && !!process.env.DEEPSEEK_API_KEY
+  if (aiAnswerPending) {
+    after(() => generateAndSaveAnswer({ source: 'library', problemId: libraryProblemId, taskId, admin }))
+  }
+
+  return Response.json({ ok: true, task_id: taskId, task_number: taskNumber, ai_answer_pending: aiAnswerPending })
 }

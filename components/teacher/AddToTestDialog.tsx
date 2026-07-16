@@ -111,7 +111,14 @@ export function AddToTestDialog({ open, onClose, addUrl, problemLabel, onAdded }
       }
       const test = tests?.find(t => t.versionId === versionId)
       const title = test?.title ?? 'тест'
-      toast.success(`Задание ${problemLabel} добавлено в «${title}» под № ${data.task_number}`)
+      if (data.ai_answer_pending) {
+        toast.success(
+          `Задание ${problemLabel} добавлено в «${title}» под № ${data.task_number}. ` +
+          'Ответа нет — ИИ генерирует его в фоне (~полминуты).'
+        )
+      } else {
+        toast.success(`Задание ${problemLabel} добавлено в «${title}» под № ${data.task_number}`)
+      }
       onAdded?.(title)
       onClose()
     } catch {

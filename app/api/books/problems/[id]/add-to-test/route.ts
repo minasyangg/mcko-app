@@ -1,10 +1,16 @@
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { NextRequest } from 'next/server'
+import { generateAndSaveAnswer } from '@/lib/ai/generate-answer'
+import { NextRequest, after } from 'next/server'
+
+// Фоновая ИИ-генерация ответа (after) может занять до 30 c
+export const maxDuration = 60
 
 // POST /api/books/problems/[id]/add-to-test
 // Body: { test_version_id: string, task_number?: number, max_score?: number }
 // Копирует задание из книги в тест (зеркало library add-to-test).
+// Если у задания нет ответа — после ответа клиенту ИИ решает его в фоне и
+// создаёт ключ для только что созданного test_task (answer_source='ai').
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -113,5 +119,12 @@ export async function POST(
     .update({ used_count: (problem.used_count ?? 0) + 1 })
     .eq('id', bookProblemId)
 
-  return Response.json({ ok: true, task_id: task.id, task_number: taskNumber })
+  // Нет ответа — решаем ИИ в фоне и вешаем ключ на созданный task
+  const aiAnswerPending =
+    problem.correct_answer == null && !problem.has_images && !!process.env.DEEPSEEK_API_KEY
+  if (aiAnswerPending) {
+    after(() => generateAndSaveAnswer({ source: 'book', problemId: bookProblemId, taskId: task.id, admin }))
+  }
+
+  return Response.json({ ok: true, task_id: task.id, task_number: taskNumber, ai_answer_pending: aiAnswerPending })
 }

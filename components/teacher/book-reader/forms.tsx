@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { toast } from 'sonner'
+import { Sparkles, Loader2 } from 'lucide-react'
 import MarkdownContent from '@/components/shared/MarkdownContent'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -32,7 +33,27 @@ export function ProblemEditForm({
   const [answer, setAnswer] = useState(problem.correct_answer?.text ?? '')
   const [gradingMethod, setGradingMethod] = useState(problem.grading_method)
   const [saving, setSaving] = useState(false)
+  const [aiGenerating, setAiGenerating] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  async function handleAiAnswer() {
+    setAiGenerating(true)
+    setError(null)
+    try {
+      const res = await fetch(`/api/books/problems/${problem.id}/ai-answer`, { method: 'POST' })
+      const d = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setError(d.error ?? 'ИИ не смог решить задание')
+        return
+      }
+      // ответ уже сохранён сервером с answer_source='ai' — закрываем форму,
+      // читалка перезагрузит якоря и покажет бейдж «ответ · ИИ»
+      toast.success(`Ответ ИИ для задания ${taskNumberLabel(problem.task_number)}: ${d.correct_answer?.text ?? ''}`)
+      onSaved()
+    } finally {
+      setAiGenerating(false)
+    }
+  }
 
   async function handleSave() {
     setSaving(true)
@@ -95,6 +116,22 @@ export function ProblemEditForm({
             className="h-8 text-sm"
             placeholder="Пусто = без ответа (ручная проверка)"
           />
+          {!problem.correct_answer && !answer.trim() && (
+            <button
+              type="button"
+              onClick={handleAiAnswer}
+              disabled={aiGenerating || problem.has_images}
+              title={problem.has_images
+                ? 'Задание с изображением — ИИ-решение недоступно'
+                : 'ИИ решит задание и сохранит эталонный ответ'}
+              className="text-xs text-violet-600 dark:text-violet-400 hover:text-violet-700 transition-colors flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {aiGenerating
+                ? <Loader2 className="h-3 w-3 animate-spin" />
+                : <Sparkles className="h-3 w-3" />}
+              {aiGenerating ? 'ИИ решает…' : 'Сгенерировать ответ ИИ'}
+            </button>
+          )}
         </div>
         <div className="space-y-1">
           <Label className="text-xs">Метод автопроверки</Label>

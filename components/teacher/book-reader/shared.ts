@@ -42,6 +42,7 @@ export interface ProblemAnchor {
   difficulty: string
   grading_method: string
   used_count: number
+  has_images?: boolean
 }
 
 export interface SearchResult {
