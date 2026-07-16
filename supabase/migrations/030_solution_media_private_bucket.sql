@@ -1,0 +1,11 @@
+-- solution_media: картинки решения раньше грузились в публичный bucket
+-- task-media (см. app/api/parsing/trigger/route.ts) — доступны всем по прямой
+-- ссылке в обход одобрения solution_requests. Новые картинки решения теперь
+-- грузятся в приватный bucket solution-media (код исправлен отдельно);
+-- здесь убираем storage-политику "authenticated read", которая давала любому
+-- залогиненному (включая ученика без одобрения) читать любой файл в этом
+-- бакете напрямую. Чтение для ученика теперь идёт только через
+-- app/student/attempt/[id]/result/page.tsx (service-role, после проверки
+-- approvedTaskIds); teacher/admin читают через уже существующую
+-- "solution-media: teacher/admin manage" (не меняется).
+drop policy if exists "solution-media: authenticated read" on storage.objects;

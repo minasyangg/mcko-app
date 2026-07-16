@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { redirect } from 'next/navigation'
 import { TestPlayer } from '@/components/test-player/TestPlayer'
 import { enrichTaskMediaWithUrls } from '@/lib/media/signed-urls'
@@ -142,7 +143,11 @@ export default async function AttemptPage({ params }: PageProps) {
           .eq('attempt_id', prevAttempt.id)
 
         if (prevAnswers && prevAnswers.length > 0) {
-          await supabase.from('attempt_task_answers').insert(
+          // service-role клиент: перенос awarded_score/is_correct/is_locked
+          // заблокирован для обычных сессий триггером
+          // prevent_student_self_grading (029) — легитимный перенос идёт в обход него
+          const admin = createAdminClient()
+          await admin.from('attempt_task_answers').insert(
             prevAnswers.map((a) => ({
               attempt_id: newAttempt.id,
               task_id: a.task_id,

@@ -52,6 +52,11 @@ export async function POST(
     .single()
 
   if (!problem) return Response.json({ error: 'Library problem not found' }, { status: 404 })
+  // Задача из чужой (не глобальной) org-библиотеки — доступ запрещён, иначе
+  // можно было бы скопировать чужой приватный ответ/решение в свой тест.
+  if (problem.organization_id !== null && problem.organization_id !== profile.organization_id) {
+    return Response.json({ error: 'Library problem not found' }, { status: 404 })
+  }
 
   // Определяем номер задачи
   let taskNumber = body.task_number

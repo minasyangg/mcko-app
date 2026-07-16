@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -7,7 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { CheckCircle2, XCircle, MinusCircle, ArrowLeft, ChevronDown, ChevronUp } from 'lucide-react'
 import type { Json } from '@/types/database'
-import { enrichTaskMediaWithUrls } from '@/lib/media/signed-urls'
+import { enrichTaskMediaWithUrls, generateSignedUrls } from '@/lib/media/signed-urls'
 import { SolutionRequestButton } from '@/components/student/SolutionRequestButton'
 import { SolutionView } from '@/components/test-player/SolutionView'
 import { MathText } from '@/components/shared/MathText'
@@ -203,7 +204,15 @@ export default async function ResultPage({ params }: PageProps) {
         .from('solution_media').select('*')
         .in('solution_id', solutionIds).order('sort_order')
 
-      const mediaWithUrls = await enrichTaskMediaWithUrls(supabase, (rawMedia ?? []).map(m => ({
+      // solution-media — приватный bucket без прямого доступа для роли student
+      // (см. storage-политику); URL подписываем service-role клиентом — доступ
+      // уже проверен выше через approvedTaskIds (student's own approved request)
+      const admin = createAdminClient()
+      const urlByPath = await generateSignedUrls(admin, (rawMedia ?? []).map(m => ({
+        storage_path: m.storage_path,
+        bucket: 'solution-media' as const,
+      })))
+      const mediaWithUrls = (rawMedia ?? []).map(m => ({
         id: m.id,
         task_id: null,
         storage_path: m.storage_path,
@@ -220,7 +229,8 @@ export default async function ResultPage({ params }: PageProps) {
         source_bbox: null,
         is_manually_uploaded: false,
         created_at: m.created_at,
-      })))
+        signedUrl: urlByPath[m.storage_path] ?? '',
+      }))
 
       // Group by solution_id → then by task
       for (const sol of solutions ?? []) {

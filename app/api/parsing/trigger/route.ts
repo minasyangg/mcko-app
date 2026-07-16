@@ -786,9 +786,11 @@ async function uploadJsonSolutionImages(
     const cropped = await cropPageImage(ref.pageImgUrl, ref.bbox, sharpLib!)
     if (!cropped) continue
 
-    const storagePath = `task-media/${testVersionId}/sol_t${taskNumber}_b${ref.blockId}.webp`
+    // приватный bucket — solution_media открывается только после одобрения
+    // solution_requests (см. lib/media/signed-urls.ts), в отличие от task-media
+    const storagePath = `${testVersionId}/sol_t${taskNumber}_b${ref.blockId}.webp`
     const { error: upErr } = await client.storage
-      .from('task-media')
+      .from('solution-media')
       .upload(storagePath, cropped, { contentType: 'image/webp', upsert: true })
     if (upErr) { console.error('[json-sol-img] upload:', upErr.message); continue }
 

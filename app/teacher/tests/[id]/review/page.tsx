@@ -121,7 +121,7 @@ export default async function ReviewPage({ params }: PageProps) {
   const solUrlMap: Record<string, string> = {}
   if (solMediaPaths.length > 0) {
     const { data: signed } = await supabase.storage
-      .from('task-media')
+      .from('solution-media')
       .createSignedUrls(solMediaPaths, 3600)
     signed?.forEach(item => { if (item.signedUrl && item.path) solUrlMap[item.path] = item.signedUrl })
   }
