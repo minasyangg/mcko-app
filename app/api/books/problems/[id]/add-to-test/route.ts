@@ -85,8 +85,15 @@ export async function POST(
 
   // Автосборка составного ответа по меткам (а)/б)/… при копировании эталона
   // из книги в тест — только если у задания не выбран явно 'manual'.
-  const composite = problem.grading_method !== 'manual' && typeof problem.correct_answer === 'string'
-    ? buildCompositeAnswerKey(problem.correct_answer)
+  // У книг correct_answer хранится как {text: "..."} (не голой строкой, как
+  // у библиотеки) — распаковываем перед разбором на части.
+  const bookAnswerText =
+    problem.correct_answer !== null && typeof problem.correct_answer === 'object' && !Array.isArray(problem.correct_answer)
+      ? String((problem.correct_answer as Record<string, unknown>).text ?? '') || null
+      : typeof problem.correct_answer === 'string' ? problem.correct_answer : null
+
+  const composite = problem.grading_method !== 'manual' && bookAnswerText
+    ? buildCompositeAnswerKey(bookAnswerText)
     : { isComposite: false as const, correctAnswerJson: problem.correct_answer }
 
   const { data: task, error: taskErr } = await admin
