@@ -89,7 +89,7 @@ export async function POST(
       await admin.from('task_answer_keys').insert({
         task_id: task.id,
         correct_answer: correct_answer,
-        grading_method: grading_method ?? 'exact',
+        grading_method: grading_method ?? 'normalized',
       })
     }
 

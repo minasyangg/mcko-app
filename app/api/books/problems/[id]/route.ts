@@ -6,7 +6,7 @@ import type { Database } from '@/types/database'
 
 type BookProblemUpdate = Database['public']['Tables']['book_problems']['Update']
 
-const GRADING_METHODS = ['exact', 'normalized', 'numeric_tolerance', 'set_match', 'contains', 'regex', 'manual', 'sequence']
+const GRADING_METHODS = ['normalized', 'numeric_tolerance', 'set_match', 'contains', 'regex', 'manual', 'sequence']
 
 // PATCH /api/books/problems/[id]
 // Body: { prompt_md?, correct_answer?, grading_method? }

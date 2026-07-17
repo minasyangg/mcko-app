@@ -63,20 +63,6 @@ export function checkAnswer(
   const caseSensitive = config['case_sensitive'] === true
 
   switch (gradingMethod) {
-    case 'exact': {
-      const ansText = extractScalar(answerJson)
-      const correctText = extractScalar(correctAnswer)
-      const normalizedAns = normalizeText(ansText, caseSensitive)
-      // Support "или" alternatives in correct answer
-      const alternatives = splitAlternatives(correctText)
-      const is_correct = alternatives.some(alt => normalizedAns === normalizeText(alt, caseSensitive))
-      return {
-        is_correct,
-        awarded_score: is_correct ? maxScore : 0,
-        normalized_answer_json: ansText,
-      }
-    }
-
     case 'normalized': {
       const ansText = extractScalar(answerJson)
       const correctText = extractScalar(correctAnswer)

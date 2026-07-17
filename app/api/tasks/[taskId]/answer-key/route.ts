@@ -38,7 +38,7 @@ export async function PATCH(
     {
       task_id: taskId,
       correct_answer: correct_answer,
-      grading_method: grading_method ?? 'exact',
+      grading_method: grading_method ?? 'normalized',
       parse_confidence: 1.0,
     },
     { onConflict: 'task_id' }

@@ -73,7 +73,7 @@ export async function PUT(
         .from('task_answer_keys')
         .update({
           correct_answer,
-          grading_method: grading_method ?? 'exact',
+          grading_method: grading_method ?? 'normalized',
         })
         .eq('task_id', taskId)
         .select()
@@ -89,7 +89,7 @@ export async function PUT(
         .insert({
           task_id: taskId,
           correct_answer,
-          grading_method: grading_method ?? 'exact',
+          grading_method: grading_method ?? 'normalized',
         })
         .select()
         .single()

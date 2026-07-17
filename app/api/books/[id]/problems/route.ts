@@ -2,7 +2,7 @@ import { authorizeBookEdit } from '@/lib/books/authorize'
 import { computeAnchors } from '@/lib/books/anchors'
 import { NextRequest } from 'next/server'
 
-const GRADING_METHODS = ['exact', 'normalized', 'numeric_tolerance', 'set_match', 'contains', 'regex', 'manual', 'sequence']
+const GRADING_METHODS = ['normalized', 'numeric_tolerance', 'set_match', 'contains', 'regex', 'manual', 'sequence']
 
 // POST /api/books/[id]/problems
 // Body: { page_index, task_number, prompt_md, correct_answer?, grading_method? }

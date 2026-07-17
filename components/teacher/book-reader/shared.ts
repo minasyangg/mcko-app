@@ -56,8 +56,7 @@ export interface SearchResult {
 
 // Методы автопроверки для ответов из книги (тот же набор, что в тестах)
 export const gradingMethodLabel: Record<string, string> = {
-  normalized: 'Нормализованное сравнение',
-  exact: 'Точное совпадение',
+  normalized: 'Точное/нормализованное сравнение',
   numeric_tolerance: 'Числовой (допуск)',
   sequence: 'Последовательность цифр (соответствие)',
   set_match: 'Совпадение набора',
