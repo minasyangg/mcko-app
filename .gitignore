@@ -6,7 +6,8 @@ node_modules/
 .env.production
 out/
 build/
-.claude/
+.claude/*
+!.claude/skills/
 .vscode/
 
 # Supabase local dev
