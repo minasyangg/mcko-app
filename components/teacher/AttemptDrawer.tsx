@@ -12,6 +12,8 @@ import { CheckCircle2, XCircle, MinusCircle, Loader2, ZoomIn, X, Lock, ChevronDo
 import { MathText } from '@/components/shared/MathText'
 import MarkdownContent from '@/components/shared/MarkdownContent'
 import { cn } from '@/lib/utils'
+import { formatAnswerJson } from '@/lib/grading/format-answer-display'
+import type { Json } from '@/types/database'
 
 interface AttemptDetail {
   id: string
@@ -75,25 +77,6 @@ function formatDt(iso: string | null) {
     day: '2-digit', month: '2-digit', year: '2-digit',
     hour: '2-digit', minute: '2-digit',
   })
-}
-
-function answerToString(json: unknown): string {
-  if (json === null || json === undefined) return '—'
-  if (typeof json === 'string') return json
-  if (typeof json === 'number' || typeof json === 'boolean') return String(json)
-  if (typeof json === 'object') {
-    const o = json as Record<string, unknown>
-    if (o.text !== undefined) return String(o.text)
-    if (o.value !== undefined) return String(o.value)
-    if (o.selected !== undefined) {
-      return Array.isArray(o.selected) ? o.selected.join(', ') : String(o.selected)
-    }
-    if (o.parts !== undefined && typeof o.parts === 'object') {
-      return Object.entries(o.parts as Record<string, unknown>)
-        .map(([k, v]) => `${k}: ${v}`).join('; ')
-    }
-  }
-  return JSON.stringify(json)
 }
 
 function ImageThumb({ src, alt }: { src: string; alt?: string | null }) {
@@ -230,10 +213,7 @@ export function AttemptDrawer({ attemptId, onClose, onGraded }: Props) {
             const m: Record<string, string> = {}
             for (const k of ansKeys) {
               if (!k.task_id) continue
-              const ca = k.correct_answer
-              m[k.task_id] = typeof ca === 'string' ? ca
-                : typeof ca === 'number' ? String(ca)
-                : JSON.stringify(ca)
+              m[k.task_id] = formatAnswerJson(k.correct_answer as Json)
             }
             setCorrectAnswerMap(m)
           }
@@ -527,7 +507,7 @@ export function AttemptDrawer({ attemptId, onClose, onGraded }: Props) {
                               <span className="ml-1.5 text-[10px] bg-blue-100 text-blue-700 rounded px-1">изменён</span>
                             )}
                           </p>
-                          <span className="font-medium wrap-break-word">{answerToString(ans.answer_json)}</span>
+                          <span className="font-medium wrap-break-word">{formatAnswerJson(ans.answer_json as Json)}</span>
                         </div>
                         {correctAnswerMap[ans.task_id ?? ''] && (
                           <div className="bg-green-50/60 dark:bg-green-950/20 border border-green-200 dark:border-green-800 rounded px-2 py-1.5">

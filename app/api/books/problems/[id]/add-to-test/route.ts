@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { generateAndSaveAnswer } from '@/lib/ai/generate-answer'
+import { buildCompositeAnswerKey } from '@/lib/grading/multi-part-answer'
 import { NextRequest, after } from 'next/server'
 
 // Фоновая ИИ-генерация ответа (after) может занять до 30 c
@@ -82,6 +83,12 @@ export async function POST(
     .replace(/\s+/g, ' ')
     .trim() || problem.prompt_md.slice(0, 200)
 
+  // Автосборка составного ответа по меткам (а)/б)/… при копировании эталона
+  // из книги в тест — только если у задания не выбран явно 'manual'.
+  const composite = problem.grading_method !== 'manual' && typeof problem.correct_answer === 'string'
+    ? buildCompositeAnswerKey(problem.correct_answer)
+    : { isComposite: false as const, correctAnswerJson: problem.correct_answer }
+
   const { data: task, error: taskErr } = await admin
     .from('test_tasks')
     .insert({
@@ -90,13 +97,14 @@ export async function POST(
       sort_order:      taskNumber,
       prompt_text:     promptText,
       prompt_html:     problem.prompt_md,
-      task_type:       problem.task_type,
+      task_type:       composite.isComposite ? 'composite' : problem.task_type,
       grading_method:  problem.grading_method,
       options:         problem.options ?? [],
       max_score:       body.max_score ?? 1,
       has_images:      problem.has_images,
       review_status:   'approved',
       book_problem_id: bookProblemId,
+      ...(composite.isComposite && composite.answerParts ? { answer_parts: composite.answerParts } : {}),
     })
     .select('id')
     .single()
@@ -109,7 +117,7 @@ export async function POST(
   if (problem.correct_answer !== null && problem.correct_answer !== undefined) {
     await admin.from('task_answer_keys').insert({
       task_id:        task.id,
-      correct_answer: problem.correct_answer,
+      correct_answer: composite.correctAnswerJson,
       grading_method: problem.grading_method,
     })
   }

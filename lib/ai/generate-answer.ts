@@ -7,6 +7,7 @@
 import type { createAdminClient } from '@/lib/supabase/admin'
 import type { Json } from '@/types/database'
 import { solveProblemWithAI } from '@/lib/ai/solve-problem'
+import { buildCompositeAnswerKey } from '@/lib/grading/multi-part-answer'
 
 type AdminClient = ReturnType<typeof createAdminClient>
 
@@ -118,6 +119,12 @@ export async function generateAndSaveAnswer(opts: {
 
     if (!answerText || !gradingMethod) return null
 
+    // Пытаемся разобрать сгенерированный ИИ ответ на пронумерованные части
+    // (а)/б)/…) — если все части алгоритмически проверяемы, ключ теста
+    // сохраняется как {parts:...} с проверкой по частям вместо целого текста
+    // (сегодня такая форма уходит в gradingMethod='manual' целиком).
+    const composite = buildCompositeAnswerKey(answerText)
+
     // Ключ для test_task, созданного add-to-test'ом до завершения генерации
     if (taskId) {
       const { data: task } = await admin
@@ -125,12 +132,15 @@ export async function generateAndSaveAnswer(opts: {
       if (task) {
         const { error: keyErr } = await admin.from('task_answer_keys').insert({
           task_id: taskId,
-          correct_answer: keyAnswer,
+          correct_answer: composite.isComposite ? composite.correctAnswerJson : keyAnswer,
           grading_method: gradingMethod,
         })
         // finalize берёт метод из ключа, но редактор теста показывает метод задачи
         if (!keyErr) {
-          await admin.from('test_tasks').update({ grading_method: gradingMethod }).eq('id', taskId)
+          await admin.from('test_tasks').update({
+            grading_method: gradingMethod,
+            ...(composite.isComposite && composite.answerParts ? { task_type: 'composite', answer_parts: composite.answerParts } : {}),
+          }).eq('id', taskId)
         }
       }
     }

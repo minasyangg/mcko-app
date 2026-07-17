@@ -28,6 +28,8 @@ export function detectGradingMethod(rawAnswer) {
   const firstAlt = cleaned.split(/\s+или\s+/i)[0].trim()
 
   if (/^[А-Еа-е]-\d/.test(firstAlt)) return 'sequence'
+  // Обыкновенная/смешанная дробь "1/2", "2 1/3" — тоже числовой ответ
+  if (/^-?\d+(\s+\d+)?\/\d+$/.test(firstAlt)) return 'numeric_tolerance'
   if (/^[-–−]?\d+([,.]?\d+)?(\s+[а-яa-zёА-ЯA-Z\/²³°%·]+\.?)*$/.test(firstAlt)) return 'numeric_tolerance'
   if (/^\d{2,6}$/.test(cleaned) && !cleaned.startsWith('0')) return 'set_match'
   if (/^\d+(,\s*\d+)+$/.test(cleaned)) return 'set_match'

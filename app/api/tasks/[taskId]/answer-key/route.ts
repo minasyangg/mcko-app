@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { NextRequest } from 'next/server'
+import { buildCompositeAnswerKey } from '@/lib/grading/multi-part-answer'
 
 export async function PATCH(
   request: NextRequest,
@@ -33,11 +34,18 @@ export async function PATCH(
 
   const admin = createAdminClient()
 
+  // Автосборка составного ответа по меткам (а)/б)/… — только если учитель
+  // не выбрал явно 'manual' (тогда весь ответ намеренно уходит на
+  // ручную/ИИ-проверку целиком, без разбиения на части).
+  const composite = grading_method !== 'manual'
+    ? buildCompositeAnswerKey(correct_answer)
+    : { isComposite: false as const, correctAnswerJson: correct_answer }
+
   // Upsert answer key
   const { error } = await admin.from('task_answer_keys').upsert(
     {
       task_id: taskId,
-      correct_answer: correct_answer,
+      correct_answer: composite.correctAnswerJson,
       grading_method: grading_method ?? 'normalized',
       parse_confidence: 1.0,
     },
@@ -45,6 +53,12 @@ export async function PATCH(
   )
 
   if (error) return Response.json({ error: error.message }, { status: 500 })
+
+  if (composite.isComposite && composite.answerParts) {
+    await admin.from('test_tasks')
+      .update({ task_type: 'composite', answer_parts: composite.answerParts })
+      .eq('id', taskId)
+  }
 
   return Response.json({ ok: true })
 }

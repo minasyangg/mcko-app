@@ -3,6 +3,7 @@
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
+import { Numeric } from './Numeric'
 
 interface Part {
   label: string
@@ -36,28 +37,11 @@ export function Composite({ parts, value, onChange, disabled }: CompositeProps) 
               className="resize-y"
             />
           ) : part.type === 'numeric' ? (
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  const cur = value[part.label] ?? ''
-                  handleChange(part.label, cur.startsWith('-') ? cur.slice(1) : '-' + cur)
-                }}
-                disabled={disabled}
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-input bg-background text-sm font-medium hover:bg-accent disabled:opacity-50 select-none"
-                title="Изменить знак числа"
-              >
-                ±
-              </button>
-              <Input
-                type="text"
-                inputMode="decimal"
-                value={value[part.label] ?? ''}
-                onChange={(e) => handleChange(part.label, e.target.value)}
-                disabled={disabled}
-                placeholder={`Введите ответ для «${part.label}»...`}
-              />
-            </div>
+            <Numeric
+              value={value[part.label] ?? ''}
+              onChange={(v) => handleChange(part.label, v)}
+              disabled={disabled}
+            />
           ) : (
             <Input
               type="text"

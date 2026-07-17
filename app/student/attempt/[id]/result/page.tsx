@@ -14,36 +14,10 @@ import { SolutionView } from '@/components/test-player/SolutionView'
 import { MathText } from '@/components/shared/MathText'
 import MarkdownContent from '@/components/shared/MarkdownContent'
 import type { TaskMedia } from '@/types/domain'
+import { formatAnswerJson } from '@/lib/grading/format-answer-display'
 
 interface PageProps {
   params: Promise<{ id: string }>
-}
-
-function formatAnswer(answerJson: Json | null): string {
-  if (answerJson === null || answerJson === undefined) return '—'
-  if (typeof answerJson === 'string') return answerJson
-  if (typeof answerJson === 'number') return String(answerJson)
-  if (typeof answerJson === 'boolean') return answerJson ? 'Да' : 'Нет'
-  if (Array.isArray(answerJson)) return answerJson.join(', ')
-  if (typeof answerJson === 'object') {
-    const obj = answerJson as Record<string, Json | undefined>
-    if ('selected' in obj) {
-      const sel = obj['selected']
-      if (Array.isArray(sel)) return sel.join(', ')
-      return String(sel ?? '—')
-    }
-    if ('text' in obj) return String(obj['text'] ?? '—')
-    if ('value' in obj) return String(obj['value'] ?? '—')
-    if ('parts' in obj) {
-      const parts = obj['parts']
-      if (parts !== null && typeof parts === 'object' && !Array.isArray(parts)) {
-        return Object.entries(parts as Record<string, Json | undefined>)
-          .map(([k, v]) => `${k}: ${String(v ?? '')}`)
-          .join('; ')
-      }
-    }
-  }
-  return JSON.stringify(answerJson)
 }
 
 export default async function ResultPage({ params }: PageProps) {
@@ -399,7 +373,7 @@ export default async function ResultPage({ params }: PageProps) {
                           </div>
                           <p className="text-sm">
                             <span className="text-muted-foreground">Ваш ответ: </span>
-                            <span className="font-medium">{formatAnswer(ans?.answer_json ?? null)}</span>
+                            <span className="font-medium">{formatAnswerJson(ans?.answer_json ?? null)}</span>
                           </p>
                           {isChecked && ans?.teacher_comment && (
                             <div className="rounded bg-yellow-50 dark:bg-yellow-950/30 border border-yellow-200 dark:border-yellow-800 px-3 py-2 text-sm">

@@ -1,5 +1,6 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import { checkAnswer } from '@/lib/grading/checker'
+import { formatAnswerJson } from '@/lib/grading/format-answer-display'
 
 type AdminClient = ReturnType<typeof createAdminClient>
 
@@ -156,16 +157,10 @@ export async function finalizeAttempt(
     const isTextTask = ['short_text', 'manual_review', 'composite'].includes(task.task_type)
 
     if (isManual && isTextTask) {
-      const correctVal = typeof answerKey.correct_answer === 'string'
-        ? answerKey.correct_answer
-        : JSON.stringify(answerKey.correct_answer)
-      const studentVal = typeof savedAnswer.answer_json === 'object' && savedAnswer.answer_json !== null
-        ? ((savedAnswer.answer_json as Record<string, unknown>).text as string
-            ?? (savedAnswer.answer_json as Record<string, unknown>).value as string
-            ?? JSON.stringify(savedAnswer.answer_json))
-        : String(savedAnswer.answer_json ?? '')
+      const correctVal = formatAnswerJson(answerKey.correct_answer)
+      const studentVal = formatAnswerJson(savedAnswer.answer_json)
 
-      if (correctVal && studentVal) {
+      if (correctVal && correctVal !== '—' && studentVal && studentVal !== '—') {
         const criteria = criteriaMap.get(task.task_number) ?? null
         const aiResult = await checkWithAI(studentVal, correctVal, maxScore, criteria)
         if (aiResult) {

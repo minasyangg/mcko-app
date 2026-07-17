@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { generateAndSaveAnswer } from '@/lib/ai/generate-answer'
+import { buildCompositeAnswerKey } from '@/lib/grading/multi-part-answer'
 import { NextRequest, after } from 'next/server'
 
 // Фоновая ИИ-генерация ответа (after) может занять до 30 c
@@ -76,6 +77,12 @@ export async function POST(
 
   const maxScore = body.max_score ?? problem.default_max_score ?? 1
 
+  // Автосборка составного ответа по меткам (а)/б)/… при копировании эталона
+  // из библиотеки в тест — только если у задачи не выбран явно 'manual'.
+  const composite = problem.grading_method !== 'manual' && typeof problem.correct_answer === 'string'
+    ? buildCompositeAnswerKey(problem.correct_answer)
+    : { isComposite: false as const, correctAnswerJson: problem.correct_answer }
+
   // Создаём test_task (копия из библиотеки)
   const { data: task, error: taskErr } = await admin
     .from('test_tasks')
@@ -85,13 +92,14 @@ export async function POST(
       sort_order:         taskNumber,
       prompt_text:        problem.prompt_text,
       prompt_html:        problem.prompt_html,
-      task_type:          problem.task_type,
+      task_type:          composite.isComposite ? 'composite' : problem.task_type,
       grading_method:     problem.grading_method,
       options:            problem.options ?? [],
       max_score:          maxScore,
       has_images:         (problem.library_problem_media as any[])?.some(m => m.placement !== 'solution') ?? false,
       review_status:      'approved',
       library_problem_id: libraryProblemId,
+      ...(composite.isComposite && composite.answerParts ? { answer_parts: composite.answerParts } : {}),
     })
     .select('id')
     .single()
@@ -106,7 +114,7 @@ export async function POST(
   if (problem.correct_answer !== null && problem.correct_answer !== undefined) {
     await admin.from('task_answer_keys').insert({
       task_id:        taskId,
-      correct_answer: problem.correct_answer,
+      correct_answer: composite.correctAnswerJson,
       grading_method: problem.grading_method,
       grading_config: problem.grading_config,
     })

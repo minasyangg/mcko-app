@@ -35,6 +35,10 @@ export function detectGradingMethod(rawAnswer: string): string {
   // Letter-digit correspondence "А-3, Б-1" → sequence
   if (/^[А-Еа-е]-\d/.test(firstAlt)) return 'sequence'
 
+  // Обыкновенная/смешанная дробь "1/2", "2 1/3" — тоже числовой ответ
+  // (lib/grading/normalizer.ts умеет разбирать обе формы)
+  if (/^-?\d+(\s+\d+)?\/\d+$/.test(firstAlt)) return 'numeric_tolerance'
+
   // Pure numeric (int/decimal, optional negative, optional units after space)
   if (/^[-–−]?\d+([,.]?\d+)?(\s+[а-яa-zёА-ЯA-Z\/²³°%·]+\.?)*$/.test(firstAlt)) {
     return 'numeric_tolerance'
