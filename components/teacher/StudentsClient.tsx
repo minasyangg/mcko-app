@@ -13,9 +13,10 @@ import {
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel,
   AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
-  AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
+  AlertDialogHeader, AlertDialogMedia, AlertDialogTitle, AlertDialogTrigger,
 } from '@/components/ui/alert-dialog'
-import { Pencil, Trash2, UserX, Eye, EyeOff, UserMinus } from 'lucide-react'
+import { ConfirmDeleteAction } from '@/components/shared/ConfirmDeleteAction'
+import { Pencil, Trash2, UserX, Eye, EyeOff, UserMinus, AlertTriangle } from 'lucide-react'
 
 export interface StudentRow {
   id: string
@@ -277,6 +278,9 @@ export function StudentsClient({ students: initial, isAdmin = false, teachers = 
                           </AlertDialogTrigger>
                           <AlertDialogContent>
                             <AlertDialogHeader>
+                              <AlertDialogMedia className="bg-destructive/10 text-destructive">
+                                <AlertTriangle />
+                              </AlertDialogMedia>
                               <AlertDialogTitle>Удалить ученика навсегда?</AlertDialogTitle>
                               <AlertDialogDescription className="space-y-2">
                                 <span className="block">
@@ -293,12 +297,7 @@ export function StudentsClient({ students: initial, isAdmin = false, teachers = 
                             </AlertDialogHeader>
                             <AlertDialogFooter>
                               <AlertDialogCancel>Отмена</AlertDialogCancel>
-                              <AlertDialogAction
-                                onClick={() => handleHardDelete(s)}
-                                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                              >
-                                Удалить навсегда
-                              </AlertDialogAction>
+                              <ConfirmDeleteAction onConfirm={() => handleHardDelete(s)} label="Удалить навсегда" />
                             </AlertDialogFooter>
                           </AlertDialogContent>
                         </AlertDialog>

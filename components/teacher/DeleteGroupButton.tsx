@@ -3,14 +3,15 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
-import { Trash2 } from 'lucide-react'
+import { AlertTriangle, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
-  AlertDialog, AlertDialogAction, AlertDialogCancel,
+  AlertDialog, AlertDialogCancel,
   AlertDialogContent, AlertDialogDescription,
-  AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+  AlertDialogFooter, AlertDialogHeader, AlertDialogMedia, AlertDialogTitle,
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog'
+import { ConfirmDeleteAction } from '@/components/shared/ConfirmDeleteAction'
 
 interface Props {
   groupId: string
@@ -56,6 +57,9 @@ export function DeleteGroupButton({ groupId, groupName, redirectAfterDelete = fa
       </AlertDialogTrigger>
       <AlertDialogContent>
         <AlertDialogHeader>
+          <AlertDialogMedia className="bg-destructive/10 text-destructive">
+            <AlertTriangle />
+          </AlertDialogMedia>
           <AlertDialogTitle>Удалить группу «{groupName}»?</AlertDialogTitle>
           <AlertDialogDescription className="space-y-2">
             <span className="block">Будут удалены:</span>
@@ -71,13 +75,7 @@ export function DeleteGroupButton({ groupId, groupName, redirectAfterDelete = fa
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel>Отмена</AlertDialogCancel>
-          <AlertDialogAction
-            onClick={handleDelete}
-            disabled={deleting}
-            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-          >
-            {deleting ? 'Удаление...' : 'Удалить группу'}
-          </AlertDialogAction>
+          <ConfirmDeleteAction onConfirm={handleDelete} loading={deleting} label="Удалить группу" />
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>

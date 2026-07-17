@@ -5,16 +5,17 @@ import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import {
   AlertDialog,
-  AlertDialogAction,
   AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
   AlertDialogFooter,
   AlertDialogHeader,
+  AlertDialogMedia,
   AlertDialogTitle,
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog'
-import { Trash2 } from 'lucide-react'
+import { ConfirmDeleteAction } from '@/components/shared/ConfirmDeleteAction'
+import { AlertTriangle, Trash2 } from 'lucide-react'
 
 interface DeleteTestButtonProps {
   testId: string
@@ -49,6 +50,9 @@ export function DeleteTestButton({ testId, testTitle }: DeleteTestButtonProps) {
       </AlertDialogTrigger>
       <AlertDialogContent>
         <AlertDialogHeader>
+          <AlertDialogMedia className="bg-destructive/10 text-destructive">
+            <AlertTriangle />
+          </AlertDialogMedia>
           <AlertDialogTitle>Удалить тест?</AlertDialogTitle>
           <AlertDialogDescription>
             Тест <span className="font-semibold">&quot;{testTitle}&quot;</span> и все его данные (версии, задачи,
@@ -57,13 +61,7 @@ export function DeleteTestButton({ testId, testTitle }: DeleteTestButtonProps) {
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel disabled={loading}>Отмена</AlertDialogCancel>
-          <AlertDialogAction
-            onClick={handleDelete}
-            disabled={loading}
-            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-          >
-            {loading ? 'Удаление...' : 'Удалить'}
-          </AlertDialogAction>
+          <ConfirmDeleteAction onConfirm={handleDelete} loading={loading} />
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
