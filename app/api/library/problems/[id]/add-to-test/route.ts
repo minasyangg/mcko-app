@@ -78,8 +78,11 @@ export async function POST(
   const maxScore = body.max_score ?? problem.default_max_score ?? 1
 
   // Автосборка составного ответа по меткам (а)/б)/… при копировании эталона
-  // из библиотеки в тест — только если у задачи не выбран явно 'manual'.
-  const composite = problem.grading_method !== 'manual' && typeof problem.correct_answer === 'string'
+  // из библиотеки в тест. Гейт — answer_source, не grading_method: для
+  // library_problems grading_method вообще не выбирается учителем через UI
+  // (PATCH /api/library/problems/[id] его не трогает) — это всегда просто
+  // дефолт эвристики detectGradingMethod(), а не осознанный выбор.
+  const composite = problem.answer_source !== 'manual' && typeof problem.correct_answer === 'string'
     ? buildCompositeAnswerKey(problem.correct_answer)
     : { isComposite: false as const, correctAnswerJson: problem.correct_answer }
 

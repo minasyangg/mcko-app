@@ -84,7 +84,12 @@ export async function POST(
     .trim() || problem.prompt_md.slice(0, 200)
 
   // Автосборка составного ответа по меткам (а)/б)/… при копировании эталона
-  // из книги в тест — только если у задания не выбран явно 'manual'.
+  // из книги в тест. Гейт — answer_source, не grading_method: у книжных
+  // задач grading_method='manual' почти всегда просто дефолт эвристики
+  // detectGradingMethod() для многосоставных ответов (ИИ/скил его не
+  // выбирают осознанно), а не решение учителя — учитель мог осознанно
+  // выбрать 'manual' только вручную редактируя ответ (answer_source='manual'
+  // через форму книги), только этот случай уважаем и не трогаем.
   // У книг correct_answer хранится как {text: "..."} (не голой строкой, как
   // у библиотеки) — распаковываем перед разбором на части.
   const bookAnswerText =
@@ -92,7 +97,7 @@ export async function POST(
       ? String((problem.correct_answer as Record<string, unknown>).text ?? '') || null
       : typeof problem.correct_answer === 'string' ? problem.correct_answer : null
 
-  const composite = problem.grading_method !== 'manual' && bookAnswerText
+  const composite = problem.answer_source !== 'manual' && bookAnswerText
     ? buildCompositeAnswerKey(bookAnswerText)
     : { isComposite: false as const, correctAnswerJson: problem.correct_answer }
 
