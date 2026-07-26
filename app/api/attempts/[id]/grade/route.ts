@@ -44,33 +44,46 @@ export async function PATCH(
   const now = new Date().toISOString()
   let finalizedScore: number | undefined
 
-  // Find locked answers so we don't overwrite scores that were finalized in a previous attempt
+  // Find locked answers so we don't overwrite scores that were finalized in a
+  // previous attempt; заодно тянем max_score задания — блокировка считается на
+  // сервере, а не по флагу is_correct от клиента (тот приходит из браузера
+  // учителя и уже один раз означал «балл > 0», из-за чего частично верные
+  // ответы запирались навсегда).
   const answerIds = (body.answers ?? []).map(a => a.answer_id)
   const lockedSet = new Set<string>()
+  const maxScoreById = new Map<string, number>()
   if (answerIds.length > 0) {
-    const { data: locked } = await admin
+    const { data: rows } = await admin
       .from('attempt_task_answers')
-      .select('id')
+      .select('id, is_locked, test_tasks!task_id ( max_score )')
       .in('id', answerIds)
-      .eq('is_locked', true)
-    for (const l of locked ?? []) lockedSet.add(l.id)
+    for (const r of rows ?? []) {
+      if (r.is_locked) lockedSet.add(r.id)
+      const maxScore = (r.test_tasks as unknown as { max_score: number | null } | null)?.max_score
+      maxScoreById.set(r.id, maxScore ?? 1)
+    }
   }
 
-  // Update individual answer grades
-  // If is_correct = true → lock the answer forever (student can't rewrite in future attempts)
+  // Update individual answer grades.
+  // Задание запирается ТОЛЬКО при полном балле: частично верный ответ должен
+  // остаться доступным, чтобы ученик дотянул его до максимума в следующей
+  // попытке. is_correct тоже выводим из балла, а не берём у клиента — иначе
+  // смысл флага разъезжается между авто-проверкой (там он всегда «полный
+  // балл», см. lib/grading/checker.ts) и ручной.
   await Promise.all(
     (body.answers ?? [])
       .filter(a => !lockedSet.has(a.answer_id))  // already locked in a previous attempt
-      .map(a => admin.from('attempt_task_answers').update({
-        awarded_score: a.awarded_score,
-        is_correct: a.is_correct,
-        teacher_comment: a.teacher_comment ?? null,
-        teacher_checked_at: now,
-        ...(a.is_correct ? {
-          is_locked: true,
-          locked_in_attempt_id: attemptId,
-        } : {}),
-      }).eq('id', a.answer_id))
+      .map(a => {
+        const full = a.awarded_score >= (maxScoreById.get(a.answer_id) ?? 1)
+        return admin.from('attempt_task_answers').update({
+          awarded_score: a.awarded_score,
+          is_correct: full,
+          teacher_comment: a.teacher_comment ?? null,
+          teacher_checked_at: now,
+          is_locked: full,
+          locked_in_attempt_id: full ? attemptId : null,
+        }).eq('id', a.answer_id)
+      })
   )
 
   if (body.finalize) {

@@ -126,7 +126,9 @@ export async function finalizeAttempt(
   let totalScore = 0
   let totalMaxScore = 0
   let allAutoChecked = true
-  const updates: Array<{ taskId: string; is_correct: boolean | null; awarded_score: number; auto_checked: boolean }> = []
+  // maxScore нужен, чтобы блокировку считать по «набран полный балл», а не по
+  // флагу is_correct (см. комментарий у upsert ниже)
+  const updates: Array<{ taskId: string; is_correct: boolean | null; awarded_score: number; auto_checked: boolean; maxScore: number }> = []
 
   for (const task of tasks) {
     const maxScore = task.max_score ?? 1
@@ -146,7 +148,7 @@ export async function finalizeAttempt(
 
     if (!savedAnswer) {
       if (effectiveMethod !== 'manual') {
-        updates.push({ taskId: task.id, is_correct: false, awarded_score: 0, auto_checked: true })
+        updates.push({ taskId: task.id, is_correct: false, awarded_score: 0, auto_checked: true, maxScore })
       } else {
         allAutoChecked = false
       }
@@ -165,7 +167,7 @@ export async function finalizeAttempt(
         const aiResult = await checkWithAI(studentVal, correctVal, maxScore, criteria)
         if (aiResult) {
           totalScore += aiResult.awarded_score
-          updates.push({ taskId: task.id, is_correct: aiResult.is_correct, awarded_score: aiResult.awarded_score, auto_checked: true })
+          updates.push({ taskId: task.id, is_correct: aiResult.is_correct, awarded_score: aiResult.awarded_score, auto_checked: true, maxScore })
           continue
         }
       }
@@ -184,13 +186,15 @@ export async function finalizeAttempt(
       answerKey.partial_score_rules
     )
     totalScore += result.awarded_score
-    updates.push({ taskId: task.id, is_correct: result.is_correct, awarded_score: result.awarded_score, auto_checked: true })
+    updates.push({ taskId: task.id, is_correct: result.is_correct, awarded_score: result.awarded_score, auto_checked: true, maxScore })
   }
 
-  // Полный балл (is_correct=true) блокирует ответ навсегда — зеркалит
-  // ручную проверку учителем (app/api/attempts/[id]/grade/route.ts), чтобы
-  // задание не появлялось для повторного решения в следующих попытках и не
-  // могло случайно потерять балл при пересчёте.
+  // Блокирует ответ навсегда ТОЛЬКО полный балл — зеркалит ручную проверку
+  // учителем (app/api/attempts/[id]/grade/route.ts): задание не появляется для
+  // повторного решения и не может случайно потерять балл при пересчёте.
+  // Условие — awarded_score >= maxScore, а не флаг is_correct: частично верный
+  // ответ обязан остаться доступным, иначе ученик не сможет дотянуть его до
+  // максимума, ради чего и даются повторные попытки.
   //
   // upsert, а не update: у пропущенного задания (ветка `!savedAnswer` выше)
   // строки в attempt_task_answers нет вообще, и update молча задевал 0 строк —
@@ -203,15 +207,18 @@ export async function finalizeAttempt(
   // updates не попадают.
   if (updates.length > 0) {
     await admin.from('attempt_task_answers').upsert(
-      updates.map(u => ({
-        attempt_id: attemptId,
-        task_id: u.taskId,
-        is_correct: u.is_correct,
-        awarded_score: u.awarded_score,
-        auto_checked_at: u.auto_checked ? now : null,
-        is_locked: u.is_correct === true,
-        locked_in_attempt_id: u.is_correct === true ? attemptId : null,
-      })),
+      updates.map(u => {
+        const full = u.awarded_score >= u.maxScore
+        return {
+          attempt_id: attemptId,
+          task_id: u.taskId,
+          is_correct: u.is_correct,
+          awarded_score: u.awarded_score,
+          auto_checked_at: u.auto_checked ? now : null,
+          is_locked: full,
+          locked_in_attempt_id: full ? attemptId : null,
+        }
+      }),
       { onConflict: 'attempt_id,task_id' }
     )
   }

@@ -289,14 +289,24 @@ export function AttemptDrawer({ attemptId, onClose, onGraded }: Props) {
     if (!attemptId) return
     setIsSaving(true); setSaveError(null)
     try {
+      // is_correct = «набран ПОЛНЫЙ балл», а не «балл больше нуля». От этого
+      // флага зависит блокировка задания в следующих попытках: при `> 0`
+      // частично верный ответ (3 из 4) запирался навсегда, и ученик не мог
+      // дотянуть его до максимума — ровно то, ради чего даются попытки.
+      const maxScoreByAnswerId = new Map(
+        answers.map((a) => [a.id, a.test_tasks?.max_score ?? 1])
+      )
       const gradeUpdates = Object.entries(grades)
         .filter(([, g]) => g.score !== '')
-        .map(([answerId, g]) => ({
-          answer_id: answerId,
-          awarded_score: parseFloat(g.score) || 0,
-          is_correct: (parseFloat(g.score) || 0) > 0,
-          teacher_comment: g.comment || undefined,
-        }))
+        .map(([answerId, g]) => {
+          const score = parseFloat(g.score) || 0
+          return {
+            answer_id: answerId,
+            awarded_score: score,
+            is_correct: score >= (maxScoreByAnswerId.get(answerId) ?? 1),
+            teacher_comment: g.comment || undefined,
+          }
+        })
 
       const res = await fetch(`/api/attempts/${attemptId}/grade`, {
         method: 'PATCH',

@@ -12,7 +12,6 @@ import { SolutionRequestButton } from '@/components/student/SolutionRequestButto
 import { SolutionView } from '@/components/test-player/SolutionView'
 import { MathText } from '@/components/shared/MathText'
 import MarkdownContent from '@/components/shared/MarkdownContent'
-import { Breadcrumbs } from '@/components/shared/Breadcrumbs'
 import type { TaskMedia } from '@/types/domain'
 import { formatAnswerJson } from '@/lib/grading/format-answer-display'
 
@@ -30,17 +29,15 @@ export default async function ResultPage({ params }: PageProps) {
   const { data: assignment } = await supabase
     .from('assignments')
     .select(`id, student_id, group_id, test_version_id, roadmap_topic_id, max_attempts,
-      test_versions!test_version_id ( id, result_visibility, tests!test_id ( id, title, subject, exam_type ) ),
-      roadmap_topics!roadmap_topic_id ( id, title, roadmaps!roadmap_id ( id, title, subject ) )`)
+      test_versions!test_version_id ( id, result_visibility, tests!test_id ( id, title, subject, exam_type ) )`)
     .eq('id', assignmentId)
     .single()
 
   if (!assignment) redirect('/student')
 
-  // Программа-происхождение задания — определяет хлебные крошки и куда ведёт
-  // кнопка "назад" (см. блок навигации внизу компонента)
-  const roadmapTopic = assignment.roadmap_topics as { id: string; title: string; roadmaps?: { id: string; title: string; subject: string | null } | null } | null
-  const roadmapInfo = roadmapTopic?.roadmaps ?? null
+  // Задание из учебной программы — определяет, куда ведёт кнопка "назад".
+  // Названия программы/темы не нужны: подписи у кнопки фиксированные.
+  const fromRoadmap = assignment.roadmap_topic_id != null
 
   let hasAccess = assignment.student_id === user.id
   if (!hasAccess && assignment.group_id) {
@@ -221,36 +218,23 @@ export default async function ResultPage({ params }: PageProps) {
 
   const answerMap = new Map((studentAnswers ?? []).map(a => [a.task_id, a]))
 
-  // Кнопка "назад" и хлебные крошки зависят от того, пришло ли задание из
-  // программы (roadmap) или из обычного списка тестов — раньше кнопка внизу
-  // всегда вела на /student независимо от происхождения, теряя контекст.
-  const backHref = roadmapInfo ? '/student/roadmap' : '/student'
-  const backLabel = roadmapInfo ? 'Вернуться в программы' : 'Вернуться к списку тестов'
-  const breadcrumbItems = roadmapInfo
-    ? [
-        { label: 'Программа', href: '/student/roadmap' },
-        ...(roadmapInfo.subject ? [{ label: roadmapInfo.subject }] : []),
-        ...(roadmapTopic ? [{ label: roadmapTopic.title }] : []),
-        { label: test?.title ?? 'Тест' },
-      ]
-    : [
-        { label: 'Мои тесты', href: '/student' },
-        { label: test?.title ?? 'Тест' },
-      ]
+  // Кнопка "назад" зависит от того, пришло ли задание из программы (roadmap)
+  // или из обычного списка тестов — раньше она всегда вела на /student
+  // независимо от происхождения, теряя контекст. Хлебных крошек здесь
+  // намеренно нет: последний уровень дублировал заголовок страницы, а сама
+  // цепочка ничего не добавляла к одной кнопке возврата.
+  const backHref = fromRoadmap ? '/student/roadmap' : '/student'
+  const backLabel = fromRoadmap ? 'Вернуться в программы' : 'Вернуться к списку тестов'
 
   return (
     <div className="min-h-screen bg-background">
       <div className="mx-auto max-w-3xl px-4 py-8 space-y-8">
-        {/* Хлебные крошки + кнопка назад */}
-        <div className="space-y-2">
-          <Breadcrumbs items={breadcrumbItems} />
-          <Button variant="outline" size="sm" asChild>
-            <Link href={backHref}>
-              <ArrowLeft className="mr-2 h-4 w-4" />
-              {backLabel}
-            </Link>
-          </Button>
-        </div>
+        <Button variant="outline" size="sm" asChild>
+          <Link href={backHref}>
+            <ArrowLeft className="mr-2 h-4 w-4" />
+            {backLabel}
+          </Link>
+        </Button>
 
         {/* Header */}
         <div className="space-y-2">
