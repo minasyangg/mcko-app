@@ -8,6 +8,8 @@ import ReviewBoard, {
   type UnmatchedImageItem,
   type ParsingWarning,
 } from '@/components/teacher/ReviewBoard'
+import { formatAnswerJson } from '@/lib/grading/format-answer-display'
+import { formatCompositeAnswerForEdit } from '@/lib/grading/multi-part-answer'
 
 interface PageProps {
   params: Promise<{ id: string }>
@@ -121,7 +123,7 @@ export default async function ReviewPage({ params }: PageProps) {
   const solUrlMap: Record<string, string> = {}
   if (solMediaPaths.length > 0) {
     const { data: signed } = await supabase.storage
-      .from('task-media')
+      .from('solution-media')
       .createSignedUrls(solMediaPaths, 3600)
     signed?.forEach(item => { if (item.signedUrl && item.path) solUrlMap[item.path] = item.signedUrl })
   }
@@ -176,7 +178,7 @@ export default async function ReviewPage({ params }: PageProps) {
     const correctAnswer = answerKey?.correct_answer
       ? typeof answerKey.correct_answer === 'string'
         ? answerKey.correct_answer
-        : JSON.stringify(answerKey.correct_answer)
+        : formatCompositeAnswerForEdit(answerKey.correct_answer) ?? formatAnswerJson(answerKey.correct_answer)
       : null
 
     // Solution media for this task (for teacher review in board)

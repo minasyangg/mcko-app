@@ -3,10 +3,10 @@ import { createClient } from '@/lib/supabase/server'
 
 export async function POST(
   _request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: Promise<{ versionId: string }> }
 ) {
   try {
-    const { id: versionId } = await params
+    const { versionId } = await params
     const supabase = await createClient()
 
     const {
@@ -93,7 +93,7 @@ export async function POST(
 
     return Response.json({ success: true })
   } catch (err) {
-    console.error('[versions/[id]/publish]', err)
+    console.error('[versions/[versionId]/publish]', err)
     return Response.json({ error: 'Internal server error' }, { status: 500 })
   }
 }

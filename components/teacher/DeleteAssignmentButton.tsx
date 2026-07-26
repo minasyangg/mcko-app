@@ -5,11 +5,12 @@ import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import {
-  AlertDialog, AlertDialogAction, AlertDialogCancel,
+  AlertDialog, AlertDialogCancel,
   AlertDialogContent, AlertDialogDescription,
-  AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
+  AlertDialogFooter, AlertDialogHeader, AlertDialogMedia, AlertDialogTitle, AlertDialogTrigger,
 } from '@/components/ui/alert-dialog'
-import { Trash2 } from 'lucide-react'
+import { ConfirmDeleteAction } from '@/components/shared/ConfirmDeleteAction'
+import { AlertTriangle, Trash2 } from 'lucide-react'
 
 export function DeleteAssignmentButton({ assignmentId }: { assignmentId: string }) {
   const router = useRouter()
@@ -37,6 +38,9 @@ export function DeleteAssignmentButton({ assignmentId }: { assignmentId: string 
       </AlertDialogTrigger>
       <AlertDialogContent>
         <AlertDialogHeader>
+          <AlertDialogMedia className="bg-destructive/10 text-destructive">
+            <AlertTriangle />
+          </AlertDialogMedia>
           <AlertDialogTitle>Удалить назначение?</AlertDialogTitle>
           <AlertDialogDescription>
             Все попытки и результаты учеников по этому назначению будут удалены. Это действие необратимо.
@@ -44,13 +48,7 @@ export function DeleteAssignmentButton({ assignmentId }: { assignmentId: string 
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel>Отмена</AlertDialogCancel>
-          <AlertDialogAction
-            onClick={handleDelete}
-            disabled={loading}
-            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-          >
-            {loading ? 'Удаление...' : 'Удалить'}
-          </AlertDialogAction>
+          <ConfirmDeleteAction onConfirm={handleDelete} loading={loading} />
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>

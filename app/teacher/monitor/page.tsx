@@ -33,21 +33,23 @@ export default async function MonitorPage() {
     .order('last_activity_at', { ascending: false })
     .limit(500)
 
-  // Итоги — только по версиям/ученикам из загруженных попыток,
-  // а не вся таблица организации
-  const tvIds = [...new Set((attempts ?? []).map(a => (a as any).assignments?.test_version_id).filter(Boolean))]
+  // Итоги — только по назначениям/ученикам из загруженных попыток, а не вся
+  // таблица организации. Ключ — назначение, а не версия теста: один тест
+  // бывает назначен ученику дважды (например, ещё и темой программы), и по
+  // test_version_id подтягивался бы итог чужого назначения (миграция 032).
+  const asgnIds = [...new Set((attempts ?? []).map(a => (a as any).assignment_id).filter(Boolean))]
   const studentIds = [...new Set((attempts ?? []).map(a => a.student_id))]
-  const { data: finalResults } = tvIds.length
+  const { data: finalResults } = asgnIds.length
     ? await supabase
         .from('student_final_results')
-        .select('student_id, test_version_id, final_score, max_score, attempt_count, status')
-        .in('test_version_id', tvIds)
+        .select('student_id, assignment_id, final_score, max_score, attempt_count, status')
+        .in('assignment_id', asgnIds)
         .in('student_id', studentIds)
-    : { data: [] as { student_id: string; test_version_id: string; final_score: number | null; max_score: number | null; attempt_count: number | null; status: string | null }[] }
+    : { data: [] as { student_id: string; assignment_id: string | null; final_score: number | null; max_score: number | null; attempt_count: number | null; status: string | null }[] }
 
-  // Map: "studentId_tvId" → final result
+  // Map: "studentId_assignmentId" → final result
   const finalMap = new Map(
-    (finalResults ?? []).map(r => [`${r.student_id}_${r.test_version_id}`, r])
+    (finalResults ?? []).filter(r => r.assignment_id).map(r => [`${r.student_id}_${r.assignment_id}`, r])
   )
 
   // Group attempts by (student_id, assignment_id) — keep one row per assignment
@@ -92,9 +94,9 @@ export default async function MonitorPage() {
 
     // Get last-attempt result + used count from student_final_results.
     // attempt_count переживает удаление отдельной попытки («потрачено N из M»).
-    const finalKey = `${a.student_id}_${asgn?.test_version_id}`
+    const finalKey = `${a.student_id}_${(a as any).assignment_id}`
     const final = finalMap.get(finalKey)
-    const totalAttempts = final?.attempt_count ?? liveTotal
+    const totalAttempts = Math.max(final?.attempt_count ?? 0, liveTotal)
     const allUsed = totalAttempts >= maxAttempts && !['in_progress', 'not_started'].includes(a.status)
 
     return {
@@ -133,15 +135,15 @@ export default async function MonitorPage() {
     .order('created_at', { ascending: false })
     .limit(100)
 
-  const asgnTvIds = [...new Set((asgnRows ?? []).map(a => a.test_version_id).filter(Boolean))]
-  const { data: asgnFinals } = asgnTvIds.length
+  const asgnRowIds = (asgnRows ?? []).map(a => a.id)
+  const { data: asgnFinals } = asgnRowIds.length
     ? await supabase
         .from('student_final_results')
-        .select('student_id, test_version_id, final_score, max_score, attempt_count')
-        .in('test_version_id', asgnTvIds)
-    : { data: [] as { student_id: string; test_version_id: string; final_score: number | null; max_score: number | null; attempt_count: number | null }[] }
+        .select('student_id, assignment_id, final_score, max_score, attempt_count')
+        .in('assignment_id', asgnRowIds)
+    : { data: [] as { student_id: string; assignment_id: string | null; final_score: number | null; max_score: number | null; attempt_count: number | null }[] }
   const asgnFinalMap = new Map(
-    (asgnFinals ?? []).map(r => [`${r.student_id}_${r.test_version_id}`, r])
+    (asgnFinals ?? []).filter(r => r.assignment_id).map(r => [`${r.student_id}_${r.assignment_id}`, r])
   )
 
   const assignments: AssignmentRow[] = (asgnRows ?? []).map(a => {
@@ -152,9 +154,9 @@ export default async function MonitorPage() {
     const allAttempts = ((a as any).attempts ?? []) as { status: string }[]
     const maxAttempts = a.max_attempts ?? 1
     const isGroup = !!a.group_id
-    const sfr = !isGroup && a.student_id ? asgnFinalMap.get(`${a.student_id}_${a.test_version_id}`) : undefined
+    const sfr = !isGroup && a.student_id ? asgnFinalMap.get(`${a.student_id}_${a.id}`) : undefined
     const liveCompleted = allAttempts.filter(at => ['submitted', 'checked'].includes(at.status)).length
-    const completedCount = isGroup ? 0 : (sfr?.attempt_count ?? liveCompleted)
+    const completedCount = isGroup ? 0 : Math.max(sfr?.attempt_count ?? 0, liveCompleted)
     // метка назначения важнее типа теста (roadmap может назначить тест как ДЗ)
     const kind: 'test' | 'homework' = (a.kind ?? test?.kind) === 'homework' ? 'homework' : 'test'
     return {

@@ -1,9 +1,16 @@
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { NextRequest } from 'next/server'
+import { generateAndSaveAnswer } from '@/lib/ai/generate-answer'
+import { buildCompositeAnswerKey } from '@/lib/grading/multi-part-answer'
+import { NextRequest, after } from 'next/server'
+
+// Фоновая ИИ-генерация ответа (after) может занять до 30 c
+export const maxDuration = 60
 
 // POST /api/library/problems/[id]/add-to-test
 // Body: { test_version_id: string, task_number?: number, max_score?: number }
+// Если у задачи нет ответа — после ответа клиенту ИИ решает её в фоне и
+// создаёт ключ для только что созданного test_task (answer_source='ai').
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -52,6 +59,11 @@ export async function POST(
     .single()
 
   if (!problem) return Response.json({ error: 'Library problem not found' }, { status: 404 })
+  // Задача из чужой (не глобальной) org-библиотеки — доступ запрещён, иначе
+  // можно было бы скопировать чужой приватный ответ/решение в свой тест.
+  if (problem.organization_id !== null && problem.organization_id !== profile.organization_id) {
+    return Response.json({ error: 'Library problem not found' }, { status: 404 })
+  }
 
   // Определяем номер задачи
   let taskNumber = body.task_number
@@ -65,6 +77,15 @@ export async function POST(
 
   const maxScore = body.max_score ?? problem.default_max_score ?? 1
 
+  // Автосборка составного ответа по меткам (а)/б)/… при копировании эталона
+  // из библиотеки в тест. Гейт — answer_source, не grading_method: для
+  // library_problems grading_method вообще не выбирается учителем через UI
+  // (PATCH /api/library/problems/[id] его не трогает) — это всегда просто
+  // дефолт эвристики detectGradingMethod(), а не осознанный выбор.
+  const composite = problem.answer_source !== 'manual' && typeof problem.correct_answer === 'string'
+    ? buildCompositeAnswerKey(problem.correct_answer)
+    : { isComposite: false as const, correctAnswerJson: problem.correct_answer }
+
   // Создаём test_task (копия из библиотеки)
   const { data: task, error: taskErr } = await admin
     .from('test_tasks')
@@ -74,13 +95,14 @@ export async function POST(
       sort_order:         taskNumber,
       prompt_text:        problem.prompt_text,
       prompt_html:        problem.prompt_html,
-      task_type:          problem.task_type,
+      task_type:          composite.isComposite ? 'composite' : problem.task_type,
       grading_method:     problem.grading_method,
       options:            problem.options ?? [],
       max_score:          maxScore,
       has_images:         (problem.library_problem_media as any[])?.some(m => m.placement !== 'solution') ?? false,
       review_status:      'approved',
       library_problem_id: libraryProblemId,
+      ...(composite.isComposite && composite.answerParts ? { answer_parts: composite.answerParts } : {}),
     })
     .select('id')
     .single()
@@ -95,7 +117,7 @@ export async function POST(
   if (problem.correct_answer !== null && problem.correct_answer !== undefined) {
     await admin.from('task_answer_keys').insert({
       task_id:        taskId,
-      correct_answer: problem.correct_answer,
+      correct_answer: composite.correctAnswerJson,
       grading_method: problem.grading_method,
       grading_config: problem.grading_config,
     })
@@ -134,5 +156,15 @@ export async function POST(
     .update({ used_count: (problem.used_count ?? 0) + 1 })
     .eq('id', libraryProblemId)
 
-  return Response.json({ ok: true, task_id: taskId, task_number: taskNumber })
+  // Нет ответа — решаем ИИ в фоне и вешаем ключ на созданный task.
+  // Задачи с картинками (кроме картинок решения) текстовому ИИ не даём.
+  const hasConditionImages = ((problem.library_problem_media as any[]) ?? [])
+    .some(m => m.placement !== 'solution')
+  const aiAnswerPending =
+    problem.correct_answer == null && !hasConditionImages && !!process.env.DEEPSEEK_API_KEY
+  if (aiAnswerPending) {
+    after(() => generateAndSaveAnswer({ source: 'library', problemId: libraryProblemId, taskId, admin }))
+  }
+
+  return Response.json({ ok: true, task_id: taskId, task_number: taskNumber, ai_answer_pending: aiAnswerPending })
 }

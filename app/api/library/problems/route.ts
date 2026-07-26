@@ -45,7 +45,7 @@ export async function GET(request: NextRequest) {
       `id, source_id, source_domain, source_url,
        exam_type, task_number_type,
        prompt_text, prompt_html,
-       correct_answer, solution_html, library_code,
+       correct_answer, answer_source, solution_html, library_code,
        canonical_topic:library_topics!canonical_topic_id ( id, fipicod, name )`,
       { count: 'exact' }
     )

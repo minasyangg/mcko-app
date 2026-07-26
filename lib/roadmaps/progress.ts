@@ -185,7 +185,6 @@ export async function getRoadmapDetail(supabase: Client, roadmapId: string): Pro
     : { data: [] as { id: string; full_name: string }[] }
 
   const assignmentIds = (assignmentRows ?? []).map(a => a.id)
-  const testVersionIds = [...new Set((assignmentRows ?? []).map(a => a.test_version_id))]
 
   const [{ data: attemptsRaw }, { data: sfr }] = await Promise.all([
     assignmentIds.length
@@ -197,13 +196,16 @@ export async function getRoadmapDetail(supabase: Client, roadmapId: string): Pro
           score: number | null; max_score: number | null
           last_activity_at: string | null; started_at: string | null
         }[] }),
-    (testVersionIds.length && studentIds.length)
+    // Итог берём по assignment_id, а не по test_version_id: тот же тест может
+    // быть назначен ученику и вне программы, и раньше сюда подтягивался чужой
+    // балл/счётчик попыток (см. миграцию 032).
+    (assignmentIds.length && studentIds.length)
       ? supabase.from('student_final_results')
-          .select('student_id, test_version_id, final_score, max_score, attempt_count')
-          .in('test_version_id', testVersionIds)
+          .select('student_id, assignment_id, final_score, max_score, attempt_count')
+          .in('assignment_id', assignmentIds)
           .in('student_id', studentIds)
       : Promise.resolve({ data: [] as {
-          student_id: string; test_version_id: string
+          student_id: string; assignment_id: string | null
           final_score: number | null; max_score: number | null; attempt_count: number | null
         }[] }),
   ])
@@ -228,14 +230,17 @@ export async function getRoadmapDetail(supabase: Client, roadmapId: string): Pro
   }
 
   const sfrByKey = new Map<string, { final_score: number | null; max_score: number | null; attempt_count: number | null }>()
-  for (const r of sfr ?? []) sfrByKey.set(`${r.student_id}_${r.test_version_id}`, r)
+  for (const r of sfr ?? []) {
+    if (!r.assignment_id) continue
+    sfrByKey.set(`${r.assignment_id}_${r.student_id}`, r)
+  }
 
   const statuses: ProgramItemStatus[] = []
   for (const a of assignmentRows ?? []) {
     for (const sid of studentIds) {
       const key = `${a.id}_${sid}`
       const latest = latestByKey.get(key)
-      const sfrRow = sfrByKey.get(`${sid}_${a.test_version_id}`)
+      const sfrRow = sfrByKey.get(key)
       statuses.push({
         assignment_id: a.id,
         student_id: sid,
@@ -243,7 +248,9 @@ export async function getRoadmapDetail(supabase: Client, roadmapId: string): Pro
         score: sfrRow?.final_score ?? latest?.score ?? null,
         max_score: sfrRow?.max_score ?? latest?.max_score ?? null,
         attempt_id: latest?.id ?? null,
-        attempts_used: sfrRow?.attempt_count ?? liveCountByKey.get(key) ?? 0,
+        // attempt_count в итоге не уменьшается при удалении попытки админом,
+        // поэтому он приоритетнее живого подсчёта
+        attempts_used: Math.max(sfrRow?.attempt_count ?? 0, liveCountByKey.get(key) ?? 0),
         max_attempts: a.max_attempts ?? 1,
       })
     }

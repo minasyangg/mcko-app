@@ -1,10 +1,17 @@
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { NextRequest } from 'next/server'
+import { generateAndSaveAnswer } from '@/lib/ai/generate-answer'
+import { buildCompositeAnswerKey } from '@/lib/grading/multi-part-answer'
+import { NextRequest, after } from 'next/server'
+
+// Фоновая ИИ-генерация ответа (after) может занять до 30 c
+export const maxDuration = 60
 
 // POST /api/books/problems/[id]/add-to-test
 // Body: { test_version_id: string, task_number?: number, max_score?: number }
 // Копирует задание из книги в тест (зеркало library add-to-test).
+// Если у задания нет ответа — после ответа клиенту ИИ решает его в фоне и
+// создаёт ключ для только что созданного test_task (answer_source='ai').
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -76,6 +83,24 @@ export async function POST(
     .replace(/\s+/g, ' ')
     .trim() || problem.prompt_md.slice(0, 200)
 
+  // Автосборка составного ответа по меткам (а)/б)/… при копировании эталона
+  // из книги в тест. Гейт — answer_source, не grading_method: у книжных
+  // задач grading_method='manual' почти всегда просто дефолт эвристики
+  // detectGradingMethod() для многосоставных ответов (ИИ/скил его не
+  // выбирают осознанно), а не решение учителя — учитель мог осознанно
+  // выбрать 'manual' только вручную редактируя ответ (answer_source='manual'
+  // через форму книги), только этот случай уважаем и не трогаем.
+  // У книг correct_answer хранится как {text: "..."} (не голой строкой, как
+  // у библиотеки) — распаковываем перед разбором на части.
+  const bookAnswerText =
+    problem.correct_answer !== null && typeof problem.correct_answer === 'object' && !Array.isArray(problem.correct_answer)
+      ? String((problem.correct_answer as Record<string, unknown>).text ?? '') || null
+      : typeof problem.correct_answer === 'string' ? problem.correct_answer : null
+
+  const composite = problem.answer_source !== 'manual' && bookAnswerText
+    ? buildCompositeAnswerKey(bookAnswerText)
+    : { isComposite: false as const, correctAnswerJson: problem.correct_answer }
+
   const { data: task, error: taskErr } = await admin
     .from('test_tasks')
     .insert({
@@ -84,13 +109,14 @@ export async function POST(
       sort_order:      taskNumber,
       prompt_text:     promptText,
       prompt_html:     problem.prompt_md,
-      task_type:       problem.task_type,
+      task_type:       composite.isComposite ? 'composite' : problem.task_type,
       grading_method:  problem.grading_method,
       options:         problem.options ?? [],
       max_score:       body.max_score ?? 1,
       has_images:      problem.has_images,
       review_status:   'approved',
       book_problem_id: bookProblemId,
+      ...(composite.isComposite && composite.answerParts ? { answer_parts: composite.answerParts } : {}),
     })
     .select('id')
     .single()
@@ -103,7 +129,7 @@ export async function POST(
   if (problem.correct_answer !== null && problem.correct_answer !== undefined) {
     await admin.from('task_answer_keys').insert({
       task_id:        task.id,
-      correct_answer: problem.correct_answer,
+      correct_answer: composite.correctAnswerJson,
       grading_method: problem.grading_method,
     })
   }
@@ -113,5 +139,12 @@ export async function POST(
     .update({ used_count: (problem.used_count ?? 0) + 1 })
     .eq('id', bookProblemId)
 
-  return Response.json({ ok: true, task_id: task.id, task_number: taskNumber })
+  // Нет ответа — решаем ИИ в фоне и вешаем ключ на созданный task
+  const aiAnswerPending =
+    problem.correct_answer == null && !problem.has_images && !!process.env.DEEPSEEK_API_KEY
+  if (aiAnswerPending) {
+    after(() => generateAndSaveAnswer({ source: 'book', problemId: bookProblemId, taskId: task.id, admin }))
+  }
+
+  return Response.json({ ok: true, task_id: task.id, task_number: taskNumber, ai_answer_pending: aiAnswerPending })
 }

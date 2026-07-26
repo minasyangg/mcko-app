@@ -34,7 +34,6 @@ export type TaskType =
   | 'manual_review'
 
 export type GradingMethod =
-  | 'exact'
   | 'normalized'
   | 'numeric_tolerance'
   | 'set_match'

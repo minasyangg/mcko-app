@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef } from 'react'
-import { ChevronDown, ChevronUp, ExternalLink, CheckCircle2, BookOpen, Pencil, Check, X, Plus } from 'lucide-react'
+import { ChevronDown, ChevronUp, ExternalLink, CheckCircle2, BookOpen, Pencil, Check, X, Plus, Sparkles, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
@@ -19,6 +19,7 @@ interface Problem {
   prompt_text: string
   prompt_html: string | null
   correct_answer: unknown
+  answer_source?: string | null
   solution_html: string | null
   library_code: string | null
   canonical_topic: { id: string; fipicod: string | null; name: string } | null
@@ -45,7 +46,9 @@ export function LibraryProblemCard({ problem }: Props) {
   const [editingAns,  setEditingAns]  = useState(false)
   const [ansInput,    setAnsInput]    = useState('')
   const [localAnswer, setLocalAnswer] = useState<unknown>(problem.correct_answer)
+  const [localSource, setLocalSource] = useState<string | null>(problem.answer_source ?? null)
   const [saving,      setSaving]      = useState(false)
+  const [aiGenerating, setAiGenerating] = useState(false)
   const [saveError,   setSaveError]   = useState<string | null>(null)
   const [addOpen,     setAddOpen]     = useState(false)
   const [addedTo,     setAddedTo]     = useState<string | null>(null) // тест, куда уже добавлено (метка)
@@ -82,6 +85,7 @@ export function LibraryProblemCard({ problem }: Props) {
       })
       if (res.ok) {
         setLocalAnswer(ansInput.trim() === '' ? null : ansInput.trim())
+        setLocalSource(ansInput.trim() === '' ? 'none' : 'manual')
         setEditingAns(false)
       } else {
         const d = await res.json().catch(() => ({}))
@@ -91,6 +95,25 @@ export function LibraryProblemCard({ problem }: Props) {
       setSaveError('Ошибка соединения')
     } finally {
       setSaving(false)
+    }
+  }
+
+  const generateAiAnswer = async () => {
+    setAiGenerating(true)
+    setSaveError(null)
+    try {
+      const res = await fetch(`/api/library/problems/${problem.id}/ai-answer`, { method: 'POST' })
+      const d = await res.json().catch(() => ({}))
+      if (res.ok) {
+        setLocalAnswer(d.correct_answer)
+        setLocalSource('ai')
+      } else {
+        setSaveError(d.error ?? 'ИИ не смог решить задачу')
+      }
+    } catch {
+      setSaveError('Ошибка соединения')
+    } finally {
+      setAiGenerating(false)
     }
   }
 
@@ -190,17 +213,36 @@ export function LibraryProblemCard({ problem }: Props) {
               <span className="text-muted-foreground">Ответ: </span>
               <span className="font-medium">{answerText(localAnswer)}</span>
             </p>
+            {localSource === 'ai' && (
+              <Badge variant="outline" className="text-[10px] h-4 px-1 gap-0.5 text-violet-600 border-violet-300 dark:text-violet-400 dark:border-violet-700" title="Ответ сгенерирован ИИ — проверьте и при необходимости исправьте">
+                <Sparkles className="h-2.5 w-2.5" />
+                ИИ
+              </Badge>
+            )}
             <button onClick={startEditing}
               className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-foreground">
               <Pencil className="h-3 w-3" />
             </button>
           </div>
         ) : (
-          <button onClick={startEditing}
-            className="text-xs text-muted-foreground hover:text-primary transition-colors flex items-center gap-1">
-            <Pencil className="h-3 w-3" />
-            Добавить ответ
-          </button>
+          <div className="space-y-1">
+            <div className="flex items-center gap-3">
+              <button onClick={startEditing}
+                className="text-xs text-muted-foreground hover:text-primary transition-colors flex items-center gap-1">
+                <Pencil className="h-3 w-3" />
+                Добавить ответ
+              </button>
+              <button onClick={generateAiAnswer} disabled={aiGenerating}
+                className="text-xs text-violet-600 dark:text-violet-400 hover:text-violet-700 transition-colors flex items-center gap-1 disabled:opacity-60"
+                title="ИИ решит задачу и сохранит эталонный ответ">
+                {aiGenerating
+                  ? <Loader2 className="h-3 w-3 animate-spin" />
+                  : <Sparkles className="h-3 w-3" />}
+                {aiGenerating ? 'ИИ решает…' : 'Ответ ИИ'}
+              </button>
+            </div>
+            {saveError && !editingAns && <p className="text-xs text-destructive">{saveError}</p>}
+          </div>
         )}
 
         {/* Решение (когда раскрыто) */}

@@ -60,16 +60,23 @@ export default async function StudentHomePage() {
     return tv?.tests?.is_active !== false
   })
 
-  // Load all attempts for these assignments in one query
+  // Load all attempts for these assignments + накопительные итоги
   const assignmentIds = (assignments ?? []).map((a) => a.id)
-  const { data: attempts } = assignmentIds.length > 0
-    ? await supabase
-        .from('attempts')
-        .select('id, assignment_id, status, score, max_score')
-        .in('assignment_id', assignmentIds)
-        .eq('student_id', user.id)
-        .order('created_at', { ascending: false })
-    : { data: [] }
+  const [{ data: attempts }, { data: finals }] = assignmentIds.length > 0
+    ? await Promise.all([
+        supabase
+          .from('attempts')
+          .select('id, assignment_id, status, score, max_score')
+          .in('assignment_id', assignmentIds)
+          .eq('student_id', user.id)
+          .order('created_at', { ascending: false }),
+        supabase
+          .from('student_final_results')
+          .select('assignment_id, final_score, max_score, attempt_count')
+          .in('assignment_id', assignmentIds)
+          .eq('student_id', user.id),
+      ])
+    : [{ data: [] }, { data: [] }]
 
   type AttemptRow = { id: string; assignment_id: string | null; status: string; score: number | null; max_score: number | null }
   // Group attempts by assignment_id, keep latest per assignment
@@ -78,6 +85,12 @@ export default async function StudentHomePage() {
     if (a.assignment_id && !attemptMap.has(a.assignment_id)) {
       attemptMap.set(a.assignment_id, a)
     }
+  }
+
+  type FinalRow = { assignment_id: string | null; final_score: number | null; max_score: number | null; attempt_count: number | null }
+  const finalMap = new Map<string, FinalRow>()
+  for (const f of (finals ?? []) as FinalRow[]) {
+    if (f.assignment_id) finalMap.set(f.assignment_id, f)
   }
 
   return (
@@ -98,12 +111,15 @@ export default async function StudentHomePage() {
             const tv = a.test_versions as any
             const test = tv?.tests as any
             const attempt = attemptMap.get(a.id)
+            const fin = finalMap.get(a.id)
 
             const attemptStatus: AttemptStatus = (attempt?.status as AttemptStatus) ?? 'not_started'
             const isDone = attemptStatus === 'submitted' || attemptStatus === 'checked'
-            const attemptsUsed = (attempts ?? []).filter(
+            const liveUsed = (attempts ?? []).filter(
               (at) => at.assignment_id === a.id && (at.status === 'submitted' || at.status === 'checked')
             ).length
+            // attempt_count в итоге не уменьшается при удалении попытки админом
+            const attemptsUsed = Math.max(fin?.attempt_count ?? 0, liveUsed)
             const attemptsLeft = (a.max_attempts ?? 1) - attemptsUsed
             const canStart = attemptsLeft > 0 && !['in_progress', 'submitted'].includes(attemptStatus)
 
@@ -117,10 +133,12 @@ export default async function StudentHomePage() {
                   {test?.subject && <CardDescription>{test.subject}</CardDescription>}
                 </CardHeader>
                 <CardContent className="flex-1 text-sm text-muted-foreground space-y-2">
+                  {/* накопительный итог, а не балл последней попытки — то же
+                      число, что на странице результата */}
                   <StatusBadge
                     status={attemptStatus}
-                    score={attempt?.score}
-                    maxScore={attempt?.max_score}
+                    score={fin?.final_score ?? attempt?.score}
+                    maxScore={fin?.max_score ?? attempt?.max_score}
                   />
 
                   <div className="space-y-1 text-xs">

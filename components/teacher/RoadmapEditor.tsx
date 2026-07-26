@@ -12,12 +12,13 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from '@/components/ui/dialog'
 import {
-  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
-  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
+  AlertDialog, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogMedia, AlertDialogTitle, AlertDialogTrigger,
 } from '@/components/ui/alert-dialog'
+import { ConfirmDeleteAction } from '@/components/shared/ConfirmDeleteAction'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import {
-  ArrowLeft, Plus, Trash2, ChevronUp, ChevronDown, Users, Loader2, X, GripVertical,
+  ArrowLeft, Plus, Trash2, ChevronUp, ChevronDown, Users, Loader2, X, GripVertical, AlertTriangle,
 } from 'lucide-react'
 
 export interface EditorTopic {
@@ -170,6 +171,9 @@ export function RoadmapEditor({ roadmap, topics, tests, students, memberIds }: {
           </AlertDialogTrigger>
           <AlertDialogContent>
             <AlertDialogHeader>
+              <AlertDialogMedia className="bg-destructive/10 text-destructive">
+                <AlertTriangle />
+              </AlertDialogMedia>
               <AlertDialogTitle>Удалить программу «{roadmap.title}»?</AlertDialogTitle>
               <AlertDialogDescription>
                 Программа, её темы и все привязанные к темам назначения (вместе с попытками
@@ -178,9 +182,7 @@ export function RoadmapEditor({ roadmap, topics, tests, students, memberIds }: {
             </AlertDialogHeader>
             <AlertDialogFooter>
               <AlertDialogCancel>Отмена</AlertDialogCancel>
-              <AlertDialogAction onClick={deleteRoadmap} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-                Удалить
-              </AlertDialogAction>
+              <ConfirmDeleteAction onConfirm={deleteRoadmap} />
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
@@ -224,6 +226,9 @@ export function RoadmapEditor({ roadmap, topics, tests, students, memberIds }: {
                 </AlertDialogTrigger>
                 <AlertDialogContent>
                   <AlertDialogHeader>
+                    <AlertDialogMedia className="bg-destructive/10 text-destructive">
+                      <AlertTriangle />
+                    </AlertDialogMedia>
                     <AlertDialogTitle>Удалить тему «{t.title}»?</AlertDialogTitle>
                     <AlertDialogDescription>
                       Привязанные к теме задания (и попытки учеников по ним) будут удалены.
@@ -231,9 +236,7 @@ export function RoadmapEditor({ roadmap, topics, tests, students, memberIds }: {
                   </AlertDialogHeader>
                   <AlertDialogFooter>
                     <AlertDialogCancel>Отмена</AlertDialogCancel>
-                    <AlertDialogAction onClick={() => deleteTopic(t.id)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-                      Удалить
-                    </AlertDialogAction>
+                    <ConfirmDeleteAction onConfirm={() => deleteTopic(t.id)} />
                   </AlertDialogFooter>
                 </AlertDialogContent>
               </AlertDialog>

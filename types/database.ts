@@ -1677,6 +1677,7 @@ export type Database = {
       }
       student_final_results: {
         Row: {
+          assignment_id: string | null
           attempt_count: number | null
           created_at: string | null
           final_score: number | null
@@ -1689,6 +1690,7 @@ export type Database = {
           updated_at: string | null
         }
         Insert: {
+          assignment_id?: string | null
           attempt_count?: number | null
           created_at?: string | null
           final_score?: number | null
@@ -1701,6 +1703,7 @@ export type Database = {
           updated_at?: string | null
         }
         Update: {
+          assignment_id?: string | null
           attempt_count?: number | null
           created_at?: string | null
           final_score?: number | null
@@ -1713,6 +1716,13 @@ export type Database = {
           updated_at?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "student_final_results_assignment_id_fkey"
+            columns: ["assignment_id"]
+            isOneToOne: false
+            referencedRelation: "assignments"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "student_final_results_student_id_fkey"
             columns: ["student_id"]

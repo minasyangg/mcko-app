@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { redirect } from 'next/navigation'
 import { TestPlayer } from '@/components/test-player/TestPlayer'
 import { enrichTaskMediaWithUrls } from '@/lib/media/signed-urls'
@@ -32,6 +33,7 @@ export default async function AttemptPage({ params }: PageProps) {
       starts_at,
       ends_at,
       preserve_answers,
+      roadmap_topic_id,
       test_versions!test_version_id (
         id,
         time_limit_sec,
@@ -142,7 +144,11 @@ export default async function AttemptPage({ params }: PageProps) {
           .eq('attempt_id', prevAttempt.id)
 
         if (prevAnswers && prevAnswers.length > 0) {
-          await supabase.from('attempt_task_answers').insert(
+          // service-role клиент: перенос awarded_score/is_correct/is_locked
+          // заблокирован для обычных сессий триггером
+          // prevent_student_self_grading (029) — легитимный перенос идёт в обход него
+          const admin = createAdminClient()
+          await admin.from('attempt_task_answers').insert(
             prevAnswers.map((a) => ({
               attempt_id: newAttempt.id,
               task_id: a.task_id,
@@ -191,6 +197,32 @@ export default async function AttemptPage({ params }: PageProps) {
       .order('sort_order', { ascending: true }),
   ])
 
+  // Обратная связь с прошлой попытки: балл и комментарий учителя по каждому
+  // НЕзаблокированному заданию. На странице результата это видно, а в режиме
+  // решения не было — ученик видел разблокированное задание и не понимал, что
+  // именно в нём не так. Берём с прошлой завершённой попытки, а не с текущей:
+  // перенос ответов (carry forward выше) копирует балл, но не teacher_comment.
+  const prevCompleted = [...(existingAttempts ?? [])]
+    .sort((a, b) => new Date(b.started_at ?? 0).getTime() - new Date(a.started_at ?? 0).getTime())
+    .find((a) => a.status === 'submitted' || a.status === 'checked')
+
+  const priorFeedback: Record<string, { awardedScore: number; teacherComment: string | null }> = {}
+  if (prevCompleted && prevCompleted.id !== attempt.id) {
+    const { data: prevGraded } = await supabase
+      .from('attempt_task_answers')
+      .select('task_id, awarded_score, teacher_comment, is_locked')
+      .eq('attempt_id', prevCompleted.id)
+    for (const a of prevGraded ?? []) {
+      if (!a.task_id || a.awarded_score == null) continue
+      // заблокированные (полный балл) тоже включаем: комментарий учителя к ним
+      // бывает полезным советом на будущее и иначе в режиме решения не виден
+      priorFeedback[a.task_id] = {
+        awardedScore: a.awarded_score,
+        teacherComment: a.teacher_comment,
+      }
+    }
+  }
+
   const initialAnswers: Record<string, Json> = {}
   const lockedTaskIds: string[] = []
 
@@ -221,11 +253,14 @@ export default async function AttemptPage({ params }: PageProps) {
       tasks={tasks as TestTask[]}
       initialAnswers={initialAnswers}
       lockedTaskIds={lockedTaskIds}
+      priorFeedback={priorFeedback}
       taskMediaMap={taskMediaMap}
       timeLimitSec={timeLimitSec}
       testTitle={test?.title ?? 'Тест'}
       subject={test?.subject ?? null}
       examType={test?.exam_type ?? null}
+      backHref={assignment.roadmap_topic_id != null ? '/student/roadmap' : '/student'}
+      backLabel={assignment.roadmap_topic_id != null ? 'Вернуться в программы' : 'Вернуться к списку тестов'}
     />
   )
 }

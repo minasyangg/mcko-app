@@ -2,6 +2,7 @@ import { after } from 'next/server'
 import { NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { requiresExplanation, cleanParsedAnswer, detectGradingMethod, buildFormatHint } from '@/lib/grading/answer-heuristics'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Database } from '@/types/database'
 
@@ -786,9 +787,11 @@ async function uploadJsonSolutionImages(
     const cropped = await cropPageImage(ref.pageImgUrl, ref.bbox, sharpLib!)
     if (!cropped) continue
 
-    const storagePath = `task-media/${testVersionId}/sol_t${taskNumber}_b${ref.blockId}.webp`
+    // приватный bucket — solution_media открывается только после одобрения
+    // solution_requests (см. lib/media/signed-urls.ts), в отличие от task-media
+    const storagePath = `${testVersionId}/sol_t${taskNumber}_b${ref.blockId}.webp`
     const { error: upErr } = await client.storage
-      .from('task-media')
+      .from('solution-media')
       .upload(storagePath, cropped, { contentType: 'image/webp', upsert: true })
     if (upErr) { console.error('[json-sol-img] upload:', upErr.message); continue }
 
@@ -882,68 +885,8 @@ export async function applyMatchingScoringRules(
 }
 
 // ─── Answer classification helpers ──────────────────────────────────────────
-
-// Keywords in task text that require free-text explanation → always manual/AI grading
-const EXPLANATION_KEYWORDS = /поясни|объясни|докажи|обоснуй|опиши|сформулируй|охарактеризуй|сравни|проанализируй|ответ\s+поясните|ответ\s+объясните/i
-
-export function requiresExplanation(promptText: string): boolean {
-  return EXPLANATION_KEYWORDS.test(promptText)
-}
-
-function cleanParsedAnswer(raw: string): string {
-  return raw.trim()
-    .replace(/[.;:]+$/, '')
-    .replace(/([-–−])\s+(\d)/g, '$1$2') // "- 7" → "-7"
-    .trim()
-}
-
-function detectGradingMethod(rawAnswer: string): string {
-  const cleaned = cleanParsedAnswer(rawAnswer).trim()
-  const lower = cleaned.toLowerCase()
-
-  // Image-based → manual
-  if (/см\.?\s*рис|по\s+рисунку|на\s+рисунке|на\s+графике/.test(lower)) return 'manual'
-  // Multi-part "1) ... 2) ..." → manual
-  if (/\d+\)[\s\S]+\d+\)/.test(cleaned)) return 'manual'
-  // LaTeX formula → manual
-  if (cleaned.startsWith('$') || /\\frac|\\sqrt/.test(cleaned)) return 'manual'
-
-  // Strip "или" alternatives for detection
-  const firstAlt = cleaned.split(/\s+или\s+/i)[0].trim()
-
-  // Letter-digit correspondence "А-3, Б-1" → sequence
-  if (/^[А-Еа-е]-\d/.test(firstAlt)) return 'sequence'
-
-  // Pure numeric (int/decimal, optional negative, optional units after space)
-  if (/^[-–−]?\d+([,.]?\d+)?(\s+[а-яa-zёА-ЯA-Z\/²³°%·]+\.?)*$/.test(firstAlt)) {
-    return 'numeric_tolerance'
-  }
-
-  // Digit sequence 2-6 digits (multiple choice items concatenated, e.g. "124", "35")
-  if (/^\d{2,6}$/.test(cleaned) && !cleaned.startsWith('0')) return 'set_match'
-
-  // Comma-separated small numbers "1, 4" "2,4,5" → set_match
-  if (/^\d+(,\s*\d+)+$/.test(cleaned)) return 'set_match'
-
-  return 'normalized'
-}
-
-function buildFormatHint(rawAnswer: string, method: string): string | null {
-  const cleaned = cleanParsedAnswer(rawAnswer)
-  switch (method) {
-    case 'numeric_tolerance':
-      if (/[,.]/.test(cleaned.replace(/\s.*$/, ''))) {
-        return 'Запишите число через точку или запятую, например: 4.5 (можно и 4,5)'
-      }
-      return 'Запишите целое число, например: 42'
-    case 'sequence':
-      return 'Запишите цифры подряд по порядку букв (А, Б, В…), например: 312'
-    case 'set_match':
-      return 'Запишите номера правильных ответов подряд без пробелов, например: 124'
-    default:
-      return null
-  }
-}
+// Вынесены в lib/grading/answer-heuristics.ts (переиспользуются ИИ-генерацией
+// ответов в lib/ai/*).
 
 // ─── Storage helpers ──────────────────────────────────────────────────────────
 
@@ -1046,7 +989,7 @@ async function runParsing(jobId: string, testVersionId: string, docIds: string[]
           task_type: needsExplanation ? 'manual_review' : (t.task_type_guess ?? 'short_text'),
           options: null,
           answer_format_hint: null,
-          grading_method: needsExplanation ? 'manual' : 'exact',
+          grading_method: needsExplanation ? 'manual' : 'normalized',
           parse_confidence: t.confidence ?? 0.98,
           has_images: t.has_unmatched_images ?? false,
           source_pages: [1],
@@ -1210,7 +1153,7 @@ async function runParsing(jobId: string, testVersionId: string, docIds: string[]
         task_type: needsExplanation ? 'manual_review' : (t.task_type_guess ?? 'short_text'),
         options: Array.isArray(t.options) && t.options.length ? t.options : null,
         answer_format_hint: t.answer_format_hint ?? null,
-        grading_method: needsExplanation ? 'manual' : 'exact',
+        grading_method: needsExplanation ? 'manual' : 'normalized',
         parse_confidence: t.confidence ?? 0.8,
         has_images: t.has_unmatched_images ?? false,
         source_pages: Array.isArray(t.source_pages) ? t.source_pages : [1],

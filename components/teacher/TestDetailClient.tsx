@@ -138,20 +138,19 @@ const TASK_TYPE_FORM_OPTIONS: [string, string][] = [
 ]
 
 const gradingMethodLabel: Record<string, string> = {
-  exact: 'Точное совпадение',
-  normalized: 'Нормализованное',
+  normalized: 'Точное/нормализованное совпадение',
   numeric_tolerance: 'Числовое (допуск)',
   set_match: 'Совпадение набора',
   manual: 'Ручная проверка',
 }
 
 const defaultGradingMethod: Record<string, string> = {
-  single_choice:   'exact',
+  single_choice:   'normalized',
   multiple_choice: 'set_match',
   numeric:         'numeric_tolerance',
   short_text:      'normalized',
   manual_review:   'manual',
-  composite:       'exact',
+  composite:       'normalized',
 }
 
 // ─── Inline Task Edit Form ─────────────────────────────────────────────────────
@@ -170,7 +169,7 @@ function EditTaskForm({ task, onSave, onCancel }: EditTaskFormProps) {
   const [maxScore, setMaxScore] = useState(String(task.max_score ?? 1))
   const [answerFormatHint, setAnswerFormatHint] = useState(task.answer_format_hint ?? '')
   const [correctAnswer, setCorrectAnswer] = useState(task.correct_answer ?? '')
-  const [gradingMethod, setGradingMethod] = useState(task.grading_method ?? 'exact')
+  const [gradingMethod, setGradingMethod] = useState(task.grading_method ?? 'normalized')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   type GalleryImg = { id: string; signedUrl: string; sort_order: number; alt_text: null }
@@ -332,7 +331,7 @@ function EditTaskForm({ task, onSave, onCancel }: EditTaskFormProps) {
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-1">
           <Label className="text-xs">Тип задачи</Label>
-          <Select value={taskType} onValueChange={(v) => { setTaskType(v); setGradingMethod(defaultGradingMethod[v] ?? 'exact') }}>
+          <Select value={taskType} onValueChange={(v) => { setTaskType(v); setGradingMethod(defaultGradingMethod[v] ?? 'normalized') }}>
             <SelectTrigger className="h-8 text-sm">
               <SelectValue />
             </SelectTrigger>
@@ -766,7 +765,7 @@ function InlineTaskForm({ versionId, nextTaskNumber, onCreated, onCancel }: Inli
             </div>
             <div className="space-y-1">
               <Label className="text-xs">Тип задачи</Label>
-              <Select value={taskType} onValueChange={(v) => { setTaskType(v); setGradingMethod(defaultGradingMethod[v] ?? 'exact') }}>
+              <Select value={taskType} onValueChange={(v) => { setTaskType(v); setGradingMethod(defaultGradingMethod[v] ?? 'normalized') }}>
                 <SelectTrigger className="h-8 text-sm">
                   <SelectValue />
                 </SelectTrigger>

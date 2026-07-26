@@ -25,7 +25,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import {
   ArrowLeft, ChevronRight, ChevronDown, ChevronUp, Plus, Search, X,
-  CheckCircle2, Flame, BookOpen, Pencil, Trash2, Check,
+  CheckCircle2, Flame, BookOpen, Pencil, Trash2, Check, Sparkles,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { taskNumberLabel } from '@/lib/books/anchors'
@@ -499,7 +499,11 @@ function PageBlock({
             <div className="flex items-start justify-between gap-2 mb-1">
               <div className="flex items-center gap-2 flex-wrap min-w-0 pt-1">
                 <span className="text-xs font-semibold text-primary">{taskNumberLabel(seg.problem.task_number)}</span>
-                {seg.problem.answer_source !== 'none' && (
+                {seg.problem.answer_source === 'ai' ? (
+                  <Badge variant="outline" className="text-[10px] h-4.5 gap-1 text-violet-600 border-violet-300 dark:text-violet-400 dark:border-violet-700" title="Ответ сгенерирован ИИ — проверьте и при необходимости исправьте">
+                    <Sparkles className="h-3 w-3" /> ответ · ИИ
+                  </Badge>
+                ) : seg.problem.answer_source !== 'none' && (
                   <Badge variant="outline" className="text-[10px] h-4.5 gap-1 text-green-700 border-green-300">
                     <CheckCircle2 className="h-3 w-3" /> ответ
                   </Badge>

@@ -6,14 +6,15 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
-  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogMedia, AlertDialogTitle, AlertDialogTrigger,
 } from '@/components/ui/alert-dialog'
+import { ConfirmDeleteAction } from '@/components/shared/ConfirmDeleteAction'
 import { AttemptDrawer } from '@/components/teacher/AttemptDrawer'
 import { AssignmentsPanel, type AssignmentRow } from '@/components/teacher/AssignmentsPanel'
 import type { ProgramSummaryRow } from '@/lib/roadmaps/progress'
 import { TableFilterBar, useTableFilter, type FilterField } from '@/components/shared/TableFilter'
 import { StatusChip } from '@/components/shared/StatusChip'
-import { Trash2, CheckCheck, Loader2 } from 'lucide-react'
+import { Trash2, CheckCheck, Loader2, AlertTriangle } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 export interface AttemptRow {
@@ -161,6 +162,9 @@ function TableView({ rows, tab, isAdmin, onSelect, onDelete, onFinish }: {
                         </AlertDialogTrigger>
                         <AlertDialogContent>
                           <AlertDialogHeader>
+                            <AlertDialogMedia className="bg-destructive/10 text-destructive">
+                              <AlertTriangle />
+                            </AlertDialogMedia>
                             <AlertDialogTitle>Удалить попытку?</AlertDialogTitle>
                             <AlertDialogDescription>
                               Попытка ученика <b>{a.full_name}</b> по тесту «{a.test_title}» будет
@@ -170,10 +174,7 @@ function TableView({ rows, tab, isAdmin, onSelect, onDelete, onFinish }: {
                           </AlertDialogHeader>
                           <AlertDialogFooter>
                             <AlertDialogCancel>Отмена</AlertDialogCancel>
-                            <AlertDialogAction onClick={() => onDelete(a)}
-                              className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-                              Удалить
-                            </AlertDialogAction>
+                            <ConfirmDeleteAction onConfirm={() => onDelete(a)} />
                           </AlertDialogFooter>
                         </AlertDialogContent>
                       </AlertDialog>

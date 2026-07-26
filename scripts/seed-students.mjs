@@ -1,15 +1,21 @@
 /**
  * Seed script: creates 12 students for class 7, organization "uspeh"
  *
- * Prod:  node scripts/seed-students.mjs
+ * Требует SUPABASE_URL и SERVICE_ROLE_KEY в окружении (без дефолтов —
+ * секретные ключи в коде не хранятся).
+ * Prod:  SUPABASE_URL="https://<ref>.supabase.co" SERVICE_ROLE_KEY="<key>" node scripts/seed-students.mjs
  * Local: $env:SUPABASE_URL="http://localhost:54321"; $env:SERVICE_ROLE_KEY="<key>"; node scripts/seed-students.mjs
  */
 
 import { createClient } from '@supabase/supabase-js'
 
-const SUPABASE_URL = process.env.SUPABASE_URL ?? 'https://zcfgyfugxtbnqrcjfifo.supabase.co'
+const SUPABASE_URL = process.env.SUPABASE_URL
 const SERVICE_ROLE_KEY = process.env.SERVICE_ROLE_KEY
-  ?? 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpjZmd5ZnVneHRibnFyY2pmaWZvIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NzU3ODQ0MywiZXhwIjoyMDkzMTU0NDQzfQ.z_rKRN8WEGYli6_uKyklcoa3SqHZH2Ube-K9IvGdaI8'
+
+if (!SUPABASE_URL || !SERVICE_ROLE_KEY) {
+  console.error('❌ Нет SUPABASE_URL / SERVICE_ROLE_KEY в окружении.')
+  process.exit(1)
+}
 
 console.log(`🔗 Supabase URL: ${SUPABASE_URL}`)
 

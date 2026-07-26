@@ -20,6 +20,12 @@ export async function PATCH(
     return Response.json({ error: 'Forbidden' }, { status: 403 })
   }
 
+  // Доступ к задаче через user-клиент: RLS пускает только к глобальным
+  // задачам либо задачам своей организации. Чужая org-задача → 404.
+  const { data: existing } = await supabase
+    .from('library_problems').select('id').eq('id', id).eq('is_active', true).single()
+  if (!existing) return Response.json({ error: 'Not found' }, { status: 404 })
+
   const body = await request.json() as { correct_answer?: string }
   const rawAnswer = body.correct_answer?.trim() ?? ''
 

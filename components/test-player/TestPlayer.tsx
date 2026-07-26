@@ -7,12 +7,11 @@ import type { Json } from '@/types/database'
 import { createClient } from '@/lib/supabase/client'
 
 import { Button } from '@/components/ui/button'
-import { Separator } from '@/components/ui/separator'
 import { Badge } from '@/components/ui/badge'
-import { ChevronLeft, ChevronRight, Send, Menu, X, CheckCheck, Loader2 } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Send, Menu, X, CheckCheck, Loader2, ArrowLeft } from 'lucide-react'
 
 import { TaskNavigator } from './TaskNavigator'
-import { TaskView } from './TaskView'
+import { TaskView, type TaskPriorFeedback } from './TaskView'
 import { Timer } from './Timer'
 import { SaveStatus } from './SaveStatus'
 import { SubmitDialog } from './SubmitDialog'
@@ -24,11 +23,15 @@ interface TestPlayerProps {
   tasks: TestTask[]
   initialAnswers: Record<string, Json>
   lockedTaskIds?: string[]
+  /** Итог прошлой попытки по задаче (task_id → балл + комментарий учителя) */
+  priorFeedback?: Record<string, TaskPriorFeedback>
   taskMediaMap: Record<string, TaskMediaWithUrl[]>
   timeLimitSec: number | null
   testTitle: string
   subject: string | null
   examType: string | null
+  backHref: string
+  backLabel: string
 }
 
 const DEBOUNCE_MS = 3000
@@ -41,11 +44,14 @@ export function TestPlayer({
   tasks,
   initialAnswers,
   lockedTaskIds = [],
+  priorFeedback = {},
   taskMediaMap,
   timeLimitSec,
   testTitle,
   subject,
   examType,
+  backHref,
+  backLabel,
 }: TestPlayerProps) {
   const lockedSet = new Set(lockedTaskIds)
   const router = useRouter()
@@ -58,6 +64,7 @@ export function TestPlayer({
   const [showSubmitDialog, setShowSubmitDialog] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [showNavigator, setShowNavigator] = useState(false)
+  const [isLeaving, setIsLeaving] = useState(false)
   // Track which tasks have a confirmed saved answer in the DB
   const [savedTaskIds, setSavedTaskIds] = useState<Set<string>>(
     () => new Set(Object.keys(initialAnswers))
@@ -173,6 +180,23 @@ export function TestPlayer({
     handleSubmit()
   }
 
+  // Выход из попытки без сдачи: попытка остаётся in_progress, ученик вернётся
+  // и продолжит. Несохранённые ответы дописываем перед уходом — иначе всё, что
+  // не успел записать debounce, потерялось бы молча.
+  async function handleLeave() {
+    setIsLeaving(true)
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current)
+      debounceTimerRef.current = null
+    }
+    try {
+      await flushPending()
+    } catch {
+      // не блокируем выход из-за неудачного сохранения — статус уже показан
+    }
+    router.push(backHref)
+  }
+
   const currentTask = tasks[currentIdx]
 
   const answeredCount = tasks.filter((t) => {
@@ -213,6 +237,22 @@ export function TestPlayer({
           >
             {showNavigator ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
           </button>
+
+          {/* Выход к списку — как на странице результата. Подпись явная, чтобы
+              не путалась с кнопкой «Назад» внизу (переход к прошлой задаче). */}
+          <Button
+            variant="outline"
+            size="sm"
+            className="shrink-0 h-8"
+            onClick={handleLeave}
+            disabled={isSubmitting || isLeaving}
+            title={backLabel}
+          >
+            {isLeaving
+              ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              : <ArrowLeft className="h-3.5 w-3.5" />}
+            <span className="ml-1.5 hidden lg:inline">{backLabel}</span>
+          </Button>
 
           <div className="flex flex-1 flex-col justify-center min-w-0">
             <span className="truncate text-sm font-semibold leading-tight">{testTitle}</span>
@@ -286,6 +326,7 @@ export function TestPlayer({
                 images={mediaMap[currentTask.id] ?? []}
                 disabled={isSubmitting || lockedSet.has(currentTask.id)}
                 isLocked={lockedSet.has(currentTask.id)}
+                priorFeedback={priorFeedback[currentTask.id]}
               />
             )}
 

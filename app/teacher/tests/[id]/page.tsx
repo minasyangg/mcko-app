@@ -3,6 +3,8 @@ import { notFound } from 'next/navigation'
 import { TestDetailClient } from '@/components/teacher/TestDetailClient'
 import type { TestTask } from '@/components/teacher/TestDetailClient'
 import { enrichTaskMediaWithUrls } from '@/lib/media/signed-urls'
+import { formatAnswerJson } from '@/lib/grading/format-answer-display'
+import { formatCompositeAnswerForEdit } from '@/lib/grading/multi-part-answer'
 import type { TaskMedia } from '@/types/domain'
 
 interface PageProps {
@@ -88,8 +90,10 @@ export default async function TestDetailPage({ params }: PageProps) {
           max_score: t.max_score,
           review_status: t.review_status,
           parse_confidence: t.parse_confidence,
-          correct_answer: key ? String(key.correct_answer ?? '') || null : null,
-          grading_method: (t as any).grading_method ?? 'exact',
+          correct_answer: key && key.correct_answer != null
+            ? formatCompositeAnswerForEdit(key.correct_answer) ?? formatAnswerJson(key.correct_answer)
+            : null,
+          grading_method: (t as any).grading_method ?? 'normalized',
           images: mediaByTask[t.id] ?? [],
         } satisfies TestTask
       })

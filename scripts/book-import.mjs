@@ -867,6 +867,28 @@ for (const [key, stream] of streams) {
   })
 }
 
+// Внутристраничная OCR-разметка иногда вырезает служебные глифы (номер
+// соседнего пункта в рамке, буллиты) как отдельные <img> — в координатах
+// bounding box из имени файла (img_in_image_box_X1_Y1_X2_Y2) они физически
+// крошечные (замерено ~40-60px), в отличие от настоящих иллюстраций/чертежей
+// (сотни px). Порог подобран по выборке — не идеален (редкая мелкая, но
+// настоящая картинка теоретически тоже может попасть под него), после
+// импорта стоит выборочно сверять задания, которые остались без ответа.
+const DECORATIVE_IMG_MAX_PX = 70
+
+function stripDecorativeImages(text) {
+  return text.replace(
+    /<div style="text-align: center;"><img src="([^"]*)" alt="Image" width="\d+%" \/><\/div>\n*/g,
+    (whole, src) => {
+      const m = src.match(/img_in_image_box_(\d+)_(\d+)_(\d+)_(\d+)/)
+      if (!m) return whole // не смогли определить размер по имени файла — оставляем как есть
+      const [x1, y1, x2, y2] = m.slice(1).map(Number)
+      const w = x2 - x1, h = y2 - y1
+      return (w < DECORATIVE_IMG_MAX_PX && h < DECORATIVE_IMG_MAX_PX) ? '' : whole
+    }
+  )
+}
+
 // Фаза 3: тексты заданий
 for (const e of pageEntries) {
   const { p, md, accepted } = e
@@ -877,7 +899,7 @@ for (const e of pageEntries) {
     const end = i + 1 < accepted.length ? accepted[i + 1].at : md.length
     // хвост разрывного задания уже перенесён в конец этой страницы пред-проходом
     // joinSplitTasks (до фазы 1), поэтому здесь просто режем по якорям
-    const prompt = md.slice(s.at, end).trim()
+    const prompt = stripDecorativeImages(md.slice(s.at, end).trim())
 
     problems.push({
       taskNumber: s.taskNumber,

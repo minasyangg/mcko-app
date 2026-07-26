@@ -1,6 +1,8 @@
 import { NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { buildCompositeAnswerKey, formatCompositeAnswerForEdit } from '@/lib/grading/multi-part-answer'
+import { formatAnswerJson } from '@/lib/grading/format-answer-display'
 
 export async function POST(
   request: NextRequest,
@@ -63,6 +65,12 @@ export async function POST(
 
     const admin = createAdminClient()
 
+    // Автосборка составного ответа по меткам (а)/б)/… — только если учитель
+    // не выбрал явно 'manual' и эталон вообще задан строкой.
+    const composite = grading_method !== 'manual' && typeof correct_answer === 'string' && correct_answer !== ''
+      ? buildCompositeAnswerKey(correct_answer)
+      : { isComposite: false as const, correctAnswerJson: correct_answer }
+
     const { data: task, error: insertError } = await admin
       .from('test_tasks')
       .insert({
@@ -71,11 +79,12 @@ export async function POST(
         sort_order: task_number ?? 1,
         prompt_text,
         prompt_html: prompt_html ?? null,
-        task_type: task_type ?? 'free_response',
+        task_type: composite.isComposite ? 'composite' : (task_type ?? 'free_response'),
         options: options ?? null,
         answer_format_hint: answer_format_hint ?? null,
         max_score: max_score ?? 1,
         review_status: 'approved',
+        ...(composite.isComposite && composite.answerParts ? { answer_parts: composite.answerParts } : {}),
       })
       .select()
       .single()
@@ -88,8 +97,8 @@ export async function POST(
     if (correct_answer !== undefined && correct_answer !== null && correct_answer !== '') {
       await admin.from('task_answer_keys').insert({
         task_id: task.id,
-        correct_answer: correct_answer,
-        grading_method: grading_method ?? 'exact',
+        correct_answer: composite.correctAnswerJson,
+        grading_method: grading_method ?? 'normalized',
       })
     }
 
@@ -104,7 +113,9 @@ export async function POST(
 
     return Response.json({
       ...task,
-      correct_answer: answerKey ? String(answerKey.correct_answer ?? '') : null,
+      correct_answer: answerKey && answerKey.correct_answer != null
+        ? formatCompositeAnswerForEdit(answerKey.correct_answer) ?? formatAnswerJson(answerKey.correct_answer)
+        : null,
       grading_method: answerKey?.grading_method ?? null,
     }, { status: 201 })
   } catch (err) {

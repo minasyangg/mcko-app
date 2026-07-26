@@ -31,7 +31,7 @@ export async function GET(
       .order('page_index'),
     supabase
       .from('book_problems')
-      .select('id, task_number, task_number_sort, page_index, md_start, md_end, prompt_md, correct_answer, answer_source, difficulty, grading_method, used_count')
+      .select('id, task_number, task_number_sort, page_index, md_start, md_end, prompt_md, correct_answer, answer_source, difficulty, grading_method, used_count, has_images')
       .eq('book_id', id)
       .eq('is_active', true)
       .gte('page_index', from)

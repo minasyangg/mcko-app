@@ -1,48 +1,22 @@
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Separator } from '@/components/ui/separator'
 import { CheckCircle2, XCircle, MinusCircle, ArrowLeft, ChevronDown, ChevronUp } from 'lucide-react'
 import type { Json } from '@/types/database'
-import { enrichTaskMediaWithUrls } from '@/lib/media/signed-urls'
+import { enrichTaskMediaWithUrls, generateSignedUrls } from '@/lib/media/signed-urls'
 import { SolutionRequestButton } from '@/components/student/SolutionRequestButton'
 import { SolutionView } from '@/components/test-player/SolutionView'
 import { MathText } from '@/components/shared/MathText'
 import MarkdownContent from '@/components/shared/MarkdownContent'
 import type { TaskMedia } from '@/types/domain'
+import { formatAnswerJson } from '@/lib/grading/format-answer-display'
 
 interface PageProps {
   params: Promise<{ id: string }>
-}
-
-function formatAnswer(answerJson: Json | null): string {
-  if (answerJson === null || answerJson === undefined) return '—'
-  if (typeof answerJson === 'string') return answerJson
-  if (typeof answerJson === 'number') return String(answerJson)
-  if (typeof answerJson === 'boolean') return answerJson ? 'Да' : 'Нет'
-  if (Array.isArray(answerJson)) return answerJson.join(', ')
-  if (typeof answerJson === 'object') {
-    const obj = answerJson as Record<string, Json | undefined>
-    if ('selected' in obj) {
-      const sel = obj['selected']
-      if (Array.isArray(sel)) return sel.join(', ')
-      return String(sel ?? '—')
-    }
-    if ('text' in obj) return String(obj['text'] ?? '—')
-    if ('value' in obj) return String(obj['value'] ?? '—')
-    if ('parts' in obj) {
-      const parts = obj['parts']
-      if (parts !== null && typeof parts === 'object' && !Array.isArray(parts)) {
-        return Object.entries(parts as Record<string, Json | undefined>)
-          .map(([k, v]) => `${k}: ${String(v ?? '')}`)
-          .join('; ')
-      }
-    }
-  }
-  return JSON.stringify(answerJson)
 }
 
 export default async function ResultPage({ params }: PageProps) {
@@ -54,12 +28,16 @@ export default async function ResultPage({ params }: PageProps) {
 
   const { data: assignment } = await supabase
     .from('assignments')
-    .select(`id, student_id, group_id, test_version_id,
+    .select(`id, student_id, group_id, test_version_id, roadmap_topic_id, max_attempts,
       test_versions!test_version_id ( id, result_visibility, tests!test_id ( id, title, subject, exam_type ) )`)
     .eq('id', assignmentId)
     .single()
 
   if (!assignment) redirect('/student')
+
+  // Задание из учебной программы — определяет, куда ведёт кнопка "назад".
+  // Названия программы/темы не нужны: подписи у кнопки фиксированные.
+  const fromRoadmap = assignment.roadmap_topic_id != null
 
   let hasAccess = assignment.student_id === user.id
   if (!hasAccess && assignment.group_id) {
@@ -84,23 +62,18 @@ export default async function ResultPage({ params }: PageProps) {
   const attempt = attempts?.[0]
   if (!attempt) redirect(`/student/attempt/${assignmentId}`)
 
-  // Load cumulative score from student_final_results
+  // Накопительный итог — по НАЗНАЧЕНИЮ, а не по версии теста: тот же тест
+  // может быть назначен ученику ещё раз (например, через тему программы), и
+  // фильтр по test_version_id подхватывал бы чужой итог (см. миграцию 032).
   const { data: finalResult } = await supabase
     .from('student_final_results')
     .select('final_score, max_score, attempt_count, status')
     .eq('student_id', user.id)
-    .eq('test_version_id', assignment.test_version_id)
-    .single()
-
-  // Also load assignment max_attempts to show remaining attempts
-  const { data: asgn } = await supabase
-    .from('assignments')
-    .select('max_attempts')
-    .eq('id', assignmentId)
-    .single()
+    .eq('assignment_id', assignmentId)
+    .maybeSingle()
 
   const completedAttempts = finalResult?.attempt_count ?? 1
-  const maxAttempts = asgn?.max_attempts ?? 1
+  const maxAttempts = assignment.max_attempts ?? 1
   const attemptsLeft = Math.max(0, maxAttempts - completedAttempts)
   const isCompleted = finalResult?.status === 'completed' || attemptsLeft <= 0
 
@@ -203,7 +176,15 @@ export default async function ResultPage({ params }: PageProps) {
         .from('solution_media').select('*')
         .in('solution_id', solutionIds).order('sort_order')
 
-      const mediaWithUrls = await enrichTaskMediaWithUrls(supabase, (rawMedia ?? []).map(m => ({
+      // solution-media — приватный bucket без прямого доступа для роли student
+      // (см. storage-политику); URL подписываем service-role клиентом — доступ
+      // уже проверен выше через approvedTaskIds (student's own approved request)
+      const admin = createAdminClient()
+      const urlByPath = await generateSignedUrls(admin, (rawMedia ?? []).map(m => ({
+        storage_path: m.storage_path,
+        bucket: 'solution-media' as const,
+      })))
+      const mediaWithUrls = (rawMedia ?? []).map(m => ({
         id: m.id,
         task_id: null,
         storage_path: m.storage_path,
@@ -220,7 +201,8 @@ export default async function ResultPage({ params }: PageProps) {
         source_bbox: null,
         is_manually_uploaded: false,
         created_at: m.created_at,
-      })))
+        signedUrl: urlByPath[m.storage_path] ?? '',
+      }))
 
       // Group by solution_id → then by task
       for (const sol of solutions ?? []) {
@@ -236,9 +218,24 @@ export default async function ResultPage({ params }: PageProps) {
 
   const answerMap = new Map((studentAnswers ?? []).map(a => [a.task_id, a]))
 
+  // Кнопка "назад" зависит от того, пришло ли задание из программы (roadmap)
+  // или из обычного списка тестов — раньше она всегда вела на /student
+  // независимо от происхождения, теряя контекст. Хлебных крошек здесь
+  // намеренно нет: последний уровень дублировал заголовок страницы, а сама
+  // цепочка ничего не добавляла к одной кнопке возврата.
+  const backHref = fromRoadmap ? '/student/roadmap' : '/student'
+  const backLabel = fromRoadmap ? 'Вернуться в программы' : 'Вернуться к списку тестов'
+
   return (
     <div className="min-h-screen bg-background">
       <div className="mx-auto max-w-3xl px-4 py-8 space-y-8">
+        <Button variant="outline" size="sm" asChild>
+          <Link href={backHref}>
+            <ArrowLeft className="mr-2 h-4 w-4" />
+            {backLabel}
+          </Link>
+        </Button>
+
         {/* Header */}
         <div className="space-y-2">
           <div className="flex items-start justify-between gap-4">
@@ -389,7 +386,7 @@ export default async function ResultPage({ params }: PageProps) {
                           </div>
                           <p className="text-sm">
                             <span className="text-muted-foreground">Ваш ответ: </span>
-                            <span className="font-medium">{formatAnswer(ans?.answer_json ?? null)}</span>
+                            <span className="font-medium">{formatAnswerJson(ans?.answer_json ?? null)}</span>
                           </p>
                           {isChecked && ans?.teacher_comment && (
                             <div className="rounded bg-yellow-50 dark:bg-yellow-950/30 border border-yellow-200 dark:border-yellow-800 px-3 py-2 text-sm">
@@ -433,13 +430,6 @@ export default async function ResultPage({ params }: PageProps) {
           </div>
         )}
 
-        <Separator />
-        <Button variant="outline" asChild>
-          <Link href="/student">
-            <ArrowLeft className="mr-2 h-4 w-4" />
-            Вернуться к списку тестов
-          </Link>
-        </Button>
       </div>
     </div>
   )

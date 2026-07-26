@@ -1,12 +1,15 @@
 node_modules/
 .next/
+__pycache__/
+*.pyc
 .env
 .env.local
 .env.*.local
 .env.production
 out/
 build/
-.claude/
+.claude/*
+!.claude/skills/
 .vscode/
 
 # Supabase local dev
