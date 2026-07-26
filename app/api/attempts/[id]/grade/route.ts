@@ -3,6 +3,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { NextRequest } from 'next/server'
 import { after } from 'next/server'
 import { notifyAttemptFinalized } from '@/lib/notifications/send'
+import { updateCumulativeResult } from '@/lib/grading/finalize'
 
 // PATCH /api/attempts/[id]/grade
 // Body: { answers: [{ answer_id, awarded_score, is_correct, teacher_comment? }], finalize?: boolean }
@@ -57,19 +58,20 @@ export async function PATCH(
 
   // Update individual answer grades
   // If is_correct = true → lock the answer forever (student can't rewrite in future attempts)
-  for (const a of body.answers ?? []) {
-    if (lockedSet.has(a.answer_id)) continue  // already locked in a previous attempt
-    await admin.from('attempt_task_answers').update({
-      awarded_score: a.awarded_score,
-      is_correct: a.is_correct,
-      teacher_comment: a.teacher_comment ?? null,
-      teacher_checked_at: now,
-      ...(a.is_correct ? {
-        is_locked: true,
-        locked_in_attempt_id: attemptId,
-      } : {}),
-    }).eq('id', a.answer_id)
-  }
+  await Promise.all(
+    (body.answers ?? [])
+      .filter(a => !lockedSet.has(a.answer_id))  // already locked in a previous attempt
+      .map(a => admin.from('attempt_task_answers').update({
+        awarded_score: a.awarded_score,
+        is_correct: a.is_correct,
+        teacher_comment: a.teacher_comment ?? null,
+        teacher_checked_at: now,
+        ...(a.is_correct ? {
+          is_locked: true,
+          locked_in_attempt_id: attemptId,
+        } : {}),
+      }).eq('id', a.answer_id))
+  )
 
   if (body.finalize) {
     // Recalculate this attempt's score
@@ -88,7 +90,9 @@ export async function PATCH(
       ...(body.teacher_comment ? { teacher_comment: body.teacher_comment } : {}),
     }).eq('id', attemptId)
 
-    // Compute cumulative score: MAX(awarded_score) per task across ALL attempts for this assignment
+    // Накопительный итог: MAX(awarded_score) по каждому заданию среди всех
+    // завершённых попыток — общая логика с авто-финализацией (submit), см.
+    // lib/grading/finalize.ts.
     const { data: attemptInfo } = await admin
       .from('attempts')
       .select('assignment_id, student_id')
@@ -96,61 +100,7 @@ export async function PATCH(
       .single()
 
     if (attemptInfo) {
-      const { data: allAttemptIds } = await admin
-        .from('attempts')
-        .select('id')
-        .eq('assignment_id', attemptInfo.assignment_id)
-        .eq('student_id', attemptInfo.student_id)
-
-      const ids = (allAttemptIds ?? []).map(a => a.id)
-
-      if (ids.length > 0) {
-        const { data: allTaskAnswers } = await admin
-          .from('attempt_task_answers')
-          .select('task_id, awarded_score')
-          .in('attempt_id', ids)
-
-        // Max score per task
-        const taskBest = new Map<string, number>()
-        for (const ans of allTaskAnswers ?? []) {
-          if (!ans.task_id) continue
-          const prev = taskBest.get(ans.task_id) ?? 0
-          taskBest.set(ans.task_id, Math.max(prev, ans.awarded_score ?? 0))
-        }
-        const cumulativeScore = [...taskBest.values()].reduce((s, v) => s + v, 0)
-
-        // Determine if all attempts are used
-        const { data: assignment } = await admin
-          .from('assignments')
-          .select('max_attempts, test_version_id')
-          .eq('id', attemptInfo.assignment_id)
-          .single()
-
-        const completedCount = (allAttemptIds ?? []).length
-        const maxAttempts = assignment?.max_attempts ?? 1
-        const allUsed = completedCount >= maxAttempts
-
-        // Get max possible score from task answers of current attempt
-        const { data: taskDefs } = await admin
-          .from('attempt_task_answers')
-          .select('test_tasks ( max_score )')
-          .eq('attempt_id', attemptId)
-        const maxScore = (taskDefs ?? []).reduce((s, a) => {
-          const tt = (a as any).test_tasks
-          return s + (tt?.max_score ?? 1)
-        }, 0)
-
-        await admin.from('student_final_results').upsert({
-          student_id: attemptInfo.student_id,
-          test_version_id: assignment?.test_version_id ?? '',
-          final_score: cumulativeScore,
-          max_score: maxScore || null,
-          attempt_count: completedCount,
-          last_completed_at: now,
-          status: allUsed ? 'completed' : 'in_progress',
-          updated_at: now,
-        }, { onConflict: 'student_id,test_version_id' })
-      }
+      await updateCumulativeResult(admin, attemptInfo.assignment_id, attemptInfo.student_id)
     }
   }
 

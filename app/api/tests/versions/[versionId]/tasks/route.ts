@@ -1,7 +1,8 @@
 import { NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { buildCompositeAnswerKey } from '@/lib/grading/multi-part-answer'
+import { buildCompositeAnswerKey, formatCompositeAnswerForEdit } from '@/lib/grading/multi-part-answer'
+import { formatAnswerJson } from '@/lib/grading/format-answer-display'
 
 export async function POST(
   request: NextRequest,
@@ -112,7 +113,9 @@ export async function POST(
 
     return Response.json({
       ...task,
-      correct_answer: answerKey ? String(answerKey.correct_answer ?? '') : null,
+      correct_answer: answerKey && answerKey.correct_answer != null
+        ? formatCompositeAnswerForEdit(answerKey.correct_answer) ?? formatAnswerJson(answerKey.correct_answer)
+        : null,
       grading_method: answerKey?.grading_method ?? null,
     }, { status: 201 })
   } catch (err) {

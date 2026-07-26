@@ -88,3 +88,26 @@ export function buildCompositeAnswerKey(raw: string): CompositeAnswerKeyResult {
 
   return { isComposite: true, correctAnswerJson, answerParts }
 }
+
+// Обратное преобразование к buildCompositeAnswerKey — восстанавливает
+// редактируемую строку «а) значение; б) значение» из {parts:{...}}, чтобы
+// форма редактирования (простое текстовое поле) могла отдать её обратно в
+// buildCompositeAnswerKey без потери составной структуры при пересохранении
+// без изменений. Для не-составных форм (plain text/{text:...}) — просто
+// человекочитаемый текст, здесь не нужен (см. formatAnswerJson).
+export function formatCompositeAnswerForEdit(json: Json): string | null {
+  if (json === null || typeof json !== 'object' || Array.isArray(json)) return null
+  const obj = json as Record<string, Json | undefined>
+  if (!('parts' in obj) || obj['parts'] === null || typeof obj['parts'] !== 'object' || Array.isArray(obj['parts'])) {
+    return null
+  }
+  const parts = obj['parts'] as Record<string, Json | undefined>
+  return Object.entries(parts)
+    .map(([label, entry]) => {
+      const value = entry !== null && typeof entry === 'object' && !Array.isArray(entry) && 'value' in entry
+        ? (entry as Record<string, Json | undefined>)['value']
+        : entry
+      return `${label}) ${typeof value === 'string' ? value : JSON.stringify(value ?? '')}`
+    })
+    .join('; ')
+}

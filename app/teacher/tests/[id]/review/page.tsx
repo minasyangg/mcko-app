@@ -8,6 +8,8 @@ import ReviewBoard, {
   type UnmatchedImageItem,
   type ParsingWarning,
 } from '@/components/teacher/ReviewBoard'
+import { formatAnswerJson } from '@/lib/grading/format-answer-display'
+import { formatCompositeAnswerForEdit } from '@/lib/grading/multi-part-answer'
 
 interface PageProps {
   params: Promise<{ id: string }>
@@ -176,7 +178,7 @@ export default async function ReviewPage({ params }: PageProps) {
     const correctAnswer = answerKey?.correct_answer
       ? typeof answerKey.correct_answer === 'string'
         ? answerKey.correct_answer
-        : JSON.stringify(answerKey.correct_answer)
+        : formatCompositeAnswerForEdit(answerKey.correct_answer) ?? formatAnswerJson(answerKey.correct_answer)
       : null
 
     // Solution media for this task (for teacher review in board)

@@ -39,14 +39,22 @@ export default async function StudentRoadmapPage() {
     return tv?.tests?.is_active !== false
   })
 
-  // Попытки ученика по этим назначениям
+  // Попытки ученика по этим назначениям + накопительные итоги
   const assignmentIds = items.map(a => a.id)
-  const { data: attempts } = assignmentIds.length
-    ? await supabase.from('attempts')
-        .select('assignment_id, status, score, max_score, created_at')
-        .in('assignment_id', assignmentIds).eq('student_id', user.id)
-        .order('created_at', { ascending: false })
-    : { data: [] as { assignment_id: string | null; status: string; score: number | null; max_score: number | null }[] }
+  const [{ data: attempts }, { data: finals }] = assignmentIds.length
+    ? await Promise.all([
+        supabase.from('attempts')
+          .select('assignment_id, status, score, max_score, created_at')
+          .in('assignment_id', assignmentIds).eq('student_id', user.id)
+          .order('created_at', { ascending: false }),
+        supabase.from('student_final_results')
+          .select('assignment_id, final_score, max_score, attempt_count')
+          .in('assignment_id', assignmentIds).eq('student_id', user.id),
+      ])
+    : [
+        { data: [] as { assignment_id: string | null; status: string; score: number | null; max_score: number | null }[] },
+        { data: [] as { assignment_id: string | null; final_score: number | null; max_score: number | null; attempt_count: number | null }[] },
+      ]
 
   const latestByAssignment = new Map<string, { status: string; score: number | null; max_score: number | null }>()
   const usedByAssignment = new Map<string, number>()
@@ -58,21 +66,30 @@ export default async function StudentRoadmapPage() {
     }
   }
 
+  const finalByAssignment = new Map<string, { final_score: number | null; max_score: number | null; attempt_count: number | null }>()
+  for (const f of finals ?? []) {
+    if (f.assignment_id) finalByAssignment.set(f.assignment_id, f)
+  }
+
   // Задания по темам
   const itemsByTopic = new Map<string, TimelineTopic['items']>()
   for (const a of items) {
     const tid = a.roadmap_topic_id as string
     const tv = a.test_versions as { tests?: { title?: string } } | null
     const latest = latestByAssignment.get(a.id)
+    const fin = finalByAssignment.get(a.id)
     const arr = itemsByTopic.get(tid) ?? []
     arr.push({
       assignment_id: a.id,
       test_title: tv?.tests?.title ?? 'Тест',
       kind: (a.kind as 'homework' | 'test') ?? 'test',
       status: latest?.status ?? 'not_started',
-      score: latest?.score ?? null,
-      max_score: latest?.max_score ?? null,
-      attempts_used: usedByAssignment.get(a.id) ?? 0,
+      // накопительный итог, а не балл последней попытки: при повторной
+      // попытке балл за уже решённые задания сохраняется, и список должен
+      // показывать то же число, что страница результата
+      score: fin?.final_score ?? latest?.score ?? null,
+      max_score: fin?.max_score ?? latest?.max_score ?? null,
+      attempts_used: Math.max(fin?.attempt_count ?? 0, usedByAssignment.get(a.id) ?? 0),
       max_attempts: a.max_attempts ?? 1,
       ends_at: a.ends_at,
     })

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAdmin } from '@/lib/auth/authorize'
+import { updateCumulativeResult } from '@/lib/grading/finalize'
 
 // DELETE /api/admin/attempts/[id] — удалить попытку ученика. Только admin.
 // Каскадом удаляются ответы (attempt_task_answers) и события присутствия
@@ -19,12 +20,12 @@ export async function DELETE(
   // Попытка + организация (через assignment) — не даём удалять чужую орг
   const { data: attempt } = await admin
     .from('attempts')
-    .select('id, student_id, assignment_id, assignments!inner(organization_id, test_version_id)')
+    .select('id, student_id, assignment_id, assignments!inner(organization_id)')
     .eq('id', attemptId)
     .single()
   if (!attempt) return NextResponse.json({ error: 'Attempt not found' }, { status: 404 })
 
-  const asgn = attempt.assignments as unknown as { organization_id: string; test_version_id: string }
+  const asgn = attempt.assignments as unknown as { organization_id: string }
   if (asgn.organization_id !== orgId) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
@@ -35,27 +36,15 @@ export async function DELETE(
   const { error: delErr } = await admin.from('attempts').delete().eq('id', attemptId)
   if (delErr) return NextResponse.json({ error: delErr.message }, { status: 500 })
 
-  // Попытка считается «потраченной»: НЕ уменьшаем attempt_count в итоге —
-  // сохраняем «сколько попыток было использовано». Обновляем только балл
-  // итога до результата ПОСЛЕДНЕЙ оставшейся завершённой попытки; если
-  // завершённых не осталось — оставляем прежний итог (последний известный).
-  const now = new Date().toISOString()
-  const { data: latest } = await admin
-    .from('attempts')
-    .select('score, max_score, submitted_at, checked_at')
-    .eq('assignment_id', attempt.assignment_id)
-    .eq('student_id', attempt.student_id)
-    .in('status', ['submitted', 'checked'])
-    .order('submitted_at', { ascending: false })
-    .limit(1)
-    .maybeSingle()
-
-  if (latest) {
-    await admin.from('student_final_results')
-      .update({ final_score: latest.score, max_score: latest.max_score, updated_at: now })
-      .eq('student_id', attempt.student_id)
-      .eq('test_version_id', asgn.test_version_id)
-  }
+  // Пересчёт итога — общей функцией, а не своей формулой: раньше здесь
+  // записывался балл ПОСЛЕДНЕЙ оставшейся попытки, что противоречит
+  // накопительной семантике (MAX по каждому заданию среди всех попыток) во
+  // всех остальных путях — удаление попытки могло срезать ученику балл,
+  // честно заработанный в другой попытке.
+  // Попытка при этом считается потраченной: attempt_count не уменьшаем.
+  await updateCumulativeResult(admin, attempt.assignment_id, attempt.student_id, {
+    preserveAttemptCount: true,
+  })
   // запись student_final_results НЕ удаляем — «использовано N из M» и
   // последний результат остаются даже без строк attempts.
 
@@ -63,7 +52,7 @@ export async function DELETE(
     admin.from('student_final_results')
       .select('attempt_count, final_score, max_score')
       .eq('student_id', attempt.student_id)
-      .eq('test_version_id', asgn.test_version_id)
+      .eq('assignment_id', attempt.assignment_id)
       .maybeSingle(),
     admin.from('assignments').select('max_attempts').eq('id', attempt.assignment_id).single(),
   ])

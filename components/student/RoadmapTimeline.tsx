@@ -32,10 +32,27 @@ function ItemStatus({ it }: { it: TimelineItem }) {
   return <Badge variant="outline">Не начато</Badge>
 }
 
+// Фон карточки задания по статусу — та же схема, что и у бейджа (ItemStatus),
+// просто продублирована на весь ряд, а не только на бейдж. Единая логика для
+// homework/test — раньше цветового различия по статусу не было вообще ни у
+// одного из двух видов, а не только у ДЗ.
+function rowStatusClass(it: TimelineItem): string {
+  if (it.status === 'checked') {
+    const pct = it.max_score && it.max_score > 0 ? Math.round(((it.score ?? 0) / it.max_score) * 100) : null
+    return pct != null && pct >= 60
+      ? 'bg-emerald-50 border-emerald-200 dark:bg-emerald-950/20 dark:border-emerald-900'
+      : 'bg-destructive/5 border-destructive/20'
+  }
+  if (it.status === 'submitted') return 'bg-muted/40'
+  if (it.status === 'in_progress') return 'bg-orange-50 border-orange-200 dark:bg-orange-950/20 dark:border-orange-900'
+  return ''
+}
+
 function ItemAction({ it }: { it: TimelineItem }) {
   const isDone = it.status === 'submitted' || it.status === 'checked'
   const attemptsLeft = it.max_attempts - it.attempts_used
   const canStart = attemptsLeft > 0 && !['in_progress', 'submitted'].includes(it.status)
+  const nextAttemptLabel = `${it.attempts_used + 1}-я попытка`
   return (
     <div className="flex items-center gap-1.5">
       {isDone && (
@@ -48,9 +65,31 @@ function ItemAction({ it }: { it: TimelineItem }) {
       ) : !isDone && canStart ? (
         <Button asChild size="sm" className="h-7 text-xs"><Link href={`/student/attempt/${it.assignment_id}`}>Начать</Link></Button>
       ) : isDone && canStart ? (
-        <Button asChild size="sm" variant="secondary" className="h-7 text-xs"><Link href={`/student/attempt/${it.assignment_id}`}>Ещё раз</Link></Button>
+        <Button asChild size="sm" variant="secondary" className="h-7 text-xs"><Link href={`/student/attempt/${it.assignment_id}`}>{nextAttemptLabel}</Link></Button>
       ) : null}
     </div>
+  )
+}
+
+// "Попыток использовано: X/Y" — та же информация, что уже показывается в
+// "Мои тесты" (app/student/page.tsx), но раньше отсутствовала в "Программе"
+// несмотря на то, что assignment.attempts_used/max_attempts там тоже
+// вычислялись — использовались только для canStart, не выводились текстом.
+function AttemptsInfo({ it }: { it: TimelineItem }) {
+  if (it.max_attempts <= 1) return null
+  const isDone = it.status === 'submitted' || it.status === 'checked'
+  const attemptsLeft = it.max_attempts - it.attempts_used
+  if (isDone && attemptsLeft <= 0) {
+    return (
+      <p className="text-xs font-medium text-emerald-700 dark:text-emerald-400">
+        ✓ Все попытки использованы ({it.attempts_used}/{it.max_attempts})
+      </p>
+    )
+  }
+  return (
+    <p className="text-xs text-muted-foreground">
+      Попыток использовано: {it.attempts_used}/{it.max_attempts}
+    </p>
   )
 }
 
@@ -85,13 +124,16 @@ export function RoadmapTimeline({ topics }: { topics: TimelineTopic[] }) {
                   <p className="text-xs text-muted-foreground">Заданий нет</p>
                 ) : (
                   t.items.map(it => (
-                    <div key={it.assignment_id} className="flex flex-wrap items-center gap-2 rounded-md border px-3 py-2">
-                      <Badge variant={it.kind === 'homework' ? 'outline' : 'secondary'} className="text-[11px] shrink-0">
-                        {it.kind === 'homework' ? 'ДЗ' : 'Тест'}
-                      </Badge>
-                      <span className="text-sm flex-1 min-w-32 truncate">{it.test_title}</span>
-                      <ItemStatus it={it} />
-                      <ItemAction it={it} />
+                    <div key={it.assignment_id} className={cn('space-y-1.5 rounded-md border px-3 py-2', rowStatusClass(it))}>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge variant={it.kind === 'homework' ? 'outline' : 'secondary'} className="text-[11px] shrink-0">
+                          {it.kind === 'homework' ? 'ДЗ' : 'Тест'}
+                        </Badge>
+                        <span className="text-sm flex-1 min-w-32 truncate">{it.test_title}</span>
+                        <ItemStatus it={it} />
+                        <ItemAction it={it} />
+                      </div>
+                      <AttemptsInfo it={it} />
                     </div>
                   ))
                 )}

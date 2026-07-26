@@ -5,7 +5,6 @@ import Link from 'next/link'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Separator } from '@/components/ui/separator'
 import { CheckCircle2, XCircle, MinusCircle, ArrowLeft, ChevronDown, ChevronUp } from 'lucide-react'
 import type { Json } from '@/types/database'
 import { enrichTaskMediaWithUrls, generateSignedUrls } from '@/lib/media/signed-urls'
@@ -13,6 +12,7 @@ import { SolutionRequestButton } from '@/components/student/SolutionRequestButto
 import { SolutionView } from '@/components/test-player/SolutionView'
 import { MathText } from '@/components/shared/MathText'
 import MarkdownContent from '@/components/shared/MarkdownContent'
+import { Breadcrumbs } from '@/components/shared/Breadcrumbs'
 import type { TaskMedia } from '@/types/domain'
 import { formatAnswerJson } from '@/lib/grading/format-answer-display'
 
@@ -29,12 +29,18 @@ export default async function ResultPage({ params }: PageProps) {
 
   const { data: assignment } = await supabase
     .from('assignments')
-    .select(`id, student_id, group_id, test_version_id,
-      test_versions!test_version_id ( id, result_visibility, tests!test_id ( id, title, subject, exam_type ) )`)
+    .select(`id, student_id, group_id, test_version_id, roadmap_topic_id, max_attempts,
+      test_versions!test_version_id ( id, result_visibility, tests!test_id ( id, title, subject, exam_type ) ),
+      roadmap_topics!roadmap_topic_id ( id, title, roadmaps!roadmap_id ( id, title, subject ) )`)
     .eq('id', assignmentId)
     .single()
 
   if (!assignment) redirect('/student')
+
+  // Программа-происхождение задания — определяет хлебные крошки и куда ведёт
+  // кнопка "назад" (см. блок навигации внизу компонента)
+  const roadmapTopic = assignment.roadmap_topics as { id: string; title: string; roadmaps?: { id: string; title: string; subject: string | null } | null } | null
+  const roadmapInfo = roadmapTopic?.roadmaps ?? null
 
   let hasAccess = assignment.student_id === user.id
   if (!hasAccess && assignment.group_id) {
@@ -59,23 +65,18 @@ export default async function ResultPage({ params }: PageProps) {
   const attempt = attempts?.[0]
   if (!attempt) redirect(`/student/attempt/${assignmentId}`)
 
-  // Load cumulative score from student_final_results
+  // Накопительный итог — по НАЗНАЧЕНИЮ, а не по версии теста: тот же тест
+  // может быть назначен ученику ещё раз (например, через тему программы), и
+  // фильтр по test_version_id подхватывал бы чужой итог (см. миграцию 032).
   const { data: finalResult } = await supabase
     .from('student_final_results')
     .select('final_score, max_score, attempt_count, status')
     .eq('student_id', user.id)
-    .eq('test_version_id', assignment.test_version_id)
-    .single()
-
-  // Also load assignment max_attempts to show remaining attempts
-  const { data: asgn } = await supabase
-    .from('assignments')
-    .select('max_attempts')
-    .eq('id', assignmentId)
-    .single()
+    .eq('assignment_id', assignmentId)
+    .maybeSingle()
 
   const completedAttempts = finalResult?.attempt_count ?? 1
-  const maxAttempts = asgn?.max_attempts ?? 1
+  const maxAttempts = assignment.max_attempts ?? 1
   const attemptsLeft = Math.max(0, maxAttempts - completedAttempts)
   const isCompleted = finalResult?.status === 'completed' || attemptsLeft <= 0
 
@@ -220,9 +221,37 @@ export default async function ResultPage({ params }: PageProps) {
 
   const answerMap = new Map((studentAnswers ?? []).map(a => [a.task_id, a]))
 
+  // Кнопка "назад" и хлебные крошки зависят от того, пришло ли задание из
+  // программы (roadmap) или из обычного списка тестов — раньше кнопка внизу
+  // всегда вела на /student независимо от происхождения, теряя контекст.
+  const backHref = roadmapInfo ? '/student/roadmap' : '/student'
+  const backLabel = roadmapInfo ? 'Вернуться в программы' : 'Вернуться к списку тестов'
+  const breadcrumbItems = roadmapInfo
+    ? [
+        { label: 'Программа', href: '/student/roadmap' },
+        ...(roadmapInfo.subject ? [{ label: roadmapInfo.subject }] : []),
+        ...(roadmapTopic ? [{ label: roadmapTopic.title }] : []),
+        { label: test?.title ?? 'Тест' },
+      ]
+    : [
+        { label: 'Мои тесты', href: '/student' },
+        { label: test?.title ?? 'Тест' },
+      ]
+
   return (
     <div className="min-h-screen bg-background">
       <div className="mx-auto max-w-3xl px-4 py-8 space-y-8">
+        {/* Хлебные крошки + кнопка назад */}
+        <div className="space-y-2">
+          <Breadcrumbs items={breadcrumbItems} />
+          <Button variant="outline" size="sm" asChild>
+            <Link href={backHref}>
+              <ArrowLeft className="mr-2 h-4 w-4" />
+              {backLabel}
+            </Link>
+          </Button>
+        </div>
+
         {/* Header */}
         <div className="space-y-2">
           <div className="flex items-start justify-between gap-4">
@@ -417,13 +446,6 @@ export default async function ResultPage({ params }: PageProps) {
           </div>
         )}
 
-        <Separator />
-        <Button variant="outline" asChild>
-          <Link href="/student">
-            <ArrowLeft className="mr-2 h-4 w-4" />
-            Вернуться к списку тестов
-          </Link>
-        </Button>
       </div>
     </div>
   )

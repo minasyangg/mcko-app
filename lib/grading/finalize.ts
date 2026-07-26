@@ -2,7 +2,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { checkAnswer } from '@/lib/grading/checker'
 import { formatAnswerJson } from '@/lib/grading/format-answer-display'
 
-type AdminClient = ReturnType<typeof createAdminClient>
+export type AdminClient = ReturnType<typeof createAdminClient>
 
 // AI-проверка письменных ответов (manual/text с эталоном). Вынесена из
 // submit-роута, чтобы её могли использовать и ученик (submit), и админ
@@ -187,11 +187,34 @@ export async function finalizeAttempt(
     updates.push({ taskId: task.id, is_correct: result.is_correct, awarded_score: result.awarded_score, auto_checked: true })
   }
 
-  await Promise.all(updates.map(u =>
-    admin.from('attempt_task_answers')
-      .update({ is_correct: u.is_correct, awarded_score: u.awarded_score, auto_checked_at: u.auto_checked ? now : null })
-      .eq('attempt_id', attemptId).eq('task_id', u.taskId)
-  ))
+  // Полный балл (is_correct=true) блокирует ответ навсегда — зеркалит
+  // ручную проверку учителем (app/api/attempts/[id]/grade/route.ts), чтобы
+  // задание не появлялось для повторного решения в следующих попытках и не
+  // могло случайно потерять балл при пересчёте.
+  //
+  // upsert, а не update: у пропущенного задания (ветка `!savedAnswer` выше)
+  // строки в attempt_task_answers нет вообще, и update молча задевал 0 строк —
+  // нулевой балл нигде не фиксировался, а проверяющий учитель не видел
+  // задание в списке ответов.
+  // Ключи во всех объектах батча одинаковые — PostgREST иначе отвергает upsert
+  // («All object keys must match»); поэтому is_locked/locked_in_attempt_id
+  // задаются явно, а не условным спредом. Снять блокировку это не может: уже
+  // заблокированные задания отсеяны выше (ветка `savedAnswer?.is_locked`) и в
+  // updates не попадают.
+  if (updates.length > 0) {
+    await admin.from('attempt_task_answers').upsert(
+      updates.map(u => ({
+        attempt_id: attemptId,
+        task_id: u.taskId,
+        is_correct: u.is_correct,
+        awarded_score: u.awarded_score,
+        auto_checked_at: u.auto_checked ? now : null,
+        is_locked: u.is_correct === true,
+        locked_in_attempt_id: u.is_correct === true ? attemptId : null,
+      })),
+      { onConflict: 'attempt_id,task_id' }
+    )
+  }
 
   const newStatus: 'checked' | 'submitted' = allAutoChecked ? 'checked' : 'submitted'
 
@@ -204,28 +227,97 @@ export async function finalizeAttempt(
     ...(allAutoChecked ? { checked_at: now } : {}),
   }).eq('id', attemptId)
 
-  // Итог теста = результат ПОСЛЕДНЕЙ (только что завершённой) попытки.
-  // attempt_count — сколько попыток использовано (завершено), растёт монотонно.
-  const { count } = await admin
-    .from('attempts')
-    .select('id', { count: 'exact', head: true })
-    .eq('assignment_id', attempt.assignment_id)
-    .eq('student_id', attempt.student_id)
-    .in('status', ['submitted', 'checked'])
+  await updateCumulativeResult(admin, attempt.assignment_id, attempt.student_id)
 
-  const completedCount = count ?? 1
-  const allUsed = completedCount >= (assignment.max_attempts ?? 1)
+  return { score: totalScore, max_score: totalMaxScore, status: newStatus }
+}
+
+// Пересчитывает и записывает накопительный итог по assignment для ученика:
+// по каждому заданию берётся MAX(awarded_score) среди ВСЕХ завершённых попыток
+// (submitted/checked), а не только последней — иначе баллы за задание, уже
+// решённое на максимум в прошлой попытке, терялись бы, если следующая попытка
+// хуже или пустая.
+//
+// ЕДИНСТВЕННЫЙ источник истины по итогу: сюда сходятся авто-финализация
+// (finalizeAttempt — сдача учеником и принудительное завершение админом),
+// ручная проверка учителем (api/attempts/[id]/grade) и удаление попытки
+// админом (api/admin/attempts/[id]). Своих формул итога у них быть не должно.
+//
+// Итог уникален по (student_id, assignment_id), а не по версии теста: один и
+// тот же тест бывает назначен ученику дважды (обычное назначение + привязка к
+// теме программы), и общая строка на версию теста означала бы, что назначения
+// затирают итоги друг друга (см. миграцию 032).
+export async function updateCumulativeResult(
+  admin: AdminClient,
+  assignmentId: string,
+  studentId: string,
+  opts?: { preserveAttemptCount?: boolean }
+): Promise<{ finalScore: number; maxScore: number; attemptCount: number } | null> {
+  const { data: assignment } = await admin
+    .from('assignments')
+    .select('max_attempts, test_version_id')
+    .eq('id', assignmentId)
+    .single()
+  if (!assignment) return null
+
+  const [{ data: completedAttempts }, { data: tasks }, { data: existing }] = await Promise.all([
+    admin.from('attempts')
+      .select('id')
+      .eq('assignment_id', assignmentId)
+      .eq('student_id', studentId)
+      .in('status', ['submitted', 'checked']),
+    admin.from('test_tasks')
+      .select('max_score')
+      .eq('test_version_id', assignment.test_version_id),
+    opts?.preserveAttemptCount
+      ? admin.from('student_final_results')
+          .select('attempt_count')
+          .eq('student_id', studentId)
+          .eq('assignment_id', assignmentId)
+          .maybeSingle()
+      : Promise.resolve({ data: null as { attempt_count: number | null } | null }),
+  ])
+
+  const attemptIds = (completedAttempts ?? []).map(a => a.id)
+
+  // preserveAttemptCount — для удаления попытки админом: попытка считается
+  // потраченной, вернуть её ученику удалением нельзя, поэтому счётчик не
+  // уменьшаем (см. api/admin/attempts/[id]).
+  const liveCount = attemptIds.length
+  const attemptCount = opts?.preserveAttemptCount
+    ? Math.max(existing?.attempt_count ?? 0, liveCount)
+    : liveCount
+
+  const taskBest = new Map<string, number>()
+  if (attemptIds.length > 0) {
+    const { data: allTaskAnswers } = await admin
+      .from('attempt_task_answers')
+      .select('task_id, awarded_score')
+      .in('attempt_id', attemptIds)
+    for (const ans of allTaskAnswers ?? []) {
+      if (!ans.task_id) continue
+      const prev = taskBest.get(ans.task_id) ?? 0
+      taskBest.set(ans.task_id, Math.max(prev, ans.awarded_score ?? 0))
+    }
+  }
+  const finalScore = [...taskBest.values()].reduce((s, v) => s + v, 0)
+
+  const maxScore = (tasks ?? []).reduce((s, t) => s + (t.max_score ?? 1), 0)
+
+  const allUsed = attemptCount >= (assignment.max_attempts ?? 1)
+  const now = new Date().toISOString()
 
   await admin.from('student_final_results').upsert({
-    student_id: attempt.student_id,
+    student_id: studentId,
+    assignment_id: assignmentId,
     test_version_id: assignment.test_version_id,
-    final_score: totalScore,
-    max_score: totalMaxScore,
-    attempt_count: completedCount,
+    final_score: finalScore,
+    max_score: maxScore || null,
+    attempt_count: attemptCount,
     last_completed_at: now,
     status: allUsed ? 'completed' : 'in_progress',
     updated_at: now,
-  }, { onConflict: 'student_id,test_version_id' })
+  }, { onConflict: 'student_id,assignment_id' })
 
-  return { score: totalScore, max_score: totalMaxScore, status: newStatus }
+  return { finalScore, maxScore, attemptCount }
 }
