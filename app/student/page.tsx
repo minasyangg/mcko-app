@@ -2,7 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { ClipboardList } from 'lucide-react'
+import { ClipboardList, PenLine } from 'lucide-react'
 import Link from 'next/link'
 
 type AttemptStatus = 'not_started' | 'in_progress' | 'submitted' | 'checked'
@@ -25,6 +25,18 @@ export default async function StudentHomePage() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return null
+
+  // Постоянные доски (интеграция с отдельным приложением doska) — обычно
+  // одна на каждого прикреплённого учителя, см. 037_doska_student_boards.sql.
+  const { data: doskaBoards } = await supabase
+    .from('doska_student_boards')
+    .select('board_id, teacher_id, profiles!doska_student_boards_teacher_id_fkey(full_name)')
+    .eq('student_id', user.id)
+  const doskaUrl = process.env.DOSKA_URL
+  const boardLinks = (doskaBoards ?? []).map((b) => ({
+    boardId: b.board_id,
+    teacherName: (b.profiles as { full_name: string } | null)?.full_name ?? 'учителем',
+  }))
 
   const { data: memberships } = await supabase
     .from('group_members')
@@ -99,6 +111,19 @@ export default async function StudentHomePage() {
         <h1 className="text-2xl font-semibold">Мои тесты</h1>
         <p className="text-muted-foreground text-sm mt-1">Назначенные вам тесты</p>
       </div>
+
+      {doskaUrl && boardLinks.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {boardLinks.map((b) => (
+            <Button key={b.boardId} asChild variant="outline" size="sm">
+              <a href={`${doskaUrl}/#b=${b.boardId}`} target="_blank" rel="noopener noreferrer">
+                <PenLine className="h-4 w-4 mr-2" />
+                Моя доска с {b.teacherName}
+              </a>
+            </Button>
+          ))}
+        </div>
+      )}
 
       {!assignments?.length ? (
         <div className="flex flex-col items-center justify-center py-16 gap-3 text-center text-muted-foreground">
