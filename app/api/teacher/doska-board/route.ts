@@ -14,9 +14,8 @@ export async function POST(req: Request) {
   }
 
   const supabase = await createClient()
-  const { data: { session } } = await supabase.auth.getSession()
-  if (!session) return Response.json({ error: 'Unauthorized' }, { status: 401 })
-  const user = session.user
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { data: profile } = await supabase
     .from('profiles').select('role').eq('id', user.id).single()
@@ -29,6 +28,12 @@ export async function POST(req: Request) {
 
   const doskaUrl = process.env.DOSKA_URL
   if (!doskaUrl) return Response.json({ error: 'DOSKA_URL не настроен' }, { status: 500 })
+
+  // Токен нужен только как сырая строка для проброса в doska — личность уже
+  // проверена через getUser() выше, .user из getSession() здесь не используется.
+  const { data: { session } } = await supabase.auth.getSession()
+  const accessToken = session?.access_token
+  if (!accessToken) return Response.json({ error: 'Unauthorized' }, { status: 401 })
 
   const admin = createAdminClient()
   const { data: existing } = await admin
@@ -47,7 +52,7 @@ export async function POST(req: Request) {
     const created = await fetch(doskaUrl + '/api/boards/create', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ token: session.access_token, title: student?.full_name || 'Доска ученика' }),
+      body: JSON.stringify({ token: accessToken, title: student?.full_name || 'Доска ученика' }),
     }).then(r => r.json().then(data => ({ ok: r.ok, data }))).catch(() => null)
 
     if (!created?.ok || !created.data?.board?.id) {
@@ -74,6 +79,6 @@ export async function POST(req: Request) {
     }
   }
 
-  const url = `${doskaUrl}/#b=${boardId}&token=${encodeURIComponent(session.access_token)}`
+  const url = `${doskaUrl}/#b=${boardId}&token=${encodeURIComponent(accessToken)}`
   return Response.json({ boardId, url })
 }
