@@ -26,7 +26,7 @@ export async function POST(req: Request) {
   const { data: owned } = await supabase.rpc('check_student_owned_by_auth', { p_student_id: studentId })
   if (!owned) return Response.json({ error: 'Этот ученик не закреплён за вами' }, { status: 403 })
 
-  const doskaUrl = process.env.DOSKA_URL
+  const doskaUrl = process.env.DOSKA_URL?.replace(/\/+$/, '')
   if (!doskaUrl) return Response.json({ error: 'DOSKA_URL не настроен' }, { status: 500 })
 
   // Токен нужен только как сырая строка для проброса в doska — личность уже
