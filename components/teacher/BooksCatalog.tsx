@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
+import { toast } from 'sonner'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
@@ -9,7 +11,11 @@ import { Button } from '@/components/ui/button'
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
-import { BookOpen, Search, Loader2, X } from 'lucide-react'
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
+} from '@/components/ui/alert-dialog'
+import { BookOpen, Search, Loader2, X, Trash2 } from 'lucide-react'
 
 export interface CatalogBook {
   id: string
@@ -21,6 +27,7 @@ export interface CatalogBook {
   level: string | null
   problems: number | null
   answers_matched: number | null
+  can_delete: boolean
 }
 
 interface ProblemHit {
@@ -43,7 +50,25 @@ const bookTypeLabel: Record<string, string> = {
 
 const ALL = '_all'
 
-export function BooksCatalog({ books }: { books: CatalogBook[] }) {
+export function BooksCatalog({ books: initialBooks }: { books: CatalogBook[] }) {
+  const router = useRouter()
+  const [books, setBooks] = useState(initialBooks)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+
+  async function handleDelete(book: CatalogBook) {
+    setDeletingId(book.id)
+    try {
+      const res = await fetch(`/api/books/${book.id}`, { method: 'DELETE' })
+      const d = await res.json().catch(() => ({}))
+      if (!res.ok) { toast.error(d.error ?? 'Ошибка удаления'); return }
+      setBooks(prev => prev.filter(b => b.id !== book.id))
+      toast.success(`Книга «${book.title}» удалена`)
+      router.refresh()
+    } finally {
+      setDeletingId(null)
+    }
+  }
+
   // ── Фильтры каталога ──
   const [subject, setSubject] = useState(ALL)
   const [grade, setGrade] = useState(ALL)
@@ -191,9 +216,47 @@ export function BooksCatalog({ books }: { books: CatalogBook[] }) {
                     <CardContent className="p-4 space-y-3">
                       <div className="flex items-start justify-between gap-2">
                         <BookOpen className="h-8 w-8 text-primary/70 shrink-0" />
-                        <Badge variant="outline" className="text-xs shrink-0">
-                          {bookTypeLabel[book.book_type] ?? book.book_type}
-                        </Badge>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <Badge variant="outline" className="text-xs">
+                            {bookTypeLabel[book.book_type] ?? book.book_type}
+                          </Badge>
+                          {book.can_delete && (
+                            <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={(e) => e.stopPropagation()}
+                                  disabled={deletingId === book.id}
+                                  title="Удалить книгу"
+                                  className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                                >
+                                  {deletingId === book.id
+                                    ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                    : <Trash2 className="h-3.5 w-3.5" />}
+                                </Button>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent onClick={(e) => e.stopPropagation()}>
+                                <AlertDialogHeader>
+                                  <AlertDialogTitle>Удалить книгу «{book.title}»?</AlertDialogTitle>
+                                  <AlertDialogDescription>
+                                    Книга со всеми разделами, страницами и заданиями будет удалена безвозвратно.
+                                    Задания, уже добавленные в тесты, там сохранятся.
+                                  </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                  <AlertDialogCancel>Отмена</AlertDialogCancel>
+                                  <AlertDialogAction
+                                    onClick={(e) => { e.preventDefault(); handleDelete(book) }}
+                                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                  >
+                                    Удалить
+                                  </AlertDialogAction>
+                                </AlertDialogFooter>
+                              </AlertDialogContent>
+                            </AlertDialog>
+                          )}
+                        </div>
                       </div>
                       <div>
                         <h2 className="font-medium leading-snug">{book.title}</h2>

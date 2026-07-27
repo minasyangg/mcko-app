@@ -37,19 +37,16 @@ export default async function BookPage({
 
   // Править книгу может загрузивший её пользователь, администратор
   // или учитель с точечным грантом (book_editors, выдаёт админ).
-  // Удалять — владелец/админ/грант с can_delete.
   const isOwner = book.created_by === user.id
   let canEdit = isAdmin || isOwner
-  let canDelete = isAdmin || isOwner
   if (!canEdit) {
     const { data: grant } = await supabase
       .from('book_editors')
-      .select('teacher_id, can_delete')
+      .select('teacher_id')
       .eq('book_id', id)
       .eq('teacher_id', user.id)
       .maybeSingle()
     canEdit = !!grant
-    canDelete = !!grant?.can_delete
   }
 
   const { data: sections } = await supabase
@@ -88,7 +85,6 @@ export default async function BookPage({
       book={book}
       sections={sections ?? []}
       canEdit={canEdit}
-      canDelete={canDelete}
       editorsPanel={editorsPanel}
       initialSectionId={section ?? null}
       initialTask={task ?? null}

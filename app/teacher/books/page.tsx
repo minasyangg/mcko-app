@@ -17,14 +17,40 @@ export default async function BooksPage() {
 
   const { data: books } = await supabase
     .from('books')
-    .select('id, title, authors, book_type, subject, grade, level, page_count, import_meta')
+    .select('id, title, authors, book_type, subject, grade, level, page_count, created_by')
     .eq('is_active', true)
     .order('subject')
     .order('grade')
     .order('title')
 
+  // Живой подсчёт заданий/ответов из book_problems — import_meta.answers_matched
+  // это снимок на момент импорта и не учитывает ответы, добавленные позже
+  // (кнопка «Ответ ИИ», book-answer-reviewer, ручной ввод).
+  const { data: problemStats } = await supabase
+    .from('book_problems')
+    .select('book_id, answer_source')
+    .eq('is_active', true)
+    .limit(50000)
+  const statsByBook = new Map<string, { problems: number; answers: number }>()
+  for (const p of problemStats ?? []) {
+    const s = statsByBook.get(p.book_id) ?? { problems: 0, answers: 0 }
+    s.problems++
+    if (p.answer_source !== 'none') s.answers++
+    statsByBook.set(p.book_id, s)
+  }
+
+  let deletableIds = new Set<string>()
+  if (!isAdmin) {
+    const { data: grants } = await supabase
+      .from('book_editors')
+      .select('book_id')
+      .eq('teacher_id', user.id)
+      .eq('can_delete', true)
+    deletableIds = new Set((grants ?? []).map(g => g.book_id))
+  }
+
   const catalog: CatalogBook[] = (books ?? []).map(b => {
-    const meta = (b.import_meta ?? {}) as { problems?: number; answers_matched?: number }
+    const stats = statsByBook.get(b.id)
     return {
       id: b.id,
       title: b.title,
@@ -33,8 +59,9 @@ export default async function BooksPage() {
       subject: b.subject,
       grade: b.grade,
       level: b.level,
-      problems: meta.problems ?? null,
-      answers_matched: meta.answers_matched ?? null,
+      problems: stats?.problems ?? null,
+      answers_matched: stats?.answers ?? null,
+      can_delete: isAdmin || b.created_by === user.id || deletableIds.has(b.id),
     }
   })
 

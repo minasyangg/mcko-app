@@ -16,7 +16,20 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { taskNumberLabel } from '@/lib/books/anchors'
+import { formatCompositeAnswerForEdit } from '@/lib/grading/multi-part-answer'
+import { formatAnswerJson } from '@/lib/grading/format-answer-display'
+import type { Json } from '@/types/database'
 import { gradingMethodLabel, stripTaskNumber, type PageData, type ProblemAnchor } from './shared'
+
+// Ответ ИИ на составное задание («а)…; б)…») хранится не как {text}, а как
+// {parts:{...}} (см. multi-part-answer.ts) — без этого разбора поле было бы
+// пустым несмотря на бейдж «ответ · ИИ».
+function answerToEditText(correctAnswer: ProblemAnchor['correct_answer']): string {
+  if (!correctAnswer) return ''
+  if (typeof correctAnswer.text === 'string') return correctAnswer.text
+  const json = correctAnswer as unknown as Json
+  return formatCompositeAnswerForEdit(json) ?? formatAnswerJson(json)
+}
 
 // ─── Формы редактирования читалки (по образцу EditTaskForm из тестов) ─────────
 
@@ -30,7 +43,7 @@ export function ProblemEditForm({
   // номер задания в форму не попадает — им управляет сервер
   const [promptMd, setPromptMd] = useState(() => stripTaskNumber(problem.prompt_md, problem.task_number))
   const [showPreview, setShowPreview] = useState(false)
-  const [answer, setAnswer] = useState(problem.correct_answer?.text ?? '')
+  const [answer, setAnswer] = useState(() => answerToEditText(problem.correct_answer))
   const [gradingMethod, setGradingMethod] = useState(problem.grading_method)
   const [saving, setSaving] = useState(false)
   const [aiGenerating, setAiGenerating] = useState(false)

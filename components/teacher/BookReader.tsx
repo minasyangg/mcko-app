@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import MarkdownContent from '@/components/shared/MarkdownContent'
 import { AddToTestDialog } from '@/components/teacher/AddToTestDialog'
@@ -10,7 +9,6 @@ import { AddTargetBanner } from '@/components/teacher/AddTargetBanner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
   AlertDialog,
@@ -21,7 +19,6 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-  AlertDialogTrigger,
 } from '@/components/ui/alert-dialog'
 import {
   ArrowLeft, ChevronRight, ChevronDown, ChevronUp, Plus, Search, X,
@@ -500,8 +497,8 @@ function PageBlock({
               <div className="flex items-center gap-2 flex-wrap min-w-0 pt-1">
                 <span className="text-xs font-semibold text-primary">{taskNumberLabel(seg.problem.task_number)}</span>
                 {seg.problem.answer_source === 'ai' ? (
-                  <Badge variant="outline" className="text-[10px] h-4.5 gap-1 text-violet-600 border-violet-300 dark:text-violet-400 dark:border-violet-700" title="Ответ сгенерирован ИИ — проверьте и при необходимости исправьте">
-                    <Sparkles className="h-3 w-3" /> ответ · ИИ
+                  <Badge variant="outline" className="text-[10px] h-4.5 w-4.5 p-0 justify-center text-violet-600 border-violet-300 dark:text-violet-400 dark:border-violet-700" title="Ответ сгенерирован ИИ — проверьте и при необходимости исправьте">
+                    <Sparkles className="h-3 w-3" />
                   </Badge>
                 ) : seg.problem.answer_source !== 'none' && (
                   <Badge variant="outline" className="text-[10px] h-4.5 gap-1 text-green-700 border-green-300">
@@ -608,36 +605,18 @@ function PageBlock({
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 export function BookReader({
-  book, sections: initialSections, canEdit = false, canDelete = false, editorsPanel = null,
+  book, sections: initialSections, canEdit = false, editorsPanel = null,
   initialSectionId = null, initialTask = null, initialProblemId = null,
 }: {
   book: Book
   sections: Section[]
   canEdit?: boolean
-  canDelete?: boolean
   editorsPanel?: React.ReactNode
   // Deep-link из общего поиска каталога: открыть раздел и проскроллить к заданию
   initialSectionId?: string | null
   initialTask?: string | null
   initialProblemId?: string | null
 }) {
-  const router = useRouter()
-  const [deletingBook, setDeletingBook] = useState(false)
-
-  async function handleDeleteBook() {
-    setDeletingBook(true)
-    try {
-      const res = await fetch(`/api/books/${book.id}`, { method: 'DELETE' })
-      const d = await res.json().catch(() => ({}))
-      if (!res.ok) { toast.error(d.error ?? 'Ошибка удаления'); setDeletingBook(false); return }
-      toast.success(`Книга «${book.title}» удалена`)
-      router.push('/teacher/books')
-      router.refresh()
-    } catch {
-      setDeletingBook(false)
-    }
-  }
-
   const [sections, setSections] = useState(initialSections)
   const tree = useMemo(() => buildTree(sections), [sections])
   const sectionById = useMemo(() => new Map(sections.map(s => [s.id, s])), [sections])
@@ -763,33 +742,6 @@ export function BookReader({
           </Button>
           <h1 className="font-semibold text-sm leading-snug">{book.title}</h1>
           {book.authors && <p className="text-xs text-muted-foreground line-clamp-2">{book.authors}</p>}
-          {canDelete && (
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <Button variant="ghost" size="sm"
-                  className="h-6 -ml-2 px-2 text-xs text-destructive hover:text-destructive hover:bg-destructive/10">
-                  <Trash2 className="h-3 w-3 mr-1" /> Удалить книгу
-                </Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Удалить книгу «{book.title}»?</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    Книга со всеми разделами, страницами и заданиями будет удалена безвозвратно.
-                    Задания, уже добавленные в тесты, там сохранятся.
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel disabled={deletingBook}>Отмена</AlertDialogCancel>
-                  <AlertDialogAction onClick={(e) => { e.preventDefault(); handleDeleteBook() }}
-                    disabled={deletingBook}
-                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-                    {deletingBook ? 'Удаление...' : 'Удалить'}
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
-          )}
         </div>
         {/* Админский блок «Доступ на редактирование» (грант book_editors) */}
         {editorsPanel}
