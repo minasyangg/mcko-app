@@ -14,6 +14,30 @@ export type Database = {
   }
   public: {
     Tables: {
+      _backup_034_wrongly_locked: {
+        Row: {
+          backed_up_at: string | null
+          id: string | null
+          is_correct: boolean | null
+          is_locked: boolean | null
+          locked_in_attempt_id: string | null
+        }
+        Insert: {
+          backed_up_at?: string | null
+          id?: string | null
+          is_correct?: boolean | null
+          is_locked?: boolean | null
+          locked_in_attempt_id?: string | null
+        }
+        Update: {
+          backed_up_at?: string | null
+          id?: string | null
+          is_correct?: boolean | null
+          is_locked?: boolean | null
+          locked_in_attempt_id?: string | null
+        }
+        Relationships: []
+      }
       assignments: {
         Row: {
           created_at: string | null
@@ -2230,6 +2254,14 @@ export type Database = {
     Functions: {
       auth_org: { Args: never; Returns: string }
       auth_role: { Args: never; Returns: string }
+      book_problem_stats: {
+        Args: never
+        Returns: {
+          answered: number
+          book_id: string
+          total: number
+        }[]
+      }
       check_assignment_in_auth_org: {
         Args: { p_assignment_id: string }
         Returns: boolean

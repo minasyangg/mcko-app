@@ -25,19 +25,12 @@ export default async function BooksPage() {
 
   // Живой подсчёт заданий/ответов из book_problems — import_meta.answers_matched
   // это снимок на момент импорта и не учитывает ответы, добавленные позже
-  // (кнопка «Ответ ИИ», book-answer-reviewer, ручной ввод).
-  const { data: problemStats } = await supabase
-    .from('book_problems')
-    .select('book_id, answer_source')
-    .eq('is_active', true)
-    .limit(50000)
-  const statsByBook = new Map<string, { problems: number; answers: number }>()
-  for (const p of problemStats ?? []) {
-    const s = statsByBook.get(p.book_id) ?? { problems: 0, answers: 0 }
-    s.problems++
-    if (p.answer_source !== 'none') s.answers++
-    statsByBook.set(p.book_id, s)
-  }
+  // (кнопка «Ответ ИИ», book-answer-reviewer, ручной ввод). Считаем агрегатом
+  // в БД (одна строка на книгу), а не select('book_id, answer_source') по всей
+  // таблице — тот вариант молча резался серверным лимитом строк PostgREST и
+  // без фильтра по книге отдавал обрезанный кусок вперемешку со всеми книгами.
+  const { data: problemStats } = await supabase.rpc('book_problem_stats')
+  const statsByBook = new Map((problemStats ?? []).map(s => [s.book_id, s]))
 
   let deletableIds = new Set<string>()
   if (!isAdmin) {
@@ -59,8 +52,8 @@ export default async function BooksPage() {
       subject: b.subject,
       grade: b.grade,
       level: b.level,
-      problems: stats?.problems ?? null,
-      answers_matched: stats?.answers ?? null,
+      problems: stats?.total ?? null,
+      answers_matched: stats?.answered ?? null,
       can_delete: isAdmin || b.created_by === user.id || deletableIds.has(b.id),
     }
   })
