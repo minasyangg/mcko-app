@@ -111,17 +111,40 @@ export async function notifyAssignmentCreated(assignmentId: string): Promise<voi
   }
 }
 
+// Строка «тест завершён» для сообщений. Полный балл выносим отдельной фразой:
+// это единственная причина закрытия, которая для получателя выглядит как
+// достижение, а не как ограничение.
+function completionLine(closedReason: string | null | undefined): string | null {
+  switch (closedReason) {
+    case 'max_score': return '🏆 Набран максимальный балл — тест завершён, новых попыток не будет.'
+    case 'attempts_exhausted': return '🔒 Тест завершён: попытки исчерпаны.'
+    case 'forced': return '🔒 Тест завершён учителем.'
+    default: return null
+  }
+}
+
 // ── Событие: попытка финализирована ──────────────────────────────────────────
-// checked  → ученику результат; submitted → учителю «ждёт проверки».
-export async function notifyAttemptFinalized(attemptId: string): Promise<void> {
+// Ученику — результат его работы (checked). Учителю — ЛЮБАЯ сдача: и та, что
+// ждёт ручной проверки (attempt_submitted), и полностью авто-проверенная
+// (attempt_auto_checked). Раньше второй случай не уведомлял никого, и сдача
+// теста с одними тестовыми заданиями проходила для учителя незаметно.
+//
+// teacherNotice: false — когда финализацию инициировал сам сотрудник и он уже
+// видит результат своего действия (проверил работу, принудительно завершил
+// назначение). Слать ему в этот момент «работа сдана» — эхо собственного клика,
+// причём на группе оно приходит пачкой из десятков сообщений.
+export async function notifyAttemptFinalized(
+  attemptId: string,
+  opts?: { teacherNotice?: boolean }
+): Promise<void> {
   try {
     const admin = createAdminClient()
     const { data: at } = await admin
       .from('attempts')
       .select(`
-        id, status, score, max_score, student_id,
+        id, status, score, max_score, student_id, assignment_id,
         assignments!inner (
-          organization_id, created_by, kind,
+          organization_id, created_by, kind, max_attempts,
           test_versions!test_version_id ( tests!test_id ( title, kind ) )
         )
       `)
@@ -133,10 +156,37 @@ export async function notifyAttemptFinalized(attemptId: string): Promise<void> {
       organization_id: string | null
       created_by: string | null
       kind: string | null
+      max_attempts: number | null
       test_versions?: { tests?: { title?: string; kind?: string } }
     }
     const title = asgn.test_versions?.tests?.title ?? 'без названия'
     const noun = (asgn.kind ?? asgn.test_versions?.tests?.kind) === 'homework' ? 'домашнему заданию' : 'тесту'
+
+    // Накопительный итог и состояние закрытия — то же, что видит ученик на
+    // странице результата (см. инвариант «показываем накопительный балл»).
+    // notifyAttemptFinalized всегда вызывается через after() ПОСЛЕ пересчёта
+    // итога, поэтому строка уже актуальна.
+    const [{ data: student }, { data: fin }] = await Promise.all([
+      admin.from('profiles').select('full_name').eq('id', at.student_id).single(),
+      admin.from('student_final_results')
+        .select('final_score, max_score, attempt_count, closed_reason')
+        .eq('student_id', at.student_id)
+        .eq('assignment_id', at.assignment_id)
+        .maybeSingle(),
+    ])
+
+    const attemptScore = `${at.score ?? 0} из ${at.max_score ?? '?'}`
+    const maxAttempts = asgn.max_attempts ?? 1
+    const attemptNo = fin?.attempt_count ?? 1
+    const attemptsLine = maxAttempts > 1 ? `Попытка ${attemptNo} из ${maxAttempts}` : null
+    // Накопительный итог показываем только когда он может отличаться от балла
+    // попытки — на однопопыточном тесте это дубль строки выше.
+    const totalLine = maxAttempts > 1 && fin?.final_score != null
+      ? `Накопленный итог: ${fin.final_score} из ${fin.max_score ?? '?'}`
+      : null
+    const closing = completionLine(fin?.closed_reason)
+
+    const lines = (parts: (string | null)[]) => parts.filter(Boolean).join('\n')
 
     if (at.status === 'checked') {
       await notifyUsers({
@@ -144,19 +194,43 @@ export async function notifyAttemptFinalized(attemptId: string): Promise<void> {
         orgId: asgn.organization_id,
         eventType: 'attempt_checked',
         userIds: [at.student_id],
-        message: `✅ Ваша работа по ${noun} «${title}» проверена: ${at.score ?? 0} из ${at.max_score ?? '?'} баллов.`,
-      })
-    } else if (at.status === 'submitted' && asgn.created_by) {
-      const { data: student } = await admin
-        .from('profiles').select('full_name').eq('id', at.student_id).single()
-      await notifyUsers({
-        admin,
-        orgId: asgn.organization_id,
-        eventType: 'attempt_submitted',
-        userIds: [asgn.created_by],
-        message: `📬 Работа ждёт проверки: ${student?.full_name ?? 'ученик'} — «${title}».`,
+        message: lines([
+          `✅ Ваша работа по ${noun} «${title}» проверена: ${attemptScore} баллов.`,
+          attemptsLine,
+          totalLine,
+          closing,
+        ]),
       })
     }
+
+    if (!asgn.created_by || opts?.teacherNotice === false) return
+    // Статус после финализации всегда checked|submitted; страховка от вызова
+    // на прочих статусах (expired и т.п.) — учителю там сообщать нечего.
+    if (!['checked', 'submitted'].includes(at.status)) return
+
+    const teacherEvent = at.status === 'checked' ? 'attempt_auto_checked' : 'attempt_submitted'
+    const header = at.status === 'checked'
+      ? `✅ Работа сдана и проверена автоматически`
+      : `📬 Работа ждёт проверки`
+    // «предварительно» у submitted: часть заданий ещё не оценена учителем,
+    // и балл вырастет после ручной проверки
+    const scoreLine = at.status === 'checked'
+      ? `Балл: ${attemptScore}`
+      : `Предварительный балл: ${attemptScore}`
+
+    await notifyUsers({
+      admin,
+      orgId: asgn.organization_id,
+      eventType: teacherEvent,
+      userIds: [asgn.created_by],
+      message: lines([
+        header,
+        `${student?.full_name ?? 'Ученик'} — «${title}»`,
+        [attemptsLine, scoreLine].filter(Boolean).join(' · '),
+        totalLine,
+        closing,
+      ]),
+    })
   } catch (e) {
     console.error('[notifications] attemptFinalized failed:', e)
   }

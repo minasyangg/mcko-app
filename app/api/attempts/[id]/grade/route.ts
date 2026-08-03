@@ -117,9 +117,11 @@ export async function PATCH(
     }
   }
 
-  // учитель завершил проверку → ученику уходит результат
+  // учитель завершил проверку → ученику уходит результат.
+  // teacherNotice: false — «работа сдана» самому проверяющему бессмысленно:
+  // он только что закрыл эту работу вручную.
   if (body.finalize) {
-    after(() => notifyAttemptFinalized(attemptId))
+    after(() => notifyAttemptFinalized(attemptId, { teacherNotice: false }))
   }
 
   return Response.json({ ok: true, ...(finalizedScore !== undefined ? { score: finalizedScore } : {}) })

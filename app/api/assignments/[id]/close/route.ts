@@ -64,9 +64,13 @@ export async function POST(
 
   const result = await closeAssignment(admin, { assignmentId, closedBy: userId, studentId })
 
-  // Уведомления — после ответа и последовательно (лимиты Bot API)
+  // Уведомления — после ответа и последовательно (лимиты Bot API).
+  // Ученикам результат уходит, учителю — нет: он сам инициировал завершение и
+  // видит сводку в ответе, а на группе это была бы пачка из десятков сообщений.
   after(async () => {
-    for (const id of result.finalizedAttemptIds) await notifyAttemptFinalized(id)
+    for (const id of result.finalizedAttemptIds) {
+      await notifyAttemptFinalized(id, { teacherNotice: false })
+    }
   })
 
   return NextResponse.json({
