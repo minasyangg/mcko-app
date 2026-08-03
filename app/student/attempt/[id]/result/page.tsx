@@ -14,6 +14,7 @@ import { MathText } from '@/components/shared/MathText'
 import MarkdownContent from '@/components/shared/MarkdownContent'
 import type { TaskMedia } from '@/types/domain'
 import { formatAnswerJson } from '@/lib/grading/format-answer-display'
+import { closedReasonLabel } from '@/lib/assignments/completion'
 
 interface PageProps {
   params: Promise<{ id: string }>
@@ -28,7 +29,7 @@ export default async function ResultPage({ params }: PageProps) {
 
   const { data: assignment } = await supabase
     .from('assignments')
-    .select(`id, student_id, group_id, test_version_id, roadmap_topic_id, max_attempts,
+    .select(`id, student_id, group_id, test_version_id, roadmap_topic_id, max_attempts, closed_at,
       test_versions!test_version_id ( id, result_visibility, tests!test_id ( id, title, subject, exam_type ) )`)
     .eq('id', assignmentId)
     .single()
@@ -67,7 +68,7 @@ export default async function ResultPage({ params }: PageProps) {
   // фильтр по test_version_id подхватывал бы чужой итог (см. миграцию 032).
   const { data: finalResult } = await supabase
     .from('student_final_results')
-    .select('final_score, max_score, attempt_count, status')
+    .select('final_score, max_score, attempt_count, status, closed_reason')
     .eq('student_id', user.id)
     .eq('assignment_id', assignmentId)
     .maybeSingle()
@@ -75,7 +76,14 @@ export default async function ResultPage({ params }: PageProps) {
   const completedAttempts = finalResult?.attempt_count ?? 1
   const maxAttempts = assignment.max_attempts ?? 1
   const attemptsLeft = Math.max(0, maxAttempts - completedAttempts)
-  const isCompleted = finalResult?.status === 'completed' || attemptsLeft <= 0
+  // Назначение закрывается не только исчерпанием попыток: полный балл и
+  // принудительное завершение учителем тоже (миграция 038). closed_at на самом
+  // назначении — закрытие «для всех», обычно вместе с closed_reason у ученика,
+  // но строка итога может ещё не существовать (ученик не приступал).
+  const closedReason =
+    finalResult?.closed_reason ?? (assignment.closed_at ? 'forced' : null)
+  const isCompleted = closedReason != null || finalResult?.status === 'completed' || attemptsLeft <= 0
+  const completionNote = closedReasonLabel(closedReason)
 
   // Use cumulative score if available, otherwise fall back to attempt score
   const score = finalResult?.final_score ?? attempt.score ?? 0
@@ -286,6 +294,17 @@ export default async function ResultPage({ params }: PageProps) {
             {!isCompleted && attemptsLeft > 0 && (
               <p className="text-sm text-muted-foreground">
                 Накопленный балл за {completedAttempts} попыт{completedAttempts === 1 ? 'ку' : completedAttempts < 5 ? 'ки' : 'ок'}. Осталось попыток: <strong>{attemptsLeft}</strong>.
+              </p>
+            )}
+            {/* Почему тест закрыт — важно, когда попытки формально остались:
+                иначе «Тест завершён» рядом с «осталось 2 попытки» читается
+                как ошибка системы */}
+            {isCompleted && completionNote && (
+              <p className="text-sm text-muted-foreground">
+                Тест завершён: {completionNote}
+                {attemptsLeft > 0 && closedReason !== 'attempts_exhausted' && (
+                  <> — неиспользованные попытки ({attemptsLeft}) больше не доступны.</>
+                )}
               </p>
             )}
             {!isChecked && !isCompleted && (

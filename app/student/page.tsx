@@ -4,6 +4,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { ClipboardList, PenLine } from 'lucide-react'
 import Link from 'next/link'
+import { closedReasonLabel } from '@/lib/assignments/completion'
 
 type AttemptStatus = 'not_started' | 'in_progress' | 'submitted' | 'checked'
 
@@ -48,7 +49,7 @@ export default async function StudentHomePage() {
   let query = supabase
     .from('assignments')
     .select(`
-      id, starts_at, ends_at, max_attempts,
+      id, starts_at, ends_at, max_attempts, closed_at,
       test_versions!test_version_id (
         id, time_limit_sec,
         tests!test_id ( id, title, subject, exam_type, is_active )
@@ -84,7 +85,7 @@ export default async function StudentHomePage() {
           .order('created_at', { ascending: false }),
         supabase
           .from('student_final_results')
-          .select('assignment_id, final_score, max_score, attempt_count')
+          .select('assignment_id, final_score, max_score, attempt_count, closed_reason')
           .in('assignment_id', assignmentIds)
           .eq('student_id', user.id),
       ])
@@ -99,7 +100,7 @@ export default async function StudentHomePage() {
     }
   }
 
-  type FinalRow = { assignment_id: string | null; final_score: number | null; max_score: number | null; attempt_count: number | null }
+  type FinalRow = { assignment_id: string | null; final_score: number | null; max_score: number | null; attempt_count: number | null; closed_reason: string | null }
   const finalMap = new Map<string, FinalRow>()
   for (const f of (finals ?? []) as FinalRow[]) {
     if (f.assignment_id) finalMap.set(f.assignment_id, f)
@@ -146,7 +147,12 @@ export default async function StudentHomePage() {
             // attempt_count в итоге не уменьшается при удалении попытки админом
             const attemptsUsed = Math.max(fin?.attempt_count ?? 0, liveUsed)
             const attemptsLeft = (a.max_attempts ?? 1) - attemptsUsed
-            const canStart = attemptsLeft > 0 && !['in_progress', 'submitted'].includes(attemptStatus)
+            // Назначение может быть закрыто досрочно — набран максимум или
+            // учитель завершил его принудительно (миграция 038). Тогда
+            // оставшиеся попытки уже не имеют значения.
+            const closedReason = (a.closed_at ? 'forced' : null) ?? fin?.closed_reason ?? null
+            const isClosed = closedReason != null
+            const canStart = !isClosed && attemptsLeft > 0 && !['in_progress', 'submitted'].includes(attemptStatus)
 
             return (
               <Card key={a.id} className="flex flex-col">
@@ -173,11 +179,15 @@ export default async function StudentHomePage() {
                     {a.ends_at && (
                       <p>До: {new Date(a.ends_at).toLocaleDateString('ru-RU')}</p>
                     )}
-                    {(a.max_attempts ?? 1) > 1 && (
-                      attemptsLeft <= 0 && isDone
-                        ? <p className="font-medium text-emerald-700 dark:text-emerald-400">✓ Тест завершён ({attemptsUsed}/{a.max_attempts ?? 1} попыток)</p>
-                        : <p>Попыток использовано: {attemptsUsed}/{a.max_attempts ?? 1}</p>
-                    )}
+                    {isClosed
+                      ? ((a.max_attempts ?? 1) > 1 || closedReason !== 'attempts_exhausted') && (
+                          <p className="font-medium text-emerald-700 dark:text-emerald-400">
+                            ✓ Тест завершён — {closedReasonLabel(closedReason)} ({attemptsUsed}/{a.max_attempts ?? 1} попыток)
+                          </p>
+                        )
+                      : (a.max_attempts ?? 1) > 1 && (
+                          <p>Попыток использовано: {attemptsUsed}/{a.max_attempts ?? 1}</p>
+                        )}
                   </div>
 
                   <div className="pt-2 space-y-2">
@@ -199,7 +209,9 @@ export default async function StudentHomePage() {
                         <Link href={`/student/attempt/${a.id}`}>Начать тест</Link>
                       </Button>
                     ) : !isDone && !canStart ? (
-                      <p className="text-xs text-muted-foreground text-center">Попытки исчерпаны</p>
+                      <p className="text-xs text-muted-foreground text-center">
+                        {isClosed ? 'Тест завершён' : 'Попытки исчерпаны'}
+                      </p>
                     ) : null}
                   </div>
                 </CardContent>

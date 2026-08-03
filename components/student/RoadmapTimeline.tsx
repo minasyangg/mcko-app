@@ -3,6 +3,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Check } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { closedReasonLabel } from '@/lib/assignments/completion'
 
 export interface TimelineItem {
   assignment_id: string
@@ -14,6 +15,8 @@ export interface TimelineItem {
   attempts_used: number
   max_attempts: number
   ends_at: string | null
+  /** null — назначение открыто; см. lib/assignments/completion */
+  closed_reason?: string | null
 }
 export interface TimelineTopic {
   id: string
@@ -51,7 +54,7 @@ function rowStatusClass(it: TimelineItem): string {
 function ItemAction({ it }: { it: TimelineItem }) {
   const isDone = it.status === 'submitted' || it.status === 'checked'
   const attemptsLeft = it.max_attempts - it.attempts_used
-  const canStart = attemptsLeft > 0 && !['in_progress', 'submitted'].includes(it.status)
+  const canStart = !it.closed_reason && attemptsLeft > 0 && !['in_progress', 'submitted'].includes(it.status)
   const nextAttemptLabel = `${it.attempts_used + 1}-я попытка`
   return (
     <div className="flex items-center gap-1.5">
@@ -76,10 +79,20 @@ function ItemAction({ it }: { it: TimelineItem }) {
 // несмотря на то, что assignment.attempts_used/max_attempts там тоже
 // вычислялись — использовались только для canStart, не выводились текстом.
 function AttemptsInfo({ it }: { it: TimelineItem }) {
+  // Завершение по полному баллу / решению учителя показываем и у однопопыточных
+  // заданий: там остаток попыток ничего не объясняет, а причина — объясняет
+  const note = closedReasonLabel(it.closed_reason)
+  if (note && it.closed_reason !== 'attempts_exhausted') {
+    return (
+      <p className="text-xs font-medium text-emerald-700 dark:text-emerald-400">
+        ✓ Завершено — {note}
+      </p>
+    )
+  }
   if (it.max_attempts <= 1) return null
   const isDone = it.status === 'submitted' || it.status === 'checked'
   const attemptsLeft = it.max_attempts - it.attempts_used
-  if (isDone && attemptsLeft <= 0) {
+  if (note || (isDone && attemptsLeft <= 0)) {
     return (
       <p className="text-xs font-medium text-emerald-700 dark:text-emerald-400">
         ✓ Все попытки использованы ({it.attempts_used}/{it.max_attempts})

@@ -40,6 +40,8 @@ export type Database = {
       }
       assignments: {
         Row: {
+          closed_at: string | null
+          closed_by: string | null
           created_at: string | null
           created_by: string | null
           ends_at: string | null
@@ -56,6 +58,8 @@ export type Database = {
           time_limit_override_sec: number | null
         }
         Insert: {
+          closed_at?: string | null
+          closed_by?: string | null
           created_at?: string | null
           created_by?: string | null
           ends_at?: string | null
@@ -72,6 +76,8 @@ export type Database = {
           time_limit_override_sec?: number | null
         }
         Update: {
+          closed_at?: string | null
+          closed_by?: string | null
           created_at?: string | null
           created_by?: string | null
           ends_at?: string | null
@@ -1742,6 +1748,9 @@ export type Database = {
         Row: {
           assignment_id: string | null
           attempt_count: number | null
+          closed_at: string | null
+          closed_by: string | null
+          closed_reason: string | null
           created_at: string | null
           final_score: number | null
           id: string
@@ -1755,6 +1764,9 @@ export type Database = {
         Insert: {
           assignment_id?: string | null
           attempt_count?: number | null
+          closed_at?: string | null
+          closed_by?: string | null
+          closed_reason?: string | null
           created_at?: string | null
           final_score?: number | null
           id?: string
@@ -1768,6 +1780,9 @@ export type Database = {
         Update: {
           assignment_id?: string | null
           attempt_count?: number | null
+          closed_at?: string | null
+          closed_by?: string | null
+          closed_reason?: string | null
           created_at?: string | null
           final_score?: number | null
           id?: string

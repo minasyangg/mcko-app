@@ -11,6 +11,7 @@ import {
 import { ConfirmDeleteAction } from '@/components/shared/ConfirmDeleteAction'
 import { AttemptDrawer } from '@/components/teacher/AttemptDrawer'
 import { AssignmentsPanel, type AssignmentRow } from '@/components/teacher/AssignmentsPanel'
+import { CloseAssignmentButton } from '@/components/teacher/CloseAssignmentButton'
 import type { ProgramSummaryRow } from '@/lib/roadmaps/progress'
 import { TableFilterBar, useTableFilter, type FilterField } from '@/components/shared/TableFilter'
 import { StatusChip } from '@/components/shared/StatusChip'
@@ -20,6 +21,9 @@ import { cn } from '@/lib/utils'
 export interface AttemptRow {
   id: string
   student_id: string
+  assignment_id: string
+  /** null — назначение открыто для ученика; см. lib/assignments/completion */
+  closed_reason: string | null
   status: string
   current_task_number: number | null
   score: number | null
@@ -128,9 +132,9 @@ function TableView({ rows, tab, isAdmin, onSelect, onDelete, onFinish }: {
                         <AlertDialogTrigger asChild>
                           <Button variant="ghost" size="sm"
                             className="h-8 px-2 text-xs text-orange-600 hover:text-orange-700 hover:bg-orange-50"
-                            title="Принудительно завершить попытку">
+                            title="Сдать текущую попытку за ученика (оставшиеся попытки сохраняются)">
                             <CheckCheck className="h-3.5 w-3.5 mr-1" />
-                            Завершить
+                            Сдать попытку
                           </Button>
                         </AlertDialogTrigger>
                         <AlertDialogContent>
@@ -140,6 +144,8 @@ function TableView({ rows, tab, isAdmin, onSelect, onDelete, onFinish }: {
                               Попытка ученика <b>{a.full_name}</b> по тесту «{a.test_title}» будет
                               принудительно завершена и проверена автоматически — даже если время
                               не истекло. Не начатая попытка получит статус «истекла».
+                              Оставшиеся попытки у ученика сохранятся — чтобы закрыть тест
+                              целиком, используйте «Завершить тест».
                             </AlertDialogDescription>
                           </AlertDialogHeader>
                           <AlertDialogFooter>
@@ -151,6 +157,16 @@ function TableView({ rows, tab, isAdmin, onSelect, onDelete, onFinish }: {
                         </AlertDialogContent>
                       </AlertDialog>
                     )}
+                    {/* Завершение всего теста для ученика — доступно и учителю
+                        (владельцу назначения), в отличие от «сдать попытку» */}
+                    <CloseAssignmentButton
+                      assignmentId={a.assignment_id}
+                      studentId={a.student_id}
+                      closedReason={a.closed_reason}
+                      targetLabel={`Ученик ${a.full_name} по тесту «${a.test_title}»`}
+                      size="row"
+                      label="Завершить тест"
+                    />
                     {showDelete && (
                       <AlertDialog>
                         <AlertDialogTrigger asChild>

@@ -5,6 +5,8 @@ import { Badge } from '@/components/ui/badge'
 import { StatusChip } from '@/components/shared/StatusChip'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { closedReasonLabel } from '@/lib/assignments/completion'
+import { CloseAssignmentButton } from '@/components/teacher/CloseAssignmentButton'
 import type { ProgramDetail } from '@/lib/roadmaps/progress'
 
 interface Props {
@@ -97,7 +99,28 @@ export function ProgramProgressView({ program, readOnly = false, onSelectAttempt
                                     {s.attempts_used}/{item.max_attempts}
                                   </span>
                                 )}
+                                {closedReasonLabel(s?.closed_reason) && (
+                                  <span
+                                    className="text-[11px] font-medium text-emerald-700 dark:text-emerald-400"
+                                    title={`Завершено: ${closedReasonLabel(s?.closed_reason)}`}
+                                  >
+                                    ✓ завершено
+                                  </span>
+                                )}
                                 <StatusChip status={s?.status ?? 'not_started'} />
+                                {/* stopPropagation: строка кликабельна и открывает
+                                    попытку — кнопка не должна её открывать */}
+                                {!readOnly && (
+                                  <span onClick={(e) => e.stopPropagation()}>
+                                    <CloseAssignmentButton
+                                      assignmentId={item.assignment_id}
+                                      studentId={student.id}
+                                      closedReason={s?.closed_reason ?? null}
+                                      targetLabel={`Ученик ${student.full_name} по заданию «${item.title}»`}
+                                      size="row"
+                                    />
+                                  </span>
+                                )}
                               </span>
                             </div>
                           )

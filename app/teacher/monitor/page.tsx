@@ -22,6 +22,7 @@ export default async function MonitorPage() {
       assignments!inner (
         id,
         max_attempts,
+        closed_at,
         test_version_id,
         test_versions!test_version_id (
           tests!test_id ( title )
@@ -42,10 +43,10 @@ export default async function MonitorPage() {
   const { data: finalResults } = asgnIds.length
     ? await supabase
         .from('student_final_results')
-        .select('student_id, assignment_id, final_score, max_score, attempt_count, status')
+        .select('student_id, assignment_id, final_score, max_score, attempt_count, status, closed_reason')
         .in('assignment_id', asgnIds)
         .in('student_id', studentIds)
-    : { data: [] as { student_id: string; assignment_id: string | null; final_score: number | null; max_score: number | null; attempt_count: number | null; status: string | null }[] }
+    : { data: [] as { student_id: string; assignment_id: string | null; final_score: number | null; max_score: number | null; attempt_count: number | null; status: string | null; closed_reason: string | null }[] }
 
   // Map: "studentId_assignmentId" → final result
   const finalMap = new Map(
@@ -98,11 +99,17 @@ export default async function MonitorPage() {
     const final = finalMap.get(finalKey)
     const totalAttempts = Math.max(final?.attempt_count ?? 0, liveTotal)
     const allUsed = totalAttempts >= maxAttempts && !['in_progress', 'not_started'].includes(a.status)
+    // назначение закрыто досрочно (полный балл / решение учителя, 038) —
+    // для строки это тот же «completed», что и при исчерпанных попытках
+    const closedReason = asgn?.closed_at ? 'forced' : final?.closed_reason ?? null
+    const isClosed = closedReason != null
 
     return {
       id: a.id,
       student_id: a.student_id,
-      status: allUsed && a.status === 'checked' ? 'completed' : a.status,
+      assignment_id: (a as any).assignment_id as string,
+      closed_reason: closedReason,
+      status: (allUsed || isClosed) && a.status === 'checked' ? 'completed' : a.status,
       current_task_number: a.current_task_number,
       score: final?.final_score ?? a.score,
       max_score: final?.max_score ?? a.max_score,
@@ -124,7 +131,7 @@ export default async function MonitorPage() {
   const { data: asgnRows } = await supabase
     .from('assignments')
     .select(`
-      id, starts_at, ends_at, max_attempts, created_at, kind,
+      id, starts_at, ends_at, max_attempts, created_at, kind, closed_at,
       group_id, student_id, test_version_id,
       test_versions!test_version_id ( tests!test_id ( title, kind ) ),
       groups ( name ),
@@ -139,9 +146,9 @@ export default async function MonitorPage() {
   const { data: asgnFinals } = asgnRowIds.length
     ? await supabase
         .from('student_final_results')
-        .select('student_id, assignment_id, final_score, max_score, attempt_count')
+        .select('student_id, assignment_id, final_score, max_score, attempt_count, closed_reason')
         .in('assignment_id', asgnRowIds)
-    : { data: [] as { student_id: string; assignment_id: string | null; final_score: number | null; max_score: number | null; attempt_count: number | null }[] }
+    : { data: [] as { student_id: string; assignment_id: string | null; final_score: number | null; max_score: number | null; attempt_count: number | null; closed_reason: string | null }[] }
   const asgnFinalMap = new Map(
     (asgnFinals ?? []).filter(r => r.assignment_id).map(r => [`${r.student_id}_${r.assignment_id}`, r])
   )
@@ -172,6 +179,8 @@ export default async function MonitorPage() {
       is_completed: !isGroup && completedCount >= maxAttempts && completedCount > 0,
       last_result: sfr && sfr.final_score != null ? `${sfr.final_score}/${sfr.max_score ?? '?'}` : null,
       kind,
+      closed_at: a.closed_at ?? null,
+      closed_reason: sfr?.closed_reason ?? null,
     }
   })
 

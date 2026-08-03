@@ -118,6 +118,8 @@ export interface ProgramItemStatus {
   attempt_id: string | null
   attempts_used: number
   max_attempts: number
+  /** null — задание открыто; см. lib/assignments/completion */
+  closed_reason: string | null
 }
 
 export interface ProgramTopicItem {
@@ -165,13 +167,14 @@ export async function getRoadmapDetail(supabase: Client, roadmapId: string): Pro
     ? await supabase
         .from('assignments')
         .select(`
-          id, roadmap_topic_id, kind, max_attempts, ends_at, test_version_id,
+          id, roadmap_topic_id, kind, max_attempts, ends_at, closed_at, test_version_id,
           test_versions!test_version_id ( tests!test_id ( title, kind ) )
         `)
         .in('roadmap_topic_id', topicIds)
     : { data: [] as {
         id: string; roadmap_topic_id: string | null; kind: string | null
-        max_attempts: number | null; ends_at: string | null; test_version_id: string
+        max_attempts: number | null; ends_at: string | null; closed_at: string | null
+        test_version_id: string
         test_versions: { tests: { title: string; kind: string } | null } | null
       }[] }
 
@@ -201,12 +204,13 @@ export async function getRoadmapDetail(supabase: Client, roadmapId: string): Pro
     // балл/счётчик попыток (см. миграцию 032).
     (assignmentIds.length && studentIds.length)
       ? supabase.from('student_final_results')
-          .select('student_id, assignment_id, final_score, max_score, attempt_count')
+          .select('student_id, assignment_id, final_score, max_score, attempt_count, closed_reason')
           .in('assignment_id', assignmentIds)
           .in('student_id', studentIds)
       : Promise.resolve({ data: [] as {
           student_id: string; assignment_id: string | null
           final_score: number | null; max_score: number | null; attempt_count: number | null
+          closed_reason: string | null
         }[] }),
   ])
 
@@ -229,7 +233,7 @@ export async function getRoadmapDetail(supabase: Client, roadmapId: string): Pro
     liveCountByKey.set(key, (liveCountByKey.get(key) ?? 0) + 1)
   }
 
-  const sfrByKey = new Map<string, { final_score: number | null; max_score: number | null; attempt_count: number | null }>()
+  const sfrByKey = new Map<string, { final_score: number | null; max_score: number | null; attempt_count: number | null; closed_reason: string | null }>()
   for (const r of sfr ?? []) {
     if (!r.assignment_id) continue
     sfrByKey.set(`${r.assignment_id}_${r.student_id}`, r)
@@ -252,6 +256,9 @@ export async function getRoadmapDetail(supabase: Client, roadmapId: string): Pro
         // поэтому он приоритетнее живого подсчёта
         attempts_used: Math.max(sfrRow?.attempt_count ?? 0, liveCountByKey.get(key) ?? 0),
         max_attempts: a.max_attempts ?? 1,
+        // closed_at на назначении — закрытие «для всех», оно перекрывает
+        // персональную причину (миграция 038)
+        closed_reason: a.closed_at ? 'forced' : sfrRow?.closed_reason ?? null,
       })
     }
   }

@@ -32,6 +32,7 @@ export default async function AttemptPage({ params }: PageProps) {
       time_limit_override_sec,
       starts_at,
       ends_at,
+      closed_at,
       preserve_answers,
       roadmap_topic_id,
       test_versions!test_version_id (
@@ -77,14 +78,25 @@ export default async function AttemptPage({ params }: PageProps) {
   const timeLimitSec: number | null =
     assignment.time_limit_override_sec ?? tv?.time_limit_sec ?? null
 
-  // Find existing in_progress or not_started attempt
-  const { data: existingAttempts } = await supabase
-    .from('attempts')
-    .select('id, status, started_at')
-    .eq('assignment_id', assignmentId)
-    .eq('student_id', user.id)
-    .in('status', ['in_progress', 'not_started', 'submitted', 'checked'])
-    .order('created_at', { ascending: false })
+  const listHref = assignment.roadmap_topic_id != null ? '/student/roadmap' : '/student'
+
+  // Find existing in_progress or not_started attempt + признак «назначение
+  // закрыто» (полный балл / решение учителя, см. миграцию 038)
+  const [{ data: existingAttempts }, { data: finalResult }] = await Promise.all([
+    supabase
+      .from('attempts')
+      .select('id, status, started_at')
+      .eq('assignment_id', assignmentId)
+      .eq('student_id', user.id)
+      .in('status', ['in_progress', 'not_started', 'submitted', 'checked'])
+      .order('created_at', { ascending: false }),
+    supabase
+      .from('student_final_results')
+      .select('closed_reason')
+      .eq('assignment_id', assignmentId)
+      .eq('student_id', user.id)
+      .maybeSingle(),
+  ])
 
   // Count completed attempts to check if more are available
   const completedAttempts = (existingAttempts ?? []).filter(
@@ -99,6 +111,19 @@ export default async function AttemptPage({ params }: PageProps) {
   )
   if (completedAttempts.length > 0 && attemptsLeft <= 0 && !activeAttempt) {
     redirect(`/student/attempt/${assignmentId}/result`)
+  }
+
+  // Назначение завершено досрочно — новых попыток не даём, даже если лимит не
+  // исчерпан. Это ЕДИНСТВЕННОЕ место, где реально создаётся попытка, поэтому
+  // проверка здесь, а не только в кнопках на списках.
+  // Активной попытки после закрытия быть не должно (closeAssignment
+  // финализирует in_progress и гасит not_started), но если она осталась из-за
+  // гонки — закрытие важнее: дорешивать в закрытом назначении нечего.
+  const isClosed = assignment.closed_at != null || finalResult?.closed_reason != null
+  if (isClosed) {
+    // на страницу результата — только если есть что показать: иначе она
+    // отправит обратно сюда и получится цикл редиректов
+    redirect(completedAttempts.length > 0 ? `/student/attempt/${assignmentId}/result` : listHref)
   }
 
   let attempt = existingAttempts?.find(
@@ -259,7 +284,7 @@ export default async function AttemptPage({ params }: PageProps) {
       testTitle={test?.title ?? 'Тест'}
       subject={test?.subject ?? null}
       examType={test?.exam_type ?? null}
-      backHref={assignment.roadmap_topic_id != null ? '/student/roadmap' : '/student'}
+      backHref={listHref}
       backLabel={assignment.roadmap_topic_id != null ? 'Вернуться в программы' : 'Вернуться к списку тестов'}
     />
   )

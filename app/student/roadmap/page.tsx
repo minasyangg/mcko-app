@@ -28,7 +28,7 @@ export default async function StudentRoadmapPage() {
       : Promise.resolve({ data: [] as { id: string; roadmap_id: string; title: string; sort_order: number }[] }),
     groupIds.length
       ? supabase.from('assignments')
-          .select('id, roadmap_topic_id, kind, max_attempts, ends_at, test_versions!test_version_id(tests!test_id(title, is_active))')
+          .select('id, roadmap_topic_id, kind, max_attempts, ends_at, closed_at, test_versions!test_version_id(tests!test_id(title, is_active))')
           .in('group_id', groupIds).not('roadmap_topic_id', 'is', null)
       : Promise.resolve({ data: [] as never[] }),
   ])
@@ -48,12 +48,12 @@ export default async function StudentRoadmapPage() {
           .in('assignment_id', assignmentIds).eq('student_id', user.id)
           .order('created_at', { ascending: false }),
         supabase.from('student_final_results')
-          .select('assignment_id, final_score, max_score, attempt_count')
+          .select('assignment_id, final_score, max_score, attempt_count, closed_reason')
           .in('assignment_id', assignmentIds).eq('student_id', user.id),
       ])
     : [
         { data: [] as { assignment_id: string | null; status: string; score: number | null; max_score: number | null }[] },
-        { data: [] as { assignment_id: string | null; final_score: number | null; max_score: number | null; attempt_count: number | null }[] },
+        { data: [] as { assignment_id: string | null; final_score: number | null; max_score: number | null; attempt_count: number | null; closed_reason: string | null }[] },
       ]
 
   const latestByAssignment = new Map<string, { status: string; score: number | null; max_score: number | null }>()
@@ -66,7 +66,7 @@ export default async function StudentRoadmapPage() {
     }
   }
 
-  const finalByAssignment = new Map<string, { final_score: number | null; max_score: number | null; attempt_count: number | null }>()
+  const finalByAssignment = new Map<string, { final_score: number | null; max_score: number | null; attempt_count: number | null; closed_reason: string | null }>()
   for (const f of finals ?? []) {
     if (f.assignment_id) finalByAssignment.set(f.assignment_id, f)
   }
@@ -92,6 +92,9 @@ export default async function StudentRoadmapPage() {
       attempts_used: Math.max(fin?.attempt_count ?? 0, usedByAssignment.get(a.id) ?? 0),
       max_attempts: a.max_attempts ?? 1,
       ends_at: a.ends_at,
+      // закрытие назначения (полный балл / решение учителя) важнее остатка
+      // попыток — см. миграцию 038
+      closed_reason: fin?.closed_reason ?? (a.closed_at ? 'forced' : null),
     })
     itemsByTopic.set(tid, arr)
   }

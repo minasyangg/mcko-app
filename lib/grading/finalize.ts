@@ -1,8 +1,13 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import { checkAnswer } from '@/lib/grading/checker'
 import { formatAnswerJson } from '@/lib/grading/format-answer-display'
+import type { ClosedReason } from '@/lib/assignments/completion'
 
 export type AdminClient = ReturnType<typeof createAdminClient>
+
+// Словарь причин закрытия живёт в отдельном чистом модуле — его же импортируют
+// клиентские компоненты учителя, а сюда тянется admin-клиент.
+export type { ClosedReason } from '@/lib/assignments/completion'
 
 // AI-проверка письменных ответов (manual/text с эталоном). Вынесена из
 // submit-роута, чтобы её могли использовать и ученик (submit), и админ
@@ -254,12 +259,22 @@ export async function finalizeAttempt(
 // тот же тест бывает назначен ученику дважды (обычное назначение + привязка к
 // теме программы), и общая строка на версию теста означала бы, что назначения
 // затирают итоги друг друга (см. миграцию 032).
+//
+// Здесь же решается, ЗАКРЫТО ли назначение для ученика (closed_reason, 038):
+// полный балл, исчерпанные попытки или решение учителя. Отдельного места для
+// этого нет специально — закрытие зависит от итогового балла и счётчика
+// попыток, которые считаются только тут.
 export async function updateCumulativeResult(
   admin: AdminClient,
   assignmentId: string,
   studentId: string,
-  opts?: { preserveAttemptCount?: boolean }
-): Promise<{ finalScore: number; maxScore: number; attemptCount: number } | null> {
+  opts?: { preserveAttemptCount?: boolean; forceCloseBy?: string }
+): Promise<{
+  finalScore: number
+  maxScore: number
+  attemptCount: number
+  closedReason: ClosedReason
+} | null> {
   const { data: assignment } = await admin
     .from('assignments')
     .select('max_attempts, test_version_id')
@@ -267,6 +282,9 @@ export async function updateCumulativeResult(
     .single()
   if (!assignment) return null
 
+  // Существующая строка нужна всегда, а не только при preserveAttemptCount:
+  // из неё берётся «липкое» принудительное закрытие и момент закрытия, которые
+  // пересчитать из попыток нельзя.
   const [{ data: completedAttempts }, { data: tasks }, { data: existing }] = await Promise.all([
     admin.from('attempts')
       .select('id')
@@ -276,13 +294,11 @@ export async function updateCumulativeResult(
     admin.from('test_tasks')
       .select('max_score')
       .eq('test_version_id', assignment.test_version_id),
-    opts?.preserveAttemptCount
-      ? admin.from('student_final_results')
-          .select('attempt_count')
-          .eq('student_id', studentId)
-          .eq('assignment_id', assignmentId)
-          .maybeSingle()
-      : Promise.resolve({ data: null as { attempt_count: number | null } | null }),
+    admin.from('student_final_results')
+      .select('attempt_count, closed_at, closed_by, closed_reason')
+      .eq('student_id', studentId)
+      .eq('assignment_id', assignmentId)
+      .maybeSingle(),
   ])
 
   const attemptIds = (completedAttempts ?? []).map(a => a.id)
@@ -311,7 +327,20 @@ export async function updateCumulativeResult(
 
   const maxScore = (tasks ?? []).reduce((s, t) => s + (t.max_score ?? 1), 0)
 
+  // Причина закрытия. Приоритет — у решения учителя: forced «липкий», обычный
+  // пересчёт его не снимает (снять можно только явным переоткрытием, см.
+  // DELETE /api/assignments/[id]/close).
+  //
+  // max_score раньше остальных расчётных причин: ученик, набравший полный балл,
+  // завершил тест, даже если попытки остались. Дальнейшие попытки не могут
+  // изменить итог — он считается как MAX(awarded_score) по каждому заданию
+  // среди всех попыток, то есть уже упёрся в потолок.
+  const forced = opts?.forceCloseBy != null || existing?.closed_reason === 'forced'
+  const perfect = maxScore > 0 && finalScore >= maxScore
   const allUsed = attemptCount >= (assignment.max_attempts ?? 1)
+  const closedReason: ClosedReason =
+    forced ? 'forced' : perfect ? 'max_score' : allUsed ? 'attempts_exhausted' : null
+
   const now = new Date().toISOString()
 
   await admin.from('student_final_results').upsert({
@@ -322,9 +351,14 @@ export async function updateCumulativeResult(
     max_score: maxScore || null,
     attempt_count: attemptCount,
     last_completed_at: now,
-    status: allUsed ? 'completed' : 'in_progress',
+    status: closedReason ? 'completed' : 'in_progress',
+    closed_reason: closedReason,
+    // момент первого закрытия не переписываем — иначе каждая пересдача/проверка
+    // сдвигала бы дату «тест завершён»
+    closed_at: closedReason ? (existing?.closed_at ?? now) : null,
+    closed_by: closedReason === 'forced' ? (opts?.forceCloseBy ?? existing?.closed_by ?? null) : null,
     updated_at: now,
   }, { onConflict: 'student_id,assignment_id' })
 
-  return { finalScore, maxScore, attemptCount }
+  return { finalScore, maxScore, attemptCount, closedReason }
 }
