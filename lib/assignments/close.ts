@@ -45,21 +45,44 @@ async function resolveTargetStudents(
   return (members ?? []).map(m => m.user_id)
 }
 
+// Кого этим назначением вообще законно закрывать: текущие адресаты ПЛЮС те, у
+// кого по нему уже есть попытки. Второе — не послабление, а покрытие реального
+// случая: ученика вывели из группы уже после того, как он сдал работу, и его
+// результат всё равно надо уметь закрыть.
+//
+// Проверка обязательна: student_id приходит из тела запроса, а
+// updateCumulativeResult делает upsert — без неё владелец назначения мог бы
+// СОЗДАТЬ строку итога на произвольный profile id, в том числе чужой
+// организации. Права на само назначение этого не покрывают.
+async function resolveClosableStudents(
+  admin: AdminClient,
+  assignmentId: string
+): Promise<Set<string>> {
+  const [targets, { data: attemptRows }] = await Promise.all([
+    resolveTargetStudents(admin, assignmentId),
+    admin.from('attempts').select('student_id').eq('assignment_id', assignmentId),
+  ])
+  return new Set([...targets, ...(attemptRows ?? []).map(a => a.student_id)])
+}
+
 /**
  * Завершает назначение принудительно.
  * @param studentId — закрыть только для одного ученика; без него закрывается
  *   всё назначение (проставляется assignments.closed_at).
+ * @returns null, если studentId не относится к этому назначению.
  */
 export async function closeAssignment(
   admin: AdminClient,
   opts: { assignmentId: string; closedBy: string; studentId?: string }
-): Promise<CloseResult> {
+): Promise<CloseResult | null> {
   const { assignmentId, closedBy, studentId } = opts
 
   // Адресаты назначения. Даже при закрытии всего назначения список нужен: у
   // ученика может не быть ни одной попытки, а строку итога («0 из N, завершено»)
   // статистика всё равно должна увидеть.
-  const targets = studentId ? [studentId] : await resolveTargetStudents(admin, assignmentId)
+  const closable = await resolveClosableStudents(admin, assignmentId)
+  if (studentId && !closable.has(studentId)) return null
+  const targets = studentId ? [studentId] : [...closable]
 
   // Незавершённые попытки этого назначения (по нужным ученикам)
   let activeQuery = admin

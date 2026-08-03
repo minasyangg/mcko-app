@@ -68,12 +68,34 @@ export async function POST(request: NextRequest) {
         return Response.json({ ok: true })
       }
 
+      // Ник уникальным ограничением не защищён, и раньше chat_id проставлялся
+      // ВСЕМ совпавшим профилям — один чат начинал получать уведомления за
+      // несколько человек (ФИО учеников, баллы), то есть утечку. Привязываем
+      // только при однозначном совпадении.
+      if (matches.length > 1) {
+        await sendTelegramMessage(chatId,
+          `Ник @${username} указан сразу у нескольких профилей на платформе, ` +
+          'поэтому подключить уведомления нельзя — непонятно, кому они предназначены. ' +
+          'Обратитесь к администратору, чтобы лишний профиль убрал этот ник.')
+        return Response.json({ ok: true })
+      }
+
+      const profile = matches[0]
+
+      // Один чат — один профиль: снимаем прежние привязки этого же чата.
+      // Иначе после смены ника старый профиль остаётся привязанным к чату и
+      // продолжает слать в него чужие уведомления.
+      await admin.from('profiles')
+        .update({ telegram_chat_id: null })
+        .eq('telegram_chat_id', chatId)
+        .neq('id', profile.id)
+
       await admin.from('profiles')
         .update({ telegram_chat_id: chatId })
-        .in('id', matches.map(m => m.id))
+        .eq('id', profile.id)
 
       await sendTelegramMessage(chatId,
-        `✅ Готово, ${matches[0].full_name}! Уведомления платформы подключены. ` +
+        `✅ Готово, ${profile.full_name}! Уведомления платформы подключены. ` +
         'Отключить можно командой /stop.')
       return Response.json({ ok: true })
     }

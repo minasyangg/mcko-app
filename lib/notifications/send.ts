@@ -74,6 +74,29 @@ const fmtDate = (iso: string | null | undefined) =>
 
 const lines = (parts: (string | null | undefined)[]) => parts.filter(Boolean).join('\n')
 
+// Все словоформы вида работы — одной таблицей. Раньше контекст нёс четыре
+// готовые строки, а род в «Вам назначен(о)» выводился сравнением метки с
+// «Тест» — то есть текст метки был ещё и грамматическим признаком, и правка
+// метки молча ломала согласование. Теперь вид работы — один флаг, формы рядом.
+const KIND_WORDS = {
+  test: {
+    label: 'Тест',
+    nominative: 'тест',
+    dative: 'тесту',
+    assigned: 'назначен',
+    done: 'Тест завершён',
+    doneLower: 'тест завершён',
+  },
+  homework: {
+    label: 'Домашнее задание',
+    nominative: 'домашнее задание',
+    dative: 'домашнему заданию',
+    assigned: 'назначено',
+    done: 'Задание завершено',
+    doneLower: 'задание завершено',
+  },
+} as const
+
 // ── Контекст назначения для текста сообщений ────────────────────────────────
 // Одно название теста получателю мало: и ДЗ из программы, и точно такой же тест,
 // назначенный группе, приходят с одинаковым заголовком. Учителю нужен источник
@@ -87,13 +110,7 @@ interface AssignmentContext {
   endsAt: string | null
   maxAttempts: number
   title: string
-  /** «Домашнее задание» | «Тест» */
-  kindLabel: string
-  /** «домашнему заданию» | «тесту» — для фраз вида «работа по …» */
-  kindDative: string
-  /** «Задание завершено» | «Тест завершён» — род зависит от вида работы */
-  doneUpper: string
-  doneLower: string
+  words: (typeof KIND_WORDS)[keyof typeof KIND_WORDS]
   subject: string | null
   /** «Программа «X»» | «Группа «Y»» | «Персональное назначение» */
   source: string | null
@@ -167,10 +184,7 @@ async function loadAssignmentContext(
     endsAt: a.ends_at,
     maxAttempts: a.max_attempts ?? 1,
     title: test?.title ?? 'без названия',
-    kindLabel: isHomework ? 'Домашнее задание' : 'Тест',
-    kindDative: isHomework ? 'домашнему заданию' : 'тесту',
-    doneUpper: isHomework ? 'Задание завершено' : 'Тест завершён',
-    doneLower: isHomework ? 'задание завершено' : 'тест завершён',
+    words: isHomework ? KIND_WORDS.homework : KIND_WORDS.test,
     subject: test?.subject?.trim() || null,
     source,
   }
@@ -197,7 +211,7 @@ export async function notifyAssignmentCreated(assignmentId: string): Promise<voi
     // Ученику — предмет и вид работы; откуда пришло назначение (программа или
     // группа), ему не важно: задание всё равно одно и лежит в его списке.
     const message = lines([
-      `📝 Вам назначен${ctx.kindLabel === 'Тест' ? '' : 'о'} ${ctx.kindLabel.toLowerCase()}: «${ctx.title}»`,
+      `📝 Вам ${ctx.words.assigned} ${ctx.words.nominative}: «${ctx.title}»`,
       ctx.subject ? `Предмет: ${ctx.subject}` : null,
       `Попыток: ${ctx.maxAttempts}${due ? ` · выполнить до ${due}` : ''}`,
     ])
@@ -213,9 +227,9 @@ export async function notifyAssignmentCreated(assignmentId: string): Promise<voi
 // как достижение, а не как ограничение.
 function completionLine(closedReason: string | null | undefined, ctx: AssignmentContext): string | null {
   switch (closedReason) {
-    case 'max_score': return `🏆 Набран максимальный балл — ${ctx.doneLower}, новых попыток не будет.`
-    case 'attempts_exhausted': return `🔒 ${ctx.doneUpper}: попытки исчерпаны.`
-    case 'forced': return `🔒 ${ctx.doneUpper} учителем.`
+    case 'max_score': return `🏆 Набран максимальный балл — ${ctx.words.doneLower}, новых попыток не будет.`
+    case 'attempts_exhausted': return `🔒 ${ctx.words.done}: попытки исчерпаны.`
+    case 'forced': return `🔒 ${ctx.words.done} учителем.`
     default: return null
   }
 }
@@ -277,7 +291,7 @@ export async function notifyAttemptFinalized(
         eventType: 'attempt_checked',
         userIds: [at.student_id],
         message: lines([
-          `✅ Ваша работа по ${ctx.kindDative} «${ctx.title}» проверена: ${attemptScore} баллов.`,
+          `✅ Ваша работа по ${ctx.words.dative} «${ctx.title}» проверена: ${attemptScore} баллов.`,
           ctx.subject ? `Предмет: ${ctx.subject}` : null,
           attemptsLine,
           totalLine,
@@ -311,7 +325,7 @@ export async function notifyAttemptFinalized(
         `${student?.full_name ?? 'Ученик'} — «${ctx.title}»`,
         // вид работы · предмет · откуда назначено — по одному названию теста
         // учитель не отличит ДЗ из программы от такого же теста у группы
-        [ctx.kindLabel, ctx.subject, ctx.source].filter(Boolean).join(' · '),
+        [ctx.words.label, ctx.subject, ctx.source].filter(Boolean).join(' · '),
         [attemptsLine, scoreLine].filter(Boolean).join(' · '),
         totalLine,
         closing,

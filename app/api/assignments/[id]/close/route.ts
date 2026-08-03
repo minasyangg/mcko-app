@@ -63,6 +63,12 @@ export async function POST(
   const studentId = typeof body?.student_id === 'string' ? body.student_id : undefined
 
   const result = await closeAssignment(admin, { assignmentId, closedBy: userId, studentId })
+  if (!result) {
+    return NextResponse.json(
+      { error: 'Ученик не относится к этому назначению' },
+      { status: 400 }
+    )
+  }
 
   // Уведомления — после ответа и последовательно (лимиты Bot API).
   // Ученикам результат уходит, учителю — нет: он сам инициировал завершение и
