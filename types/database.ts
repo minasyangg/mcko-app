@@ -95,6 +95,13 @@ export type Database = {
         }
         Relationships: [
           {
+            foreignKeyName: "assignments_closed_by_fkey"
+            columns: ["closed_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "assignments_created_by_fkey"
             columns: ["created_by"]
             isOneToOne: false
@@ -615,6 +622,122 @@ export type Database = {
             columns: ["organization_id"]
             isOneToOne: false
             referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      doska_board_guest_links: {
+        Row: {
+          board_id: string
+          created_at: string
+          token: string
+        }
+        Insert: {
+          board_id: string
+          created_at?: string
+          token: string
+        }
+        Update: {
+          board_id?: string
+          created_at?: string
+          token?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "doska_board_guest_links_board_id_fkey"
+            columns: ["board_id"]
+            isOneToOne: true
+            referencedRelation: "doska_boards"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      doska_board_participants: {
+        Row: {
+          access: string
+          added_by: string
+          board_id: string
+          created_at: string
+          user_id: string
+        }
+        Insert: {
+          access?: string
+          added_by: string
+          board_id: string
+          created_at?: string
+          user_id: string
+        }
+        Update: {
+          access?: string
+          added_by?: string
+          board_id?: string
+          created_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "doska_board_participants_added_by_fkey"
+            columns: ["added_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "doska_board_participants_board_id_fkey"
+            columns: ["board_id"]
+            isOneToOne: false
+            referencedRelation: "doska_boards"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "doska_board_participants_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      doska_boards: {
+        Row: {
+          created_at: string
+          deleted_at: string | null
+          guest_access: string
+          id: string
+          locked: boolean
+          object_edit_policy: string
+          owner_id: string
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          deleted_at?: string | null
+          guest_access?: string
+          id: string
+          locked?: boolean
+          object_edit_policy?: string
+          owner_id: string
+          title?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          deleted_at?: string | null
+          guest_access?: string
+          id?: string
+          locked?: boolean
+          object_edit_policy?: string
+          owner_id?: string
+          title?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "doska_boards_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
         ]
@@ -1802,6 +1925,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "student_final_results_closed_by_fkey"
+            columns: ["closed_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "student_final_results_student_id_fkey"
             columns: ["student_id"]
             isOneToOne: false
@@ -2328,6 +2458,10 @@ export type Database = {
         Args: { p_attempt_id: string }
         Returns: boolean
       }
+      check_attempt_startable: {
+        Args: { p_assignment_id: string; p_student_id: string }
+        Returns: boolean
+      }
       check_attempt_student_owned_by_auth: {
         Args: { p_attempt_id: string }
         Returns: boolean
@@ -2394,6 +2528,25 @@ export type Database = {
       delete_student_cascade: {
         Args: { target_student_id: string }
         Returns: Json
+      }
+      doska_board_in_auth_org: {
+        Args: { p_board_id: string }
+        Returns: boolean
+      }
+      doska_board_is_owner: { Args: { p_board_id: string }; Returns: boolean }
+      doska_board_is_participant: {
+        Args: { p_board_id: string }
+        Returns: boolean
+      }
+      doska_guest_open: {
+        Args: { p_board_id: string; p_token: string }
+        Returns: {
+          access: string
+          board_id: string
+          locked: boolean
+          object_edit_policy: string
+          title: string
+        }[]
       }
       get_active_students: {
         Args: { org_id: string }
