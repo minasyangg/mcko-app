@@ -28,7 +28,10 @@ export async function GET(req: Request) {
   if (!doskaUrl || !ssoSecret) {
     return NextResponse.redirect(new URL('/?doska=not-configured', url.origin))
   }
-  if (!/^[A-Za-z0-9_-]{1,40}$/.test(boardId)) {
+  // Пустой b — это вход в саму доску без конкретного полотна: доска шлёт сюда
+  // человека, у которого нет её сессии, чтобы не заставлять вводить пароль
+  // второй раз. Дальше он попадёт в список своих досок.
+  if (boardId && !/^[A-Za-z0-9_-]{1,40}$/.test(boardId)) {
     return NextResponse.redirect(new URL('/?doska=bad-board', url.origin))
   }
 
@@ -40,13 +43,15 @@ export async function GET(req: Request) {
 
   // Доступ проверяет RLS: под клиентом пользователя строка видна только
   // владельцу, участнику и админу организации (см. 041_doska_boards.sql).
-  const { data: board } = await supabase
-    .from('doska_boards')
-    .select('id')
-    .eq('id', boardId)
-    .is('deleted_at', null)
-    .maybeSingle()
-  if (!board) return NextResponse.redirect(new URL('/?doska=no-access', url.origin))
+  if (boardId) {
+    const { data: board } = await supabase
+      .from('doska_boards')
+      .select('id')
+      .eq('id', boardId)
+      .is('deleted_at', null)
+      .maybeSingle()
+    if (!board) return NextResponse.redirect(new URL('/?doska=no-access', url.origin))
+  }
 
   const admin = createAdminClient()
   const { data: link, error: linkError } = await admin.auth.admin.generateLink({
