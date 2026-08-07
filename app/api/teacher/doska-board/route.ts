@@ -1,12 +1,23 @@
+import { randomBytes } from 'crypto'
 import { createClient } from '@/lib/supabase/server'
-import { createAdminClient } from '@/lib/supabase/admin'
 
-// Создаёт (или возвращает уже существующую) постоянную доску для пары
-// учитель-ученик на отдельном приложении doska (canvas + WebSocket, своя
-// файловая БД контента). Здесь хранится только привязка board_id к паре
-// teacher_id/student_id — см. supabase/migrations/037_doska_student_boards.sql.
-// Идентичность учителя в doska проверяется тем же Supabase access-токеном,
-// который передаётся дальше в URL-фрагменте (#token=), без своего логина в doska.
+// Кнопка «Доска» напротив ученика: открыть общую с ним доску, а если ещё ни
+// одной нет — завести. Контракт для интерфейса прежний: POST { studentId } →
+// { boardId, url }.
+//
+// Что изменилось внутри. Раньше привязка лежала в doska_student_boards с
+// unique (teacher_id, student_id), то есть доска на пару была ровно одна, и
+// создавалась она HTTP-вызовом к самой доске под проброшенным токеном. Теперь
+// источник правды — doska_boards и doska_board_participants (041), запись идёт
+// клиентом самого учителя, и всё разрешает RLS: политика insert на участников
+// зовёт check_student_owned_by_auth, поэтому «свой ли это ученик» проверяет
+// база, а не мы. Ни сервисный клиент, ни вызов к доске здесь больше не нужны —
+// содержимое доска заведёт сама при первом открытии.
+//
+// Досок на пару может быть сколько угодно; открываем последнюю по изменению.
+
+const newBoardId = () => 'b' + randomBytes(20).toString('base64url').slice(0, 10)
+
 export async function POST(req: Request) {
   const { studentId } = await req.json().catch(() => ({}))
   if (!studentId || typeof studentId !== 'string') {
@@ -18,67 +29,51 @@ export async function POST(req: Request) {
   if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { data: profile } = await supabase
-    .from('profiles').select('role').eq('id', user.id).single()
+    .from('profiles').select('role, full_name').eq('id', user.id).single()
   if (!profile || profile.role !== 'teacher') {
     return Response.json({ error: 'Доступно только учителю' }, { status: 403 })
   }
 
-  const { data: owned } = await supabase.rpc('check_student_owned_by_auth', { p_student_id: studentId })
-  if (!owned) return Response.json({ error: 'Этот ученик не закреплён за вами' }, { status: 403 })
-
-  const doskaUrl = process.env.DOSKA_URL?.replace(/\/+$/, '')
-  if (!doskaUrl) return Response.json({ error: 'DOSKA_URL не настроен' }, { status: 500 })
-
-  // Токен нужен только как сырая строка для проброса в doska — личность уже
-  // проверена через getUser() выше, .user из getSession() здесь не используется.
-  const { data: { session } } = await supabase.auth.getSession()
-  const accessToken = session?.access_token
-  if (!accessToken) return Response.json({ error: 'Unauthorized' }, { status: 401 })
-
-  const admin = createAdminClient()
-  const { data: existing } = await admin
-    .from('doska_student_boards')
-    .select('board_id')
-    .eq('teacher_id', user.id)
-    .eq('student_id', studentId)
+  // Уже есть доска с этим учеником?
+  const { data: existing } = await supabase
+    .from('doska_board_participants')
+    .select('board_id, doska_boards!inner(id, owner_id, updated_at, deleted_at)')
+    .eq('user_id', studentId)
+    .eq('doska_boards.owner_id', user.id)
+    .is('doska_boards.deleted_at', null)
+    .order('updated_at', { referencedTable: 'doska_boards', ascending: false })
+    .limit(1)
     .maybeSingle()
 
-  let boardId = existing?.board_id
-
-  if (!boardId) {
-    const { data: student } = await admin
-      .from('profiles').select('full_name').eq('id', studentId).single()
-
-    const created = await fetch(doskaUrl + '/api/boards/create', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ token: accessToken, title: student?.full_name || 'Доска ученика' }),
-    }).then(r => r.json().then(data => ({ ok: r.ok, data }))).catch(() => null)
-
-    if (!created?.ok || !created.data?.board?.id) {
-      return Response.json({ error: created?.data?.error || 'Не удалось создать доску' }, { status: 502 })
-    }
-    boardId = created.data.board.id as string
-
-    const { error: insertError } = await admin
-      .from('doska_student_boards')
-      .insert({ teacher_id: user.id, student_id: studentId, board_id: boardId })
-
-    if (insertError) {
-      if (insertError.code === '23505') {
-        const { data: race } = await admin
-          .from('doska_student_boards')
-          .select('board_id')
-          .eq('teacher_id', user.id).eq('student_id', studentId)
-          .maybeSingle()
-        if (race?.board_id) boardId = race.board_id
-        else return Response.json({ error: 'Не удалось сохранить привязку доски' }, { status: 500 })
-      } else {
-        return Response.json({ error: 'Не удалось сохранить привязку доски' }, { status: 500 })
-      }
-    }
+  if (existing?.board_id) {
+    return Response.json({ boardId: existing.board_id, url: '/api/doska/open?b=' + existing.board_id })
   }
 
-  const url = `${doskaUrl}/#b=${boardId}&token=${encodeURIComponent(accessToken)}`
-  return Response.json({ boardId, url })
+  const { data: student } = await supabase
+    .from('profiles').select('full_name').eq('id', studentId).maybeSingle()
+  if (!student) {
+    return Response.json({ error: 'Этот ученик не закреплён за вами' }, { status: 403 })
+  }
+
+  const boardId = newBoardId()
+  const { error: boardError } = await supabase
+    .from('doska_boards')
+    .insert({ id: boardId, owner_id: user.id, title: student.full_name || 'Доска ученика' })
+  if (boardError) {
+    console.error('doska-board: создание доски', boardError.message)
+    return Response.json({ error: 'Не удалось создать доску' }, { status: 500 })
+  }
+
+  const { error: partError } = await supabase
+    .from('doska_board_participants')
+    .insert({ board_id: boardId, user_id: studentId, access: 'edit', added_by: user.id })
+  if (partError) {
+    // Политика отбила — значит ученик не закреплён за этим учителем. Доска без
+    // участников осталась бы мусором, поэтому убираем её тем же мягким способом.
+    await supabase.from('doska_boards')
+      .update({ deleted_at: new Date().toISOString() }).eq('id', boardId)
+    return Response.json({ error: 'Этот ученик не закреплён за вами' }, { status: 403 })
+  }
+
+  return Response.json({ boardId, url: '/api/doska/open?b=' + boardId })
 }

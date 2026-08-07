@@ -27,17 +27,25 @@ export default async function StudentHomePage() {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return null
 
-  // Постоянные доски (интеграция с отдельным приложением doska) — обычно
-  // одна на каждого прикреплённого учителя, см. 037_doska_student_boards.sql.
+  // Доски, куда ученика добавили участником (041_doska_boards.sql). Их может
+  // быть несколько у одного учителя — по темам или занятиям. Ссылка ведёт на
+  // /api/doska/open: там ученику выдаётся его собственная сессия доски, чтобы
+  // на доске было видно, кто именно пишет.
   const { data: doskaBoards } = await supabase
-    .from('doska_student_boards')
-    .select('board_id, teacher_id, profiles!doska_student_boards_teacher_id_fkey(full_name)')
-    .eq('student_id', user.id)
-  const doskaUrl = process.env.DOSKA_URL
-  const boardLinks = (doskaBoards ?? []).map((b) => ({
-    boardId: b.board_id,
-    teacherName: (b.profiles as { full_name: string } | null)?.full_name ?? 'учителем',
-  }))
+    .from('doska_board_participants')
+    .select('board_id, doska_boards!inner(id, title, updated_at, deleted_at, owner:profiles!doska_boards_owner_id_fkey(full_name))')
+    .eq('user_id', user.id)
+    .is('doska_boards.deleted_at', null)
+    .order('updated_at', { referencedTable: 'doska_boards', ascending: false })
+  const boardLinks = (doskaBoards ?? []).map((b) => {
+    const board = b.doska_boards as unknown as
+      { title: string; owner: { full_name: string } | null } | null
+    return {
+      boardId: b.board_id,
+      title: board?.title ?? 'Доска',
+      teacherName: board?.owner?.full_name ?? 'учителем',
+    }
+  })
 
   const { data: memberships } = await supabase
     .from('group_members')
@@ -113,13 +121,14 @@ export default async function StudentHomePage() {
         <p className="text-muted-foreground text-sm mt-1">Назначенные вам тесты</p>
       </div>
 
-      {doskaUrl && boardLinks.length > 0 && (
+      {boardLinks.length > 0 && (
         <div className="flex flex-wrap gap-2">
           {boardLinks.map((b) => (
             <Button key={b.boardId} asChild variant="outline" size="sm">
-              <a href={`${doskaUrl}/#b=${b.boardId}`} target="_blank" rel="noopener noreferrer">
+              <a href={`/api/doska/open?b=${b.boardId}`} target="_blank" rel="noopener noreferrer"
+                 title={`${b.title} — ведёт ${b.teacherName}`}>
                 <PenLine className="h-4 w-4 mr-2" />
-                Моя доска с {b.teacherName}
+                {b.title}
               </a>
             </Button>
           ))}

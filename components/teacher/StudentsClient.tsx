@@ -57,9 +57,12 @@ export function StudentsClient({ students: initial, isAdmin = false, teachers = 
   const [savingTeachers, setSavingTeachers] = useState(false)
   const teacherName = (id: string) => teachers.find(t => t.id === id)?.full_name ?? '—'
 
-  // Постоянная доска (doska) на ученика — своя для каждой пары учитель-ученик
+  // Общая доска с учеником: открыть последнюю или завести первую
   const [boardLoading, setBoardLoading] = useState<string | null>(null)
   async function handleOpenBoard(student: StudentRow) {
+    // Вкладку открываем синхронно, до await: после ожидания браузер считает
+    // window.open не следствием клика и блокирует его.
+    const tab = window.open('', '_blank', 'noopener,noreferrer')
     setBoardLoading(student.id)
     try {
       const res = await fetch('/api/teacher/doska-board', {
@@ -68,8 +71,12 @@ export function StudentsClient({ students: initial, isAdmin = false, teachers = 
         body: JSON.stringify({ studentId: student.id }),
       })
       const json = await res.json()
-      if (!res.ok) { toast.error(json.error ?? 'Не получилось открыть доску'); return }
-      window.open(json.url, '_blank', 'noopener,noreferrer')
+      if (!res.ok) { tab?.close(); toast.error(json.error ?? 'Не получилось открыть доску'); return }
+      if (tab) tab.location.href = json.url
+      else window.location.href = json.url
+    } catch {
+      tab?.close()
+      toast.error('Не получилось открыть доску')
     } finally {
       setBoardLoading(null)
     }
