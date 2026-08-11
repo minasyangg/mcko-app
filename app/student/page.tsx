@@ -2,7 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { ClipboardList, PenLine } from 'lucide-react'
+import { ClipboardList } from 'lucide-react'
 import Link from 'next/link'
 import { closedReasonLabel } from '@/lib/assignments/completion'
 
@@ -27,25 +27,8 @@ export default async function StudentHomePage() {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return null
 
-  // Доски, куда ученика добавили участником (041_doska_boards.sql). Их может
-  // быть несколько у одного учителя — по темам или занятиям. Ссылка ведёт на
-  // /api/doska/open: там ученику выдаётся его собственная сессия доски, чтобы
-  // на доске было видно, кто именно пишет.
-  const { data: doskaBoards } = await supabase
-    .from('doska_board_participants')
-    .select('board_id, doska_boards!inner(id, title, updated_at, deleted_at, owner:profiles!doska_boards_owner_id_fkey(full_name))')
-    .eq('user_id', user.id)
-    .is('doska_boards.deleted_at', null)
-    .order('updated_at', { referencedTable: 'doska_boards', ascending: false })
-  const boardLinks = (doskaBoards ?? []).map((b) => {
-    const board = b.doska_boards as unknown as
-      { title: string; owner: { full_name: string } | null } | null
-    return {
-      boardId: b.board_id,
-      title: board?.title ?? 'Доска',
-      teacherName: board?.owner?.full_name ?? 'учителем',
-    }
-  })
+  // Доски переехали в свою вкладку «Мои доски»: их стало несколько на учителя —
+  // по одной на предмет, — и полоской кнопок над тестами они больше не читались.
 
   const { data: memberships } = await supabase
     .from('group_members')
@@ -120,20 +103,6 @@ export default async function StudentHomePage() {
         <h1 className="text-2xl font-semibold">Мои тесты</h1>
         <p className="text-muted-foreground text-sm mt-1">Назначенные вам тесты</p>
       </div>
-
-      {boardLinks.length > 0 && (
-        <div className="flex flex-wrap gap-2">
-          {boardLinks.map((b) => (
-            <Button key={b.boardId} asChild variant="outline" size="sm">
-              <a href={`/api/doska/open?b=${b.boardId}`} target="_blank" rel="noopener noreferrer"
-                 title={`${b.title} — ведёт ${b.teacherName}`}>
-                <PenLine className="h-4 w-4 mr-2" />
-                {b.title}
-              </a>
-            </Button>
-          ))}
-        </div>
-      )}
 
       {!assignments?.length ? (
         <div className="flex flex-col items-center justify-center py-16 gap-3 text-center text-muted-foreground">

@@ -707,6 +707,7 @@ export type Database = {
           locked: boolean
           object_edit_policy: string
           owner_id: string
+          subject: string | null
           title: string
           updated_at: string
         }
@@ -718,6 +719,7 @@ export type Database = {
           locked?: boolean
           object_edit_policy?: string
           owner_id: string
+          subject?: string | null
           title?: string
           updated_at?: string
         }
@@ -729,6 +731,7 @@ export type Database = {
           locked?: boolean
           object_edit_policy?: string
           owner_id?: string
+          subject?: string | null
           title?: string
           updated_at?: string
         }

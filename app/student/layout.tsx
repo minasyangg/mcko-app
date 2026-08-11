@@ -30,6 +30,9 @@ export default async function StudentLayout({ children }: { children: React.Reac
               <Link href="/student" className="px-2 py-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
                 Мои тесты
               </Link>
+              <Link href="/student/boards" className="px-2 py-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
+                Мои доски
+              </Link>
               <Link href="/student/roadmap" className="px-2 py-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
                 Программа
               </Link>

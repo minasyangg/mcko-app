@@ -16,7 +16,7 @@ import {
   AlertDialogHeader, AlertDialogMedia, AlertDialogTitle, AlertDialogTrigger,
 } from '@/components/ui/alert-dialog'
 import { ConfirmDeleteAction } from '@/components/shared/ConfirmDeleteAction'
-import { Pencil, Trash2, UserX, Eye, EyeOff, UserMinus, AlertTriangle, PenLine } from 'lucide-react'
+import { Pencil, Trash2, UserX, Eye, EyeOff, UserMinus, AlertTriangle } from 'lucide-react'
 
 export interface StudentRow {
   id: string
@@ -56,31 +56,6 @@ export function StudentsClient({ students: initial, isAdmin = false, teachers = 
   const [checkedTeachers, setCheckedTeachers] = useState<Set<string>>(new Set())
   const [savingTeachers, setSavingTeachers] = useState(false)
   const teacherName = (id: string) => teachers.find(t => t.id === id)?.full_name ?? '—'
-
-  // Общая доска с учеником: открыть последнюю или завести первую
-  const [boardLoading, setBoardLoading] = useState<string | null>(null)
-  async function handleOpenBoard(student: StudentRow) {
-    // Вкладку открываем синхронно, до await: после ожидания браузер считает
-    // window.open не следствием клика и блокирует его.
-    const tab = window.open('', '_blank', 'noopener,noreferrer')
-    setBoardLoading(student.id)
-    try {
-      const res = await fetch('/api/teacher/doska-board', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ studentId: student.id }),
-      })
-      const json = await res.json()
-      if (!res.ok) { tab?.close(); toast.error(json.error ?? 'Не получилось открыть доску'); return }
-      if (tab) tab.location.href = json.url
-      else window.location.href = json.url
-    } catch {
-      tab?.close()
-      toast.error('Не получилось открыть доску')
-    } finally {
-      setBoardLoading(null)
-    }
-  }
 
   function openTeachers(s: StudentRow) {
     setTeacherTarget(s)
@@ -197,7 +172,6 @@ export function StudentsClient({ students: initial, isAdmin = false, teachers = 
               {isAdmin && <th className="text-left px-4 py-3 font-medium">Учителя</th>}
               <th className="text-left px-4 py-3 font-medium">Статус</th>
               <th className="text-left px-4 py-3 font-medium">Дата</th>
-              {!isAdmin && <th className="px-4 py-3 w-44" />}
               {isAdmin && <th className="px-4 py-3 w-24" />}
             </tr>
           </thead>
@@ -245,18 +219,6 @@ export function StudentsClient({ students: initial, isAdmin = false, teachers = 
                   <td className="px-4 py-3 text-muted-foreground">
                     {s.created_at ? new Date(s.created_at).toLocaleDateString('ru-RU') : '—'}
                   </td>
-                  {!isAdmin && (
-                    <td className="px-4 py-3">
-                      <Button
-                        size="sm" variant="outline"
-                        onClick={() => handleOpenBoard(s)}
-                        disabled={boardLoading === s.id}
-                      >
-                        <PenLine className="h-3.5 w-3.5 mr-1.5" />
-                        {boardLoading === s.id ? 'Открываю…' : 'Доска'}
-                      </Button>
-                    </td>
-                  )}
                   {isAdmin && (
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-1 justify-end">

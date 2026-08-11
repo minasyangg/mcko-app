@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { LogoutButton } from '@/components/shared/LogoutButton'
-import { BookOpen, BookMarked, Users, GraduationCap, Monitor, FileText, BarChart2, TrendingUp, Menu, X, ListChecks, Library, Route, Bell, Settings } from 'lucide-react'
+import { BookOpen, BookMarked, Users, GraduationCap, Monitor, FileText, BarChart2, TrendingUp, Menu, X, ListChecks, Library, Route, Bell, Settings, PenLine } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
 
@@ -30,6 +30,9 @@ const navItems: NavItem[] = [
   // «Группы» — внутри «Ученики»/«Пользователи» (ссылка в шапке), не в меню
   { href: '/teacher/users', label: 'Пользователи', icon: GraduationCap, adminOnly: true },
   { href: '/teacher/students', label: 'Ученики', icon: Users, teacherOnly: true },
+  // доски заводятся здесь, а не кнопкой напротив ученика: у пары их может быть
+  // несколько, по одной на предмет
+  { href: '/teacher/doska', label: 'Доски', icon: PenLine, teacherOnly: true },
   { href: '/teacher/solution-requests', label: 'Запросы', icon: FileText },
   { href: '/teacher/scoring-rules', label: 'Правила', icon: ListChecks },
   // настройка событий telegram/email-уведомлений организации
