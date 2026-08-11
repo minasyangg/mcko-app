@@ -18,6 +18,16 @@ const schema = z.object({
 })
 type FormData = z.infer<typeof schema>
 
+/* Куда вернуть человека после входа, если его сюда прислали с параметром next.
+   Пускаем только внутренние пути: «//» и «/\» браузер считает адресом другого
+   сайта, и без этой проверки ссылка на страницу входа стала бы открытым
+   редиректом. Пусто или чужое — ведём себя как раньше. */
+function safeNext(raw: string | null): string | null {
+  if (!raw) return null
+  if (!raw.startsWith('/') || raw.startsWith('//') || raw.startsWith('/\\')) return null
+  return raw
+}
+
 export default function LoginPage() {
   const router = useRouter()
   const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<FormData>({
@@ -32,6 +42,15 @@ export default function LoginPage() {
     })
     if (error) {
       toast.error(error.message)
+      return
+    }
+    // Пришли за доской — возвращаем туда, а не в кабинет. Именно
+    // location.assign, а не router: next ведёт на /api/doska/open, это не
+    // страница, и клиентский роутер на ней спотыкается, тогда как обычный
+    // переход спокойно отработает редирект на доску.
+    const next = safeNext(new URLSearchParams(window.location.search).get('next'))
+    if (next) {
+      window.location.assign(next)
       return
     }
     router.refresh()
