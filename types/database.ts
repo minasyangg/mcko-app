@@ -702,6 +702,7 @@ export type Database = {
         Row: {
           created_at: string
           deleted_at: string | null
+          group_id: string | null
           guest_access: string
           id: string
           locked: boolean
@@ -714,6 +715,7 @@ export type Database = {
         Insert: {
           created_at?: string
           deleted_at?: string | null
+          group_id?: string | null
           guest_access?: string
           id: string
           locked?: boolean
@@ -726,6 +728,7 @@ export type Database = {
         Update: {
           created_at?: string
           deleted_at?: string | null
+          group_id?: string | null
           guest_access?: string
           id?: string
           locked?: boolean
@@ -736,6 +739,13 @@ export type Database = {
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "doska_boards_group_id_fkey"
+            columns: ["group_id"]
+            isOneToOne: false
+            referencedRelation: "groups"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "doska_boards_owner_id_fkey"
             columns: ["owner_id"]

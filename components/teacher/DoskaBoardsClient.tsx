@@ -26,35 +26,43 @@ export interface BoardRow {
   subject: string | null
   updatedAt: string | null
   students: string[]
+  group: string | null
 }
 interface Props {
   boards: BoardRow[]
   students: { id: string; full_name: string | null }[]
+  groups: { id: string; name: string; size: number }[]
 }
 
-export function DoskaBoardsClient({ boards, students }: Props) {
+export function DoskaBoardsClient({ boards, students, groups }: Props) {
   const router = useRouter()
   const [open, setOpen] = useState(false)
+  // Доска заводится либо на одного ученика, либо на группу целиком. Это один
+  // выбор, а не два независимых: иначе непонятно, что победит.
+  const [mode, setMode] = useState<'student' | 'group'>('student')
   const [studentId, setStudentId] = useState('')
+  const [groupId, setGroupId] = useState('')
   const [subject, setSubject] = useState('')
   const [title, setTitle] = useState('')
   const [saving, setSaving] = useState(false)
   const [removing, setRemoving] = useState<string | null>(null)
 
   async function handleCreate() {
-    if (!studentId) return toast.error('Выберите ученика')
+    if (mode === 'student' && !studentId) return toast.error('Выберите ученика')
+    if (mode === 'group' && !groupId) return toast.error('Выберите группу')
     if (!subject) return toast.error('Выберите предмет')
     setSaving(true)
     try {
       const res = await fetch('/api/teacher/doska-boards', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ studentId, subject, title }),
+        body: JSON.stringify(
+          mode === 'group' ? { groupId, subject, title } : { studentId, subject, title }),
       })
       const json = await res.json()
       if (!res.ok) { toast.error(json.error ?? 'Не удалось создать доску'); return }
-      toast.success('Доска создана')
-      setOpen(false); setStudentId(''); setSubject(''); setTitle('')
+      toast.success(json.added > 1 ? `Доска создана · учеников: ${json.added}` : 'Доска создана')
+      setOpen(false); setStudentId(''); setGroupId(''); setSubject(''); setTitle('')
       router.refresh()
     } catch {
       toast.error('Не удалось создать доску')
@@ -105,25 +113,65 @@ export function DoskaBoardsClient({ boards, students }: Props) {
             <DialogHeader>
               <DialogTitle>Новая доска</DialogTitle>
               <DialogDescription>
-                Доска общая: вы и выбранный ученик. Предмет отличает её от других досок
-                с тем же учеником.
+                Доска общая: вы и выбранный ученик — или вся группа. Предмет отличает её
+                от других досок с теми же людьми.
               </DialogDescription>
             </DialogHeader>
 
             <div className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="board-student">Ученик</Label>
-                <Select value={studentId} onValueChange={setStudentId}>
-                  <SelectTrigger id="board-student">
-                    <SelectValue placeholder="Выберите ученика..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {students.map((s) => (
-                      <SelectItem key={s.id} value={s.id}>{s.full_name ?? 'Без имени'}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Label>Кому</Label>
+                <div className="flex gap-2">
+                  <Button type="button" size="sm" className="flex-1"
+                    variant={mode === 'student' ? 'default' : 'outline'}
+                    onClick={() => setMode('student')} id="board-mode-student">
+                    Одному ученику
+                  </Button>
+                  <Button type="button" size="sm" className="flex-1"
+                    variant={mode === 'group' ? 'default' : 'outline'}
+                    onClick={() => setMode('group')} id="board-mode-group"
+                    disabled={!groups.length}
+                    title={groups.length ? undefined : 'У вас пока нет групп с учениками'}>
+                    Группе
+                  </Button>
+                </div>
               </div>
+
+              {mode === 'student' ? (
+                <div className="space-y-2">
+                  <Label htmlFor="board-student">Ученик</Label>
+                  <Select value={studentId} onValueChange={setStudentId}>
+                    <SelectTrigger id="board-student">
+                      <SelectValue placeholder="Выберите ученика..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {students.map((s) => (
+                        <SelectItem key={s.id} value={s.id}>{s.full_name ?? 'Без имени'}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <Label htmlFor="board-group">Группа</Label>
+                  <Select value={groupId} onValueChange={setGroupId}>
+                    <SelectTrigger id="board-group">
+                      <SelectValue placeholder="Выберите группу..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {groups.map((g) => (
+                        <SelectItem key={g.id} value={g.id}>
+                          {g.name} · {g.size}{' '}
+                          {g.size === 1 ? 'ученик' : g.size < 5 ? 'ученика' : 'учеников'}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    Доска появится в кабинете у каждого ученика группы.
+                  </p>
+                </div>
+              )}
 
               <div className="space-y-2">
                 <Label htmlFor="board-subject">Предмет</Label>
@@ -190,7 +238,12 @@ export function DoskaBoardsClient({ boards, students }: Props) {
                       : <span className="text-xs text-muted-foreground">не указан</span>}
                   </td>
                   <td className="px-4 py-3 text-muted-foreground">
-                    {b.students.length ? b.students.join(', ') : '—'}
+                    {b.group ? (
+                      <span title={b.students.join(', ')}>
+                        <Badge variant="outline" className="mr-1.5">{b.group}</Badge>
+                        {b.students.length} чел.
+                      </span>
+                    ) : b.students.length ? b.students.join(', ') : '—'}
                   </td>
                   <td className="px-4 py-3 text-muted-foreground">
                     {b.updatedAt ? new Date(b.updatedAt).toLocaleDateString('ru-RU') : '—'}

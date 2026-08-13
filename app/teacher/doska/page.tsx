@@ -24,7 +24,7 @@ export default async function TeacherDoskaPage() {
 
   const { data: boards } = await supabase
     .from('doska_boards')
-    .select('id, title, subject, created_at, updated_at')
+    .select('id, title, subject, created_at, updated_at, group_id, groups(name)')
     .eq('owner_id', user.id)
     .is('deleted_at', null)
     .order('updated_at', { ascending: false })
@@ -51,8 +51,13 @@ export default async function TeacherDoskaPage() {
     subject: b.subject,
     updatedAt: b.updated_at,
     students: byBoard.get(b.id) ?? [],
+    group: (b as unknown as { groups: { name: string } | null }).groups?.name ?? null,
   }))
 
+  // Учеников отдаёт RLS — политика «teacher read own students» пускает только
+  // закреплённых за этим учителем. Фильтр по организации оставлен как второй
+  // рубеж: он не заменяет правило, а страхует от чужой организации, если
+  // закрепление вдруг окажется межорганизационным.
   const { data: students } = await supabase
     .from('profiles')
     .select('id, full_name')
@@ -60,6 +65,21 @@ export default async function TeacherDoskaPage() {
     .eq('is_active', true)
     .eq('organization_id', profile?.organization_id || '')
     .order('full_name')
+
+  // Группы — только свои: политика «groups: teacher manage own» отдаёт те, что
+  // учитель сам и завёл. Пустые не показываем: доску на них не завести.
+  const { data: groupRows } = await supabase
+    .from('groups')
+    .select('id, name, group_members(count)')
+    .eq('created_by', user.id)
+    .order('name')
+  const groups = (groupRows ?? [])
+    .map((g) => ({
+      id: g.id as string,
+      name: g.name as string,
+      size: (g as unknown as { group_members: { count: number }[] }).group_members?.[0]?.count ?? 0,
+    }))
+    .filter((g) => g.size > 0)
 
   return (
     <div className="space-y-6">
@@ -78,7 +98,7 @@ export default async function TeacherDoskaPage() {
           <p>За вами пока не закреплено ни одного ученика — доску не с кем разделить.</p>
         </div>
       ) : (
-        <DoskaBoardsClient boards={rows} students={students ?? []} />
+        <DoskaBoardsClient boards={rows} students={students ?? []} groups={groups} />
       )}
     </div>
   )
