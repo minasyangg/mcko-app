@@ -23,7 +23,21 @@ export async function GET(req: Request) {
   const boardId = url.searchParams.get('b') ?? ''
   const back = new URL('/', url.origin)
 
-  const doskaUrl = process.env.DOSKA_URL?.replace(/\/+$/, '')
+  /* Постоянный адрес доски.
+
+     Раньше он брался только из переменной окружения, и стоило ей устареть —
+     переход из кабинета обрывался на полпути: человек уходил в МЦКО, входил и
+     оставался там же, потому что вернуть его было некуда. Адрес доски меняется
+     раз в годы, а переменная живёт в чужой панели и о переезде не знает,
+     поэтому держим его здесь.
+
+     Переменную слушаем только когда она указывает на свою машину: там доска
+     поднимается на localhost, и подменять его боевым адресом нельзя. */
+  const DOSKA_SITE = 'https://tutpad.ru'
+  const envUrl = process.env.DOSKA_URL?.replace(/\/+$/, '')
+  const doskaUrl = envUrl && /^https?:\/\/(localhost|127\.0\.0\.1)(:|\/|$)/.test(envUrl)
+    ? envUrl
+    : DOSKA_SITE
   const ssoSecret = process.env.DOSKA_SSO_SECRET
   if (!doskaUrl || !ssoSecret) {
     return NextResponse.redirect(new URL('/?doska=not-configured', url.origin))
