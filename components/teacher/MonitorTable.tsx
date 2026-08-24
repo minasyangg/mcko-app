@@ -288,7 +288,13 @@ export function MonitorTable({ initialAttempts, isAdmin = false, assignments = [
   }, [])
 
   const active  = attempts.filter((a) => ['not_started', 'in_progress'].includes(a.status))
-  const review  = attempts.filter((a) => ['submitted', 'under_review'].includes(a.status))
+  // «На проверке» включает и уже авто-проверенные (checked) попытки — иначе
+  // 100%-автоматическая проверка (в т.ч. ошибочная, см. ключи с неверным
+  // grading_method) уходит сразу в «Проверено» и учитель её никогда не видит.
+  // Дублируется с «Проверено» намеренно: это витрина «покажи мне, что
+  // проверено, и дай проверить/убедиться», а не строгая непересекающаяся
+  // партиция статусов.
+  const review  = attempts.filter((a) => ['submitted', 'under_review', 'checked'].includes(a.status))
   const checked = attempts.filter((a) => ['checked', 'completed'].includes(a.status))
 
   const tabRows = tab === 'active' ? active : tab === 'review' ? review : tab === 'checked' ? checked : []

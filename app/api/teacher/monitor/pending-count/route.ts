@@ -30,8 +30,10 @@ export async function GET() {
     if (!latestByGroup.has(key)) latestByGroup.set(key, a.status)
   }
 
+  // «checked» тоже считается «на проверке» — авто-проверка (в т.ч. ошибочная)
+  // не должна проскакивать мимо учителя незамеченной, см. MonitorTable.
   const count = [...latestByGroup.values()]
-    .filter(s => s === 'submitted' || s === 'under_review').length
+    .filter(s => s === 'submitted' || s === 'under_review' || s === 'checked').length
 
   return Response.json({ count })
 }
