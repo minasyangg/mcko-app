@@ -63,6 +63,24 @@ export interface CompositeAnswerKeyResult {
 const ALGORITHMIC_METHODS = new Set(['normalized', 'numeric_tolerance', 'sequence', 'set_match'])
 const NUMERIC_LIKE_METHODS = new Set(['numeric_tolerance', 'sequence', 'set_match'])
 
+// Превращает LaTeX-дробь внутри значения части в обычную запись, которую
+// понимает числовой парсер (normalizeNumeric/extractNumericValue):
+// "$\frac{1}{3}$" → "1/3", "18 $\frac{1}{3}$" → "18 1/3" (уже смешанное
+// число), "$43\frac{1}{3}$" (без пробела — обычная запись смешанного числа в
+// LaTeX) → "43 1/3". Первым идёт паттерн «цифра вплотную перед \frac» — иначе
+// общий паттерн просто вклеил бы "1/3" сразу за "43" без пробела ("431/3").
+// Если после замены остаются `\`/`{`/`}` (сложные конструкции — \sqrt,
+// вложенные дроби, степени) — их не трогаем, detectGradingMethod ниже по
+// прежнему правилу отправит такое на ручную проверку.
+function latexFractionToPlain(s: string): string {
+  return s
+    .replace(/(-?\d+)\\frac\s*\{\s*(-?\d+)\s*\}\s*\{\s*(\d+)\s*\}/g, '$1 $2/$3')
+    .replace(/\\frac\s*\{\s*(-?\d+)\s*\}\s*\{\s*(\d+)\s*\}/g, '$1/$2')
+    .replace(/\$/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
 // Пытается превратить сырую строку эталонного ответа в составной,
 // проверяемый по частям. Если хоть одна часть требует ручной/ИИ-проверки —
 // возвращает isComposite:false и raw как есть (сегодняшнее поведение,
@@ -71,14 +89,19 @@ export function buildCompositeAnswerKey(raw: string): CompositeAnswerKeyResult {
   const parts = splitAnswerParts(raw)
   if (!parts) return { isComposite: false, correctAnswerJson: raw }
 
-  const methods = parts.map(p => detectGradingMethod(p.value))
+  // Значение части приводим к виду без LaTeX-дробей ДО классификации и
+  // используем этот же вид как хранимое значение — иначе detectGradingMethod
+  // увидел бы уже чистую запись, а фактическое сравнение при проверке
+  // получило бы обратно "$\frac{1}{3}$" и не распознало бы число.
+  const cleanedValues = parts.map(p => latexFractionToPlain(p.value))
+  const methods = cleanedValues.map(v => detectGradingMethod(v))
   if (!methods.every(m => ALGORITHMIC_METHODS.has(m))) {
     return { isComposite: false, correctAnswerJson: raw }
   }
 
   const correctAnswerJson: Json = {
     parts: Object.fromEntries(
-      parts.map((p, i) => [p.label, { value: p.value, method: methods[i] }])
+      parts.map((p, i) => [p.label, { value: cleanedValues[i], method: methods[i] }])
     ),
   }
   const answerParts: Json[] = parts.map((p, i): Json => ({

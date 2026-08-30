@@ -158,6 +158,7 @@ export function TaskView({ task, answer, onChange, images = [], disabled, isLock
               hint={task.answer_format_hint ?? 'Запишите решение и ответ...'}
               disabled={disabled}
               size="large"
+              supportsMath
             />
           )
         }
@@ -187,6 +188,7 @@ export function TaskView({ task, answer, onChange, images = [], disabled, isLock
             hint={task.answer_format_hint ?? 'Введите развёрнутый ответ'}
             disabled={disabled}
             size="large"
+            supportsMath
           />
         )
       }

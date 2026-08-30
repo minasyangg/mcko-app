@@ -36,18 +36,31 @@ export function splitAnswerParts(raw) {
 const ALGORITHMIC_METHODS = new Set(['normalized', 'numeric_tolerance', 'sequence', 'set_match'])
 const NUMERIC_LIKE_METHODS = new Set(['numeric_tolerance', 'sequence', 'set_match'])
 
+// Превращает LaTeX-дробь внутри значения части в обычную запись — см.
+// комментарий у оригинала в lib/grading/multi-part-answer.ts (держать в
+// синхроне).
+function latexFractionToPlain(s) {
+  return s
+    .replace(/(-?\d+)\\frac\s*\{\s*(-?\d+)\s*\}\s*\{\s*(\d+)\s*\}/g, '$1 $2/$3')
+    .replace(/\\frac\s*\{\s*(-?\d+)\s*\}\s*\{\s*(\d+)\s*\}/g, '$1/$2')
+    .replace(/\$/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
 export function buildCompositeAnswerKey(raw) {
   const parts = splitAnswerParts(raw)
   if (!parts) return { isComposite: false, correctAnswerJson: raw }
 
-  const methods = parts.map(p => detectGradingMethod(p.value))
+  const cleanedValues = parts.map(p => latexFractionToPlain(p.value))
+  const methods = cleanedValues.map(v => detectGradingMethod(v))
   if (!methods.every(m => ALGORITHMIC_METHODS.has(m))) {
     return { isComposite: false, correctAnswerJson: raw }
   }
 
   const correctAnswerJson = {
     parts: Object.fromEntries(
-      parts.map((p, i) => [p.label, { value: p.value, method: methods[i] }])
+      parts.map((p, i) => [p.label, { value: cleanedValues[i], method: methods[i] }])
     ),
   }
   const answerParts = parts.map((p, i) => ({

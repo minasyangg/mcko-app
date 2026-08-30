@@ -96,7 +96,12 @@ export async function POST(
       prompt_text:        problem.prompt_text,
       prompt_html:        problem.prompt_html,
       task_type:          composite.isComposite ? 'composite' : problem.task_type,
-      grading_method:     problem.grading_method,
+      // См. комментарий в app/api/books/problems/[id]/add-to-test/route.ts —
+      // успешно собранный составной ответ должен получить номинальную метку
+      // 'normalized' (метод каждой части — внутри неё самой), иначе он
+      // безусловно наследовал бы problem.grading_method и проверялся бы
+      // целиком строкой несмотря на разбор по частям.
+      grading_method:     composite.isComposite ? 'normalized' : problem.grading_method,
       options:            problem.options ?? [],
       max_score:          maxScore,
       has_images:         (problem.library_problem_media as any[])?.some(m => m.placement !== 'solution') ?? false,
@@ -118,7 +123,7 @@ export async function POST(
     await admin.from('task_answer_keys').insert({
       task_id:        taskId,
       correct_answer: composite.correctAnswerJson,
-      grading_method: problem.grading_method,
+      grading_method: composite.isComposite ? 'normalized' : problem.grading_method,
       grading_config: problem.grading_config,
     })
   }

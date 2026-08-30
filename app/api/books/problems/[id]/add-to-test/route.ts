@@ -110,7 +110,13 @@ export async function POST(
       prompt_text:     promptText,
       prompt_html:     problem.prompt_md,
       task_type:       composite.isComposite ? 'composite' : problem.task_type,
-      grading_method:  problem.grading_method,
+      // Составной ответ проверяется по частям (метод — внутри каждой части
+      // в correctAnswerJson), 'normalized' здесь — только номинальная метка
+      // конвенции (см. classify-answer.mjs/api/tasks/[taskId]/answer-key) —
+      // раньше сюда безусловно шёл problem.grading_method книги ('manual' у
+      // большинства книжных ответов), и успешно собранный составной ответ
+      // всё равно намертво уходил в ручную проверку целиком.
+      grading_method:  composite.isComposite ? 'normalized' : problem.grading_method,
       options:         problem.options ?? [],
       max_score:       body.max_score ?? 1,
       has_images:      problem.has_images,
@@ -130,7 +136,7 @@ export async function POST(
     await admin.from('task_answer_keys').insert({
       task_id:        task.id,
       correct_answer: composite.correctAnswerJson,
-      grading_method: problem.grading_method,
+      grading_method: composite.isComposite ? 'normalized' : problem.grading_method,
     })
   }
 

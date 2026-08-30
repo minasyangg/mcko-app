@@ -11,8 +11,15 @@ interface NumericProps {
   disabled?: boolean
 }
 
+// Показывается, когда у задания нет своей подсказки (task.answer_format_hint
+// пуст) — в т.ч. для числовых частей составного ответа (Composite.tsx их не
+// передаёт вовсе). Без неё ученик угадывает формат сам и пишет "22 целых 1/2"
+// вместо "22 1/2" — алгоритм проверки такое не разбирает (см. normalizeNumeric).
+const DEFAULT_HINT = 'Дробь: 1/2 или 2 1/3 (можно переключателем ниже). Десятичное: через точку или запятую — 0.5 или 0,5.'
+
 export function Numeric({ value, onChange, hint, disabled }: NumericProps) {
   const [isFraction, setIsFraction] = useState(false)
+  const displayHint = hint ?? DEFAULT_HINT
 
   function toggleMinus() {
     onChange(value.startsWith('-') ? value.slice(1) : '-' + value)
@@ -51,9 +58,7 @@ export function Numeric({ value, onChange, hint, disabled }: NumericProps) {
       >
         {isFraction ? 'Ввести десятичным числом' : 'Ввести дробью'}
       </button>
-      {hint && (
-        <p className="text-xs text-muted-foreground">{hint}</p>
-      )}
+      <p className="text-xs text-muted-foreground">{displayHint}</p>
     </div>
   )
 }
