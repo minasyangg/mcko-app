@@ -24,7 +24,13 @@ export function parseGeneric(pages: PaddlePage[]): ParsedExamDocument {
 
       // New task boundary
       if (block.block_label === 'paragraph_title') {
-        const m = block.block_content.match(/^#+\s+(\d+)\./)
+        // "#" — необязателен: у PaddleOCR-VL-1.6 заголовок задания в
+        // paragraph_title приходит БЕЗ markdown-решётки ("1. Тип 1 № 559"),
+        // в отличие от книжного пайплайна (PP-StructureV3/книги), где
+        // заголовок оформлен как "# 1." — жёсткое требование "#+" раньше
+        // давало 0 совпадений на реальных тестах (найдено 2026-08-30 на
+        // ОГЭ-варианте: 0 заданий распознано именно из-за этого).
+        const m = block.block_content.match(/^#*\s*(\d+)\./)
         if (m) {
           if (cur) rawTasks.push(cur)
           cur = { number: parseInt(m[1]), conditionParts: [], solutionParts: [], answer: null, conditionImageRefs: [], solutionImageRefs: [] }
