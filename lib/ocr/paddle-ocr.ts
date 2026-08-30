@@ -17,6 +17,15 @@ import type { PaddlePage } from '@/lib/parsing/exam-parsers/types'
 const JOB_URL = 'https://paddleocr.aistudio-app.com/api/v2/ocr/jobs'
 const MODEL = 'PaddleOCR-VL-1.6'
 
+// Защита от аномально больших загрузок (память/время serverless-функции —
+// сам файл целиком буферизуется перед отправкой). Обычный скан экзамена на
+// 10-20 страниц укладывается в единицы МБ; 40 МБ — щедрый запас.
+const MAX_FILE_SIZE_BYTES = 40 * 1024 * 1024
+
+const SUBMIT_TIMEOUT_MS = 30_000
+const STATUS_TIMEOUT_MS = 10_000
+const RESULT_TIMEOUT_MS = 30_000
+
 const OPTIONAL_PAYLOAD = {
   useDocOrientationClassify: false,
   useDocUnwarping: false,
@@ -36,32 +45,52 @@ function authHeaders(): Record<string, string> {
   return { Authorization: `bearer ${token}` }
 }
 
+// Тело ответа от PaddleOCR в сообщение исключения не подмешиваем — оно
+// уходит пользователю (parsing_jobs.error_message → UI учителя), а внешний
+// API в теле ошибки не обязан ничего скрывать намеренно (заголовки запроса,
+// внутренние детали). Полный текст — только в серверный лог.
+function throwSanitized(context: string, status: number, rawBody: string): never {
+  console.error(`[paddle-ocr] ${context} failed: HTTP ${status}: ${rawBody.slice(0, 500)}`)
+  throw new Error(`Ошибка сервиса распознавания документов (${context}, код ${status}). Попробуйте ещё раз позже.`)
+}
+
 // Ставит документ на распознавание, сразу возвращает jobId (не ждёт результата).
 export async function submitPaddleOcrJob(fileBuffer: Buffer, filename: string): Promise<string> {
+  if (fileBuffer.length > MAX_FILE_SIZE_BYTES) {
+    throw new Error(`Файл слишком большой (${Math.round(fileBuffer.length / 1024 / 1024)} МБ, максимум ${MAX_FILE_SIZE_BYTES / 1024 / 1024} МБ).`)
+  }
+
   const form = new FormData()
   form.set('model', MODEL)
   form.set('optionalPayload', JSON.stringify(OPTIONAL_PAYLOAD))
   form.set('file', new Blob([new Uint8Array(fileBuffer)]), filename)
 
-  const res = await fetch(JOB_URL, { method: 'POST', headers: authHeaders(), body: form })
-  if (!res.ok) {
-    const err = await res.text().catch(() => '')
-    throw new Error(`PaddleOCR job submit error ${res.status}: ${err.slice(0, 300)}`)
-  }
+  const res = await fetch(JOB_URL, {
+    method: 'POST',
+    headers: authHeaders(),
+    body: form,
+    signal: AbortSignal.timeout(SUBMIT_TIMEOUT_MS),
+  })
+  if (!res.ok) throwSanitized('отправка документа', res.status, await res.text().catch(() => ''))
+
   const json = await res.json()
   const jobId = json?.data?.jobId
-  if (!jobId) throw new Error('PaddleOCR: no jobId in response')
+  if (!jobId) {
+    console.error('[paddle-ocr] submit: no jobId in response', JSON.stringify(json).slice(0, 500))
+    throw new Error('Сервис распознавания не вернул идентификатор задачи.')
+  }
   return jobId
 }
 
 // Разовая проверка статуса job'а — дешёвый GET, безопасно дёргать на каждый
 // опрос статуса фронтендом.
 export async function getPaddleOcrJobStatus(jobId: string): Promise<PaddleJobStatus> {
-  const res = await fetch(`${JOB_URL}/${jobId}`, { headers: authHeaders() })
-  if (!res.ok) {
-    const err = await res.text().catch(() => '')
-    throw new Error(`PaddleOCR job status error ${res.status}: ${err.slice(0, 300)}`)
-  }
+  const res = await fetch(`${JOB_URL}/${jobId}`, {
+    headers: authHeaders(),
+    signal: AbortSignal.timeout(STATUS_TIMEOUT_MS),
+  })
+  if (!res.ok) throwSanitized('проверка статуса', res.status, await res.text().catch(() => ''))
+
   const json = await res.json()
   return json?.data
 }
@@ -70,14 +99,20 @@ export async function getPaddleOcrJobStatus(jobId: string): Promise<PaddleJobSta
 // страниц — одна строка JSONL может содержать несколько layoutParsingResults
 // (страниц).
 export async function fetchPaddleOcrPages(jsonlUrl: string): Promise<PaddlePage[]> {
-  const res = await fetch(jsonlUrl)
-  if (!res.ok) throw new Error(`PaddleOCR result download error ${res.status}`)
+  const res = await fetch(jsonlUrl, { signal: AbortSignal.timeout(RESULT_TIMEOUT_MS) })
+  if (!res.ok) throwSanitized('загрузка результата', res.status, await res.text().catch(() => ''))
   const text = await res.text()
 
   const pages: PaddlePage[] = []
   for (const line of text.trim().split('\n')) {
     if (!line.trim()) continue
-    const result = JSON.parse(line)?.result
+    let result: any
+    try {
+      result = JSON.parse(line)?.result
+    } catch (e) {
+      console.warn('[paddle-ocr] skipping malformed result line:', (e as Error).message)
+      continue
+    }
     const layoutResults = result?.layoutParsingResults
     if (!Array.isArray(layoutResults)) continue
     for (const item of layoutResults) {

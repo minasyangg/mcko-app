@@ -381,19 +381,19 @@ async function runParsing(jobId: string, testVersionId: string, docIds: string[]
         const buffer = Buffer.from(await blob.arrayBuffer())
         const filename = doc.original_filename || doc.storage_path.split('/').pop() || `${doc.doc_type}.pdf`
 
-        await mark(`Отправка на распознавание PaddleOCR (${doc.doc_type})`)
+        await mark(`Отправка документа на распознавание (${doc.doc_type})`)
         const ocrJobId = await submitPaddleOcrJob(buffer, filename)
         await client.from('test_documents').update({ parse_status: 'text_extracted' }).eq('id', docId)
         ocrDocs.push({ docId, filename, ocrJobId })
       }
 
       if (!ocrDocs.length) {
-        throw new Error('Не удалось отправить ни один PDF-документ на распознавание PaddleOCR.')
+        throw new Error('Не удалось отправить ни один PDF-документ на распознавание.')
       }
 
       await client.from('parsing_jobs').update({
         ocr_state: { examType, docs: ocrDocs.map(d => ({ ...d, state: 'pending' })) },
-        error_message: 'Распознавание PDF через PaddleOCR — обычно занимает 1-3 минуты',
+        error_message: 'Распознавание документа — обычно занимает 1-3 минуты',
       }).eq('id', jobId)
 
       console.log(`[parsing/pdf] submitted ${ocrDocs.length} OCR job(s) for test_version=${testVersionId}, waiting for /api/parsing/jobs/[id] poll`)

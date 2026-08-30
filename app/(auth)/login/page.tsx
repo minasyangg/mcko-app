@@ -10,6 +10,7 @@ import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
+import { PasswordInput } from '@/components/ui/password-input'
 import { Label } from '@/components/ui/label'
 
 const schema = z.object({
@@ -71,7 +72,7 @@ export default function LoginPage() {
           </div>
           <div className="space-y-1">
             <Label htmlFor="password">Пароль</Label>
-            <Input id="password" type="password" autoComplete="current-password" {...register('password')} />
+            <PasswordInput id="password" autoComplete="current-password" {...register('password')} />
             {errors.password && <p className="text-sm text-destructive">{errors.password.message}</p>}
           </div>
           <Button type="submit" className="w-full" disabled={isSubmitting}>
