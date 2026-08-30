@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { applyMatchingScoringRules } from '@/app/api/parsing/trigger/route'
+import { applyMatchingScoringRules } from '@/lib/parsing/pipeline-shared'
 
 export async function POST(
   _req: NextRequest,

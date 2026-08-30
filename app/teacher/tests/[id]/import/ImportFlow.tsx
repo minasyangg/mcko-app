@@ -37,7 +37,7 @@ function getStepsForStatus(status: string): ProgressStep[] {
     { key: 'upload', label: 'Загрузка файла' },
     { key: 'extract_text', label: 'Извлечение текста' },
     { key: 'extract_images', label: 'Извлечение изображений' },
-    { key: 'ai_parse', label: 'Анализ структуры (AI)' },
+    { key: 'ai_parse', label: 'Распознавание и разбор заданий' },
     { key: 'match', label: 'Сопоставление ответов' },
   ]
   return steps.map((step, i) => ({
@@ -172,6 +172,12 @@ function ProgressPhase({ jobId, testId, onRetry }: { jobId: string; testId: stri
           {status === 'done' && 'Обработка успешно завершена!'}
           {status === 'failed' && 'Произошла ошибка при обработке.'}
         </p>
+        {/* Живой статус с сервера (например, прогресс PaddleOCR по страницам) —
+            чтобы при загруженной очереди было видно, что запрос не завис,
+            а реально продвигается. */}
+        {status === 'processing' && errorMessage && (
+          <p className="text-xs text-muted-foreground mt-1">{errorMessage}</p>
+        )}
       </div>
 
       {status !== 'failed' && <Progress value={progressValue} className="h-2" />}

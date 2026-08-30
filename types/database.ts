@@ -1372,7 +1372,9 @@ export type Database = {
           completed_at: string | null
           created_at: string | null
           error_message: string | null
+          finalizing_at: string | null
           id: string
+          ocr_state: Json | null
           result_summary: Json | null
           started_at: string | null
           status: string
@@ -1382,7 +1384,9 @@ export type Database = {
           completed_at?: string | null
           created_at?: string | null
           error_message?: string | null
+          finalizing_at?: string | null
           id?: string
+          ocr_state?: Json | null
           result_summary?: Json | null
           started_at?: string | null
           status?: string
@@ -1392,7 +1396,9 @@ export type Database = {
           completed_at?: string | null
           created_at?: string | null
           error_message?: string | null
+          finalizing_at?: string | null
           id?: string
+          ocr_state?: Json | null
           result_summary?: Json | null
           started_at?: string | null
           status?: string
@@ -2553,6 +2559,16 @@ export type Database = {
       }
       doska_guest_open: {
         Args: { p_board_id: string; p_token: string }
+        Returns: {
+          access: string
+          board_id: string
+          locked: boolean
+          object_edit_policy: string
+          title: string
+        }[]
+      }
+      doska_guest_open_link: {
+        Args: { p_board_id: string }
         Returns: {
           access: string
           board_id: string
