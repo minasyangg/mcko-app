@@ -328,11 +328,18 @@ async function matchImagesToTasks(
 
 // ─── DeepSeek ─────────────────────────────────────────────────────────────────
 
-async function callDeepSeek(text: string): Promise<any> {
+// Отключено 2026-08-30 после утечки/злоупотребления ключом (см. память
+// project_deepseek_key_incident) — импорт теста из PDF временно не
+// использует ИИ. Тело функции оставлено закомментированным для повторного
+// включения: раскомментировать и убрать throw ниже.
+async function callDeepSeek(_text: string): Promise<any> {
+  throw new Error('Импорт из PDF временно отключён. Используйте JSON или Markdown, либо обратитесь к администратору.')
+
+  /*
   const apiKey = process.env.DEEPSEEK_API_KEY
   if (!apiKey) throw new Error('DEEPSEEK_API_KEY not set in environment variables')
 
-  const prompt = DEEPSEEK_PROMPT.replace('[TEXT]', text.slice(0, 28000))
+  const prompt = DEEPSEEK_PROMPT.replace('[TEXT]', _text.slice(0, 28000))
   const res = await fetch('https://api.deepseek.com/v1/chat/completions', {
     method: 'POST',
     headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
@@ -352,6 +359,7 @@ async function callDeepSeek(text: string): Promise<any> {
   const content = json.choices?.[0]?.message?.content
   if (!content) throw new Error('DeepSeek returned empty content')
   return JSON.parse(content)
+  */
 }
 
 // ─── MD file parser ──────────────────────────────────────────────────────────

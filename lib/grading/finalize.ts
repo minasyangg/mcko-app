@@ -13,11 +13,18 @@ export type { ClosedReason } from '@/lib/assignments/completion'
 // submit-роута, чтобы её могли использовать и ученик (submit), и админ
 // (принудительное завершение).
 async function checkWithAI(
-  studentAnswer: string,
-  correctAnswer: string,
-  maxScore: number,
-  criteria?: string | null
+  _studentAnswer: string,
+  _correctAnswer: string,
+  _maxScore: number,
+  _criteria?: string | null
 ): Promise<{ is_correct: boolean; awarded_score: number } | null> {
+  // Отключено 2026-08-30 после утечки/злоупотребления ключом (см. память
+  // project_deepseek_key_incident) — письменные ответы временно не проверяются
+  // ИИ и уходят учителю на ручную проверку (обычный fallback-путь ниже).
+  // Для повторного включения — убрать этот return.
+  return null
+
+  /*
   const apiKey = process.env.DEEPSEEK_API_KEY
   if (!apiKey || !studentAnswer.trim() || !correctAnswer.trim()) return null
 
@@ -68,6 +75,7 @@ async function checkWithAI(
   } catch {
     return null
   }
+  */
 }
 
 // Финализирует попытку: авто-проверяет ответы (объективные — по ключам,
