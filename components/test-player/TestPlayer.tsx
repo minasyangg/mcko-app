@@ -36,6 +36,13 @@ interface TestPlayerProps {
 
 const DEBOUNCE_MS = 3000
 const HEARTBEAT_MS = 30_000
+// Сколько заданий вперёд/назад прогревать картинками. Плеер рендерит только
+// текущее задание, поэтому браузер раньше узнавал о картинке лишь в момент
+// перехода — отсюда пауза и «Изображение недоступно» при слабой сети.
+// Файлы крошечные (в среднем ~6 КБ), тормозит не объём, а сам круг до
+// хранилища, поэтому дешевле всего прогреть их заранее.
+const PRELOAD_AHEAD = 2
+const PRELOAD_BEHIND = 1
 
 export function TestPlayer({
   assignmentId,
@@ -198,6 +205,27 @@ export function TestPlayer({
   }
 
   const currentTask = tasks[currentIdx]
+
+  // Прогрев картинок соседних заданий. Держим URL уже загруженных в ref, чтобы
+  // не создавать Image() повторно: браузер сам отдаст их из кеша, но лишние
+  // объекты на длинном тесте копятся. Ошибку прогрева намеренно игнорируем —
+  // это оптимизация, реальную загрузку и повторы делает <TaskImage>.
+  const preloadedRef = useRef<Set<string>>(new Set())
+  useEffect(() => {
+    const from = Math.max(0, currentIdx - PRELOAD_BEHIND)
+    const to = Math.min(tasks.length - 1, currentIdx + PRELOAD_AHEAD)
+    for (let i = from; i <= to; i++) {
+      if (i === currentIdx) continue // текущее уже рендерится <img>
+      for (const m of mediaMap[tasks[i]?.id] ?? []) {
+        const url = m.signedUrl
+        if (!url || preloadedRef.current.has(url)) continue
+        preloadedRef.current.add(url)
+        const img = new Image()
+        img.decoding = 'async'
+        img.src = url
+      }
+    }
+  }, [currentIdx, tasks, mediaMap])
 
   const answeredCount = tasks.filter((t) => {
     const ans = answers[t.id]

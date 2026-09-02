@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { MEDIA_CACHE_CONTROL } from '@/lib/media/signed-urls'
 import { NextRequest } from 'next/server'
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -61,14 +62,17 @@ export async function POST(
 
   const { error: uploadError } = await admin.storage
     .from('task-media')
-    .upload(storagePath, webpBuffer, { contentType: 'image/webp', upsert: false })
+    .upload(storagePath, webpBuffer, { contentType: 'image/webp', upsert: false, cacheControl: MEDIA_CACHE_CONTROL })
 
   if (uploadError) {
     return Response.json({ error: uploadError.message }, { status: 500 })
   }
 
-  const { data: signed } = await admin.storage
-    .from('task-media').createSignedUrl(storagePath, 3600)
+  // task-media — публичный бакет (коммит 0953437), подписанная ссылка тут была
+  // рудиментом: она протухала через час, и только что загруженная учителем
+  // картинка потом отваливалась. Публичный URL постоянный.
+  const { data: publicUrlData } = admin.storage
+    .from('task-media').getPublicUrl(storagePath)
 
   const { data: mediaRecord, error: mediaError } = await admin
     .from('task_media').insert({
@@ -91,7 +95,7 @@ export async function POST(
 
   return Response.json({
     id: mediaRecord.id,
-    signedUrl: signed?.signedUrl ?? '',
+    signedUrl: publicUrlData.publicUrl,
     width_px: width,
     height_px: height,
   })

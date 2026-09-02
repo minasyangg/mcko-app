@@ -157,9 +157,9 @@ export async function getAttemptRows(
   let query = supabase
     .from('attempts')
     .select(`
-      id, status, score, max_score, submitted_at,
+      id, status, score, max_score, submitted_at, grade_at_attempt,
       student_id,
-      profiles ( full_name, grade ),
+      profiles ( full_name, grade, study_stage ),
       assignments (
         group_id,
         kind,
@@ -202,7 +202,11 @@ export async function getAttemptRows(
       attemptId: a.id,
       studentId: a.student_id,
       studentName: profile?.full_name ?? '—',
-      grade: profile?.grade ?? null,
+      // класс на момент сдачи: после ежегодного перевода (миграция 047)
+      // profiles.grade показывает уже следующий класс, и прошлые результаты
+      // задним числом «переезжали» в него. Фолбэк на профиль — для строк,
+      // созданных до появления снимка.
+      grade: a.grade_at_attempt ?? profile?.grade ?? null,
       groupName: group?.name ?? null,
       testTitle: test?.title ?? '—',
       kind,

@@ -22,7 +22,7 @@ export default async function StudentsPage() {
   // RLS сам ограничивает выборку прикреплёнными, доп. фильтр не нужен.
   const { data: students } = await supabase
     .from('profiles')
-    .select('id, full_name, grade, is_active, created_at, created_by, email')
+    .select('id, full_name, grade, study_stage, is_active, created_at, created_by, email')
     .eq('role', 'student')
     .eq('organization_id', profile?.organization_id || '')
     .order('is_active', { ascending: false, nullsFirst: false })

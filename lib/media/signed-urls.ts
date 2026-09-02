@@ -6,6 +6,13 @@ import type { TaskMedia, TaskMediaWithUrl } from '@/types/domain'
 // Other buckets (solution-media, test-documents) remain private with signed URLs.
 const SIGNED_URL_TTL = 14400 // 4 hours, used for private buckets only
 
+// Заголовок кеша для картинок заданий. По умолчанию Supabase Storage ставит
+// max-age=3600 — через час браузер выкачивал те же файлы заново, что на слабой
+// школьной сети выглядело как «картинка не загрузилась». Пути уникальны
+// (t{номер}_b{blockId} / timestamp), файл по одному пути не перезаписывается
+// другим изображением, поэтому кешируем надолго и помечаем immutable.
+export const MEDIA_CACHE_CONTROL = '31536000' // секунды, 1 год
+
 type Bucket = 'task-media' | 'solution-media' | 'test-documents'
 
 export async function generateSignedUrls(

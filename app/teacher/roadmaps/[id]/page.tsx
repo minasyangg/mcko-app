@@ -30,6 +30,26 @@ export default async function RoadmapEditPage({ params }: { params: Promise<{ id
       : Promise.resolve({ data: [] as { user_id: string }[] }),
   ])
 
+  // Обычные группы учителя (системные группы программ исключаем: roadmap_id).
+  // Нужны, чтобы добавлять в программу сразу весь класс, а не по одному ученику.
+  const { data: groupRows } = await supabase
+    .from('groups')
+    .select('id, name')
+    .is('roadmap_id', null)
+    .order('name')
+
+  const groupIds = (groupRows ?? []).map(g => g.id)
+  const { data: groupMemberRows } = groupIds.length
+    ? await supabase.from('group_members').select('group_id, user_id').in('group_id', groupIds)
+    : { data: [] as { group_id: string; user_id: string }[] }
+
+  const membersByGroup = new Map<string, string[]>()
+  for (const m of groupMemberRows ?? []) {
+    const arr = membersByGroup.get(m.group_id) ?? []
+    arr.push(m.user_id)
+    membersByGroup.set(m.group_id, arr)
+  }
+
   // Профили закреплённых учеников
   const studentIds = (links ?? []).map(l => l.student_id)
   const { data: students } = studentIds.length
@@ -58,6 +78,11 @@ export default async function RoadmapEditPage({ params }: { params: Promise<{ id
       tests={tests ?? []}
       students={students ?? []}
       memberIds={(members ?? []).map(m => m.user_id)}
+      groups={(groupRows ?? []).map(g => ({
+        id: g.id,
+        name: g.name,
+        student_ids: membersByGroup.get(g.id) ?? [],
+      }))}
     />
   )
 }

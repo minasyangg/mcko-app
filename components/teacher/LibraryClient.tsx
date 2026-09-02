@@ -30,7 +30,11 @@ interface Props {
   totalProblems: number
 }
 
-const PER_PAGE   = 20
+const PER_PAGE   = 20   // первая страница — заполняем экран сразу
+// Догружаем мелкими порциями: 20 задач с картинками и KaTeX рендерятся
+// заметно дольше, чем едут по сети, поэтому «ещё» отдаём по 5 — кнопка
+// откликается почти мгновенно вместо долгой паузы на пол-экрана.
+const MORE_PAGE  = 5
 const DEBOUNCE   = 350  // ms — wait before firing fetch on filter change
 
 // ── URL ↔ state helpers ─────────────────────────────────────────────────────
@@ -96,8 +100,11 @@ export function LibraryClient({ initialTopics, totalProblems }: Props) {
 
     try {
       const params = filtersToParams(filters, sourceId)
-      params.set('page',     String(p))
-      params.set('per_page', String(PER_PAGE))
+      // Страницы разного размера: смещение считаем вручную, иначе page*per_page
+      // на бэкенде перескочит через задачи первой (большой) страницы.
+      const perPage = p === 1 ? PER_PAGE : MORE_PAGE
+      params.set('offset',   String(p === 1 ? 0 : PER_PAGE + (p - 2) * MORE_PAGE))
+      params.set('per_page', String(perPage))
 
       const res  = await fetch(`/api/library/problems?${params}`, { signal: ctrl.signal })
       if (!res.ok) throw new Error('fetch failed')
@@ -105,7 +112,7 @@ export function LibraryClient({ initialTopics, totalProblems }: Props) {
 
       setProblems(prev => reset ? (json.data ?? []) : [...prev, ...(json.data ?? [])])
       setTotal(json.total ?? 0)
-      setHasMore(p < (json.total_pages ?? 1))
+      setHasMore(json.has_more ?? p < (json.total_pages ?? 1))
       setPage(p)
     } catch (e: unknown) {
       if (e instanceof Error && e.name === 'AbortError') return  // superseded request — ignore
@@ -127,18 +134,6 @@ export function LibraryClient({ initialTopics, totalProblems }: Props) {
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current) }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filters, sourceId])
-
-  // Infinite scroll
-  const sentinelRef = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    if (!sentinelRef.current || !hasMore) return
-    const io = new IntersectionObserver(
-      ([e]) => { if (e.isIntersecting && !loading) fetchProblems(page + 1) },
-      { rootMargin: '300px' }
-    )
-    io.observe(sentinelRef.current)
-    return () => io.disconnect()
-  }, [hasMore, loading, page, fetchProblems])
 
   const handleFilterChange = useCallback((patch: Partial<LibraryFilters>) => {
     setFilters(prev => ({ ...prev, ...patch }))
@@ -317,24 +312,27 @@ export function LibraryClient({ initialTopics, totalProblems }: Props) {
             </div>
           )}
 
-          {/* Loader */}
-          {loading && (
+          {/* Лоадер догрузки. Первая загрузка/смена фильтров рисует оверлей
+              выше — без этого условия оба спиннера крутились одновременно. */}
+          {loading && !resetting && (
             <div className="flex justify-center py-8">
               <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
             </div>
           )}
 
-          {/* Infinite scroll sentinel */}
+          {/* Догрузка по требованию: подгружаем ровно MORE_PAGE задач за клик */}
           {hasMore && !loading && (
             <div className="flex flex-col items-center gap-3 pt-2">
-              <div ref={sentinelRef} />
               <Button
                 variant="outline"
                 size="sm"
                 onClick={() => fetchProblems(page + 1)}
                 className="w-full sm:w-auto"
               >
-                Ещё задачи ({(total - problems.length).toLocaleString('ru-RU')} осталось)
+                + ещё {Math.min(MORE_PAGE, total - problems.length)}
+                <span className="text-muted-foreground ml-1.5 font-normal">
+                  (осталось {(total - problems.length).toLocaleString('ru-RU')})
+                </span>
               </Button>
             </div>
           )}

@@ -4,6 +4,10 @@ import { useState, useEffect, useRef } from 'react'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ImageOff, X, ZoomIn } from 'lucide-react'
 
+// Паузы между повторами. Первая короткая — обычный сетевой сбой переживается
+// незаметно для ученика; дальше отступаем, чтобы не долбить хранилище.
+const RETRY_DELAYS = [300, 1000, 3000]
+
 interface TaskImageProps {
   src: string
   alt?: string | null
@@ -18,34 +22,44 @@ export function TaskImage({ src, alt, width, height, priority = false }: TaskIma
   const [lightboxOpen, setLightboxOpen] = useState(false)
   // Incrementing this key causes React to remount <img>, triggering a fresh fetch
   const [retryKey, setRetryKey] = useState(0)
-  const retried = useRef(false)
+  const attempts = useRef(0)
+  const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const altText = alt ?? 'Изображение к задаче'
   const aspectStyle =
     width && height ? { aspectRatio: `${width} / ${height}` } : { aspectRatio: '4 / 3' }
 
   useEffect(() => {
-    // Empty src (failed signed URL generation) → show error immediately, no retry
+    // Пустой src — картинке неоткуда взяться (не сформировался URL), повторять
+    // нечего: показываем ошибку сразу.
     if (!src) {
-      console.error(`[TaskImage] Empty src — signed URL generation failed at ${new Date().toISOString()}`)
+      console.error(`[TaskImage] Пустой src — URL не сформирован, ${new Date().toISOString()}`)
       setStatus('error')
       return
     }
     setStatus('loading')
     setRetryKey(0)
-    retried.current = false
+    attempts.current = 0
+    return () => {
+      if (retryTimer.current) clearTimeout(retryTimer.current)
+    }
   }, [src])
 
+  // Повторы с нарастающей паузой. Раньше была одна попытка через 1.5с: при
+  // обычном сетевом сбое её не хватало, а полторы секунды ожидания посреди
+  // контрольной уже заметны. Ссылки на task-media постоянные (бакет публичный),
+  // поэтому ошибка почти всегда сетевая — её и переживаем.
   function handleError() {
-    if (!retried.current) {
-      retried.current = true
-      console.error(`[TaskImage] Load failed, retrying in 1.5s — ${new Date().toISOString()} — src: ${src}`)
-      setTimeout(() => {
+    if (attempts.current < RETRY_DELAYS.length) {
+      const delay = RETRY_DELAYS[attempts.current]
+      attempts.current += 1
+      if (retryTimer.current) clearTimeout(retryTimer.current)
+      retryTimer.current = setTimeout(() => {
         setStatus('loading')
         setRetryKey((k) => k + 1)
-      }, 1500)
+      }, delay)
     } else {
-      console.error(`[TaskImage] Retry failed — likely expired signed URL — ${new Date().toISOString()} — src: ${src}`)
+      console.error(`[TaskImage] Не удалось загрузить после ${RETRY_DELAYS.length} повторов — ${new Date().toISOString()} — src: ${src}`)
       setStatus('error')
     }
   }
@@ -64,6 +78,19 @@ export function TaskImage({ src, alt, width, height, priority = false }: TaskIma
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-muted-foreground">
             <ImageOff className="h-8 w-8" />
             <span className="text-xs text-center px-2">Изображение недоступно</span>
+            {/* Последнее слово за учеником: автоповторы кончились, но сеть могла
+                уже восстановиться — не заставляем перезагружать весь тест. */}
+            <button
+              type="button"
+              onClick={() => {
+                attempts.current = 0
+                setStatus('loading')
+                setRetryKey((k) => k + 1)
+              }}
+              className="text-xs underline underline-offset-2 hover:text-foreground transition-colors"
+            >
+              Повторить
+            </button>
           </div>
         )}
 

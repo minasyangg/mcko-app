@@ -34,9 +34,9 @@ export async function GET(request: Request) {
   let query = supabase
     .from('attempts')
     .select(`
-      id, status, score, max_score, submitted_at,
+      id, status, score, max_score, submitted_at, grade_at_attempt,
       student_id,
-      profiles ( full_name, grade ),
+      profiles ( full_name, grade, study_stage ),
       assignments (
         group_id,
         kind,
@@ -118,7 +118,10 @@ export async function GET(request: Request) {
 
     const base = [
       profile?.full_name ?? '',
-      profile?.grade ?? '',
+      // класс на момент сдачи, а не текущий: после ежегодного перевода
+      // (миграция 047) профиль показывает уже следующий класс, и старый
+      // отчёт иначе задним числом «повышал» ученика
+      a.grade_at_attempt ?? profile?.grade ?? '',
       group?.name ?? '',
       test?.title ?? '',
       kind,

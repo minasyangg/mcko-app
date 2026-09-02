@@ -13,6 +13,7 @@ import type { Database } from '@/types/database'
 import { requiresExplanation, cleanParsedAnswer, detectGradingMethod, buildFormatHint } from '@/lib/grading/answer-heuristics'
 import { parseExamDocument, type PaddlePage, type JsonImageRef } from '@/lib/parsing/exam-parsers'
 import { applyMatchingScoringRules, cleanupSourceDocuments } from '@/lib/parsing/pipeline-shared'
+import { MEDIA_CACHE_CONTROL } from '@/lib/media/signed-urls'
 
 type AdminClient = SupabaseClient<Database>
 
@@ -67,7 +68,7 @@ async function uploadJsonTaskImages(
     const storagePath = `task-media/${testVersionId}/t${taskNumber}_b${ref.blockId}.webp`
     const { error: upErr } = await client.storage
       .from('task-media')
-      .upload(storagePath, cropped, { contentType: 'image/webp', upsert: true })
+      .upload(storagePath, cropped, { contentType: 'image/webp', upsert: true, cacheControl: MEDIA_CACHE_CONTROL })
     if (upErr) { console.error('[json-img] upload:', upErr.message); continue }
 
     const meta = await sharpLib!(cropped).metadata()
@@ -111,7 +112,7 @@ async function uploadJsonSolutionImages(
     const storagePath = `${testVersionId}/sol_t${taskNumber}_b${ref.blockId}.webp`
     const { error: upErr } = await client.storage
       .from('solution-media')
-      .upload(storagePath, cropped, { contentType: 'image/webp', upsert: true })
+      .upload(storagePath, cropped, { contentType: 'image/webp', upsert: true, cacheControl: MEDIA_CACHE_CONTROL })
     if (upErr) { console.error('[json-sol-img] upload:', upErr.message); continue }
 
     const meta = await sharpLib!(cropped).metadata()

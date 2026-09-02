@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Plus, Users } from 'lucide-react'
 import { DeleteGroupButton } from '@/components/teacher/DeleteGroupButton'
+import { EditGroupDialog } from '@/components/teacher/EditGroupDialog'
 
 export default async function GroupsPage() {
   const supabase = await createClient()
@@ -72,6 +73,11 @@ export default async function GroupsPage() {
                   <Button asChild size="sm" variant="outline">
                     <Link href={`/teacher/groups/${group.id}`}>Открыть</Link>
                   </Button>
+                  <EditGroupDialog
+                    groupId={group.id}
+                    groupName={group.name}
+                    groupDescription={group.description}
+                  />
                   <DeleteGroupButton groupId={group.id} groupName={group.name} />
                 </div>
               </CardContent>
