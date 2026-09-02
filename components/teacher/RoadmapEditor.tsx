@@ -16,6 +16,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogMedia, AlertDialogTitle, AlertDialogTrigger,
 } from '@/components/ui/alert-dialog'
 import { ConfirmDeleteAction } from '@/components/shared/ConfirmDeleteAction'
+import { EditRoadmapDialog } from '@/components/teacher/EditRoadmapDialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import {
   ArrowLeft, Plus, Trash2, ChevronUp, ChevronDown, Users, Loader2, X, GripVertical, AlertTriangle,
@@ -30,14 +31,16 @@ export interface EditorTopic {
 }
 interface TestOption { id: string; title: string }
 interface StudentOption { id: string; full_name: string; grade: string | null }
+interface GroupOption { id: string; name: string; student_ids: string[] }
 interface Roadmap { id: string; title: string; subject: string | null; description: string | null }
 
-export function RoadmapEditor({ roadmap, topics, tests, students, memberIds }: {
+export function RoadmapEditor({ roadmap, topics, tests, students, memberIds, groups = [] }: {
   roadmap: Roadmap
   topics: EditorTopic[]
   tests: TestOption[]
   students: StudentOption[]
   memberIds: string[]
+  groups?: GroupOption[]
 }) {
   const router = useRouter()
   const [busy, setBusy] = useState(false)
@@ -46,6 +49,34 @@ export function RoadmapEditor({ roadmap, topics, tests, students, memberIds }: {
   const [studentsOpen, setStudentsOpen] = useState(false)
   const [checked, setChecked] = useState<Set<string>>(new Set(memberIds))
   const memberCount = memberIds.length
+
+  // Добавление целой группы. API принимает только закреплённых за учителем
+  // учеников (teacher_students) и отклоняет весь запрос целиком, если попался
+  // чужой — поэтому фильтруем здесь, по тому же списку students, что показан
+  // в диалоге. Иначе группа со «свежим» учеником, ещё не закреплённым за
+  // учителем, роняла бы сохранение всего состава с 403.
+  const studentIdSet = new Set(students.map(s => s.id))
+
+  function addGroup(g: GroupOption) {
+    const allowed = g.student_ids.filter(id => studentIdSet.has(id))
+    const skipped = g.student_ids.length - allowed.length
+    if (allowed.length === 0) {
+      toast.error(skipped > 0
+        ? `Ученики группы «${g.name}» не закреплены за вами`
+        : `В группе «${g.name}» нет учеников`)
+      return
+    }
+    const added = allowed.filter(id => !checked.has(id)).length
+    setChecked(prev => {
+      const n = new Set(prev)
+      for (const id of allowed) n.add(id)
+      return n
+    })
+    toast.success(
+      added > 0 ? `Добавлено учеников: ${added}` : 'Все ученики группы уже в программе',
+      skipped > 0 ? { description: `Пропущено (не ваши ученики): ${skipped}` } : undefined,
+    )
+  }
 
   async function saveStudents() {
     setBusy(true)
@@ -163,6 +194,14 @@ export function RoadmapEditor({ roadmap, topics, tests, students, memberIds }: {
           </div>
           {roadmap.description && <p className="text-sm text-muted-foreground">{roadmap.description}</p>}
         </div>
+        <div className="flex items-center gap-2">
+        <EditRoadmapDialog
+          roadmapId={roadmap.id}
+          title={roadmap.title}
+          subject={roadmap.subject}
+          description={roadmap.description}
+          variant="button"
+        />
         <AlertDialog>
           <AlertDialogTrigger asChild>
             <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive hover:bg-destructive/10">
@@ -186,6 +225,7 @@ export function RoadmapEditor({ roadmap, topics, tests, students, memberIds }: {
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
+        </div>
       </div>
 
       {/* Ученики программы */}
@@ -281,6 +321,43 @@ export function RoadmapEditor({ roadmap, topics, tests, students, memberIds }: {
       <Dialog open={studentsOpen} onOpenChange={(v) => { if (!v) setStudentsOpen(false) }}>
         <DialogContent className="max-w-md">
           <DialogHeader><DialogTitle>Ученики программы</DialogTitle></DialogHeader>
+
+          {/* Добавление целой группы: отмечает всех её учеников в списке ниже.
+              Состав программы остаётся списком учеников — группа лишь способ
+              отметить их разом, поэтому дальше её можно свободно править. */}
+          {groups.length > 0 && (
+            <div className="space-y-1.5">
+              <p className="text-xs text-muted-foreground">Добавить группу целиком</p>
+              <div className="flex flex-wrap gap-1.5">
+                {groups.map(g => (
+                  <Button
+                    key={g.id}
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-xs"
+                    onClick={() => addGroup(g)}
+                    disabled={busy || g.student_ids.length === 0}
+                  >
+                    <Users className="h-3 w-3 mr-1" />
+                    {g.name}
+                    <span className="ml-1 text-muted-foreground">({g.student_ids.length})</span>
+                  </Button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="flex items-center justify-between text-xs text-muted-foreground">
+            <span>Выбрано: <b className="text-foreground">{checked.size}</b></span>
+            {checked.size > 0 && (
+              <button type="button" onClick={() => setChecked(new Set())}
+                className="underline underline-offset-2 hover:text-foreground">
+                Снять все
+              </button>
+            )}
+          </div>
+
           <div className="space-y-1 max-h-72 overflow-y-auto rounded-md border divide-y">
             {students.length === 0 && (
               <p className="px-3 py-6 text-center text-sm text-muted-foreground">За вами не закреплено учеников</p>

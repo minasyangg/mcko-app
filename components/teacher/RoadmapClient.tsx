@@ -13,6 +13,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from '@/components/ui/dialog'
 import { Plus, Route, Users, ListChecks } from 'lucide-react'
+import { EditRoadmapDialog } from '@/components/teacher/EditRoadmapDialog'
 
 export interface RoadmapRow {
   id: string
@@ -70,10 +71,21 @@ export function RoadmapClient({ roadmaps }: { roadmaps: RoadmapRow[] }) {
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {roadmaps.map(r => (
-            <Link key={r.id} href={`/teacher/roadmaps/${r.id}`}>
+            <div key={r.id} className="relative">
+              {/* Кнопка лежит НАД ссылкой-карточкой: вложить её в <Link> нельзя —
+                  клик по кнопке уходил бы в переход на страницу программы */}
+              <div className="absolute right-2 top-2 z-10">
+                <EditRoadmapDialog
+                  roadmapId={r.id}
+                  title={r.title}
+                  subject={r.subject}
+                  description={r.description}
+                />
+              </div>
+              <Link href={`/teacher/roadmaps/${r.id}`}>
               <Card className="h-full hover:border-primary/50 hover:shadow-sm transition-all cursor-pointer">
                 <CardHeader className="pb-2">
-                  <div className="flex items-start justify-between gap-2">
+                  <div className="flex items-start justify-between gap-2 pr-9">
                     <CardTitle className="text-base leading-snug">{r.title}</CardTitle>
                     {r.subject && <Badge variant="secondary" className="shrink-0">{r.subject}</Badge>}
                   </div>
@@ -86,7 +98,8 @@ export function RoadmapClient({ roadmaps }: { roadmaps: RoadmapRow[] }) {
                   <span className="flex items-center gap-1"><Users className="h-3.5 w-3.5" />{r.student_count} учеников</span>
                 </CardContent>
               </Card>
-            </Link>
+              </Link>
+            </div>
           ))}
         </div>
       )}
