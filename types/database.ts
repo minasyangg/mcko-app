@@ -224,6 +224,7 @@ export type Database = {
           checked_at: string | null
           created_at: string | null
           current_task_number: number | null
+          grade_at_attempt: string | null
           id: string
           last_activity_at: string | null
           max_score: number | null
@@ -239,6 +240,7 @@ export type Database = {
           checked_at?: string | null
           created_at?: string | null
           current_task_number?: number | null
+          grade_at_attempt?: string | null
           id?: string
           last_activity_at?: string | null
           max_score?: number | null
@@ -254,6 +256,7 @@ export type Database = {
           checked_at?: string | null
           created_at?: string | null
           current_task_number?: number | null
+          grade_at_attempt?: string | null
           id?: string
           last_activity_at?: string | null
           max_score?: number | null
@@ -918,6 +921,41 @@ export type Database = {
           },
         ]
       }
+      grade_promotions: {
+        Row: {
+          graduated_count: number
+          id: string
+          promoted_count: number
+          ran_at: string
+          ran_by: string | null
+          school_year: number
+        }
+        Insert: {
+          graduated_count?: number
+          id?: string
+          promoted_count?: number
+          ran_at?: string
+          ran_by?: string | null
+          school_year: number
+        }
+        Update: {
+          graduated_count?: number
+          id?: string
+          promoted_count?: number
+          ran_at?: string
+          ran_by?: string | null
+          school_year?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "grade_promotions_ran_by_fkey"
+            columns: ["ran_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       group_members: {
         Row: {
           added_at: string | null
@@ -1536,6 +1574,7 @@ export type Database = {
           notifications_enabled: boolean
           organization_id: string | null
           role: string
+          study_stage: string
           telegram_chat_id: number | null
           telegram_username: string | null
         }
@@ -1551,6 +1590,7 @@ export type Database = {
           notifications_enabled?: boolean
           organization_id?: string | null
           role: string
+          study_stage?: string
           telegram_chat_id?: number | null
           telegram_username?: string | null
         }
@@ -1566,6 +1606,7 @@ export type Database = {
           notifications_enabled?: boolean
           organization_id?: string | null
           role?: string
+          study_stage?: string
           telegram_chat_id?: number | null
           telegram_username?: string | null
         }
@@ -2544,6 +2585,7 @@ export type Database = {
         Args: { p_version_id: string }
         Returns: boolean
       }
+      current_school_year: { Args: { at_date?: string }; Returns: number }
       delete_student_cascade: {
         Args: { target_student_id: string }
         Returns: Json
@@ -2588,6 +2630,14 @@ export type Database = {
           is_active: boolean
         }[]
       }
+      promote_student_grades: {
+        Args: { p_actor?: string; p_force?: boolean }
+        Returns: {
+          graduated: number
+          promoted: number
+          skipped_already_done: boolean
+        }[]
+      }
       student_has_task_assignment: {
         Args: { p_version_id: string }
         Returns: boolean
@@ -2618,12 +2668,12 @@ export type Tables<
   DefaultSchemaTableNameOrOptions extends
     | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
         DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -2647,11 +2697,11 @@ export type TablesInsert<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -2672,11 +2722,11 @@ export type TablesUpdate<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -2697,11 +2747,11 @@ export type Enums<
   DefaultSchemaEnumNameOrOptions extends
     | keyof DefaultSchema["Enums"]
     | { schema: keyof DatabaseWithoutInternals },
-  EnumName extends DefaultSchemaEnumNameOrOptions extends {
+  EnumName extends (DefaultSchemaEnumNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaEnumNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -2714,11 +2764,11 @@ export type CompositeTypes<
   PublicCompositeTypeNameOrOptions extends
     | keyof DefaultSchema["CompositeTypes"]
     | { schema: keyof DatabaseWithoutInternals },
-  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
+  CompositeTypeName extends (PublicCompositeTypeNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
-    : never = never,
+    : never) = never,
 > = PublicCompositeTypeNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }

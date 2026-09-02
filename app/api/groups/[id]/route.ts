@@ -1,8 +1,67 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 
 type Params = { params: Promise<{ id: string }> }
+
+// PATCH /api/groups/[id] — переименование группы и правка описания.
+// Права те же, что у удаления: свои группы правит учитель-создатель,
+// любые в организации — admin.
+const patchSchema = z.object({
+  name: z.string().trim().min(1, 'Введите название группы').max(100, 'Название до 100 символов').optional(),
+  description: z.string().trim().max(500, 'Описание до 500 символов').nullable().optional(),
+})
+
+export async function PATCH(req: NextRequest, { params }: Params) {
+  const { id: groupId } = await params
+
+  const supabase = await createClient()
+  const { data: { user }, error: authError } = await supabase.auth.getUser()
+  if (authError || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const { data: profile } = await supabase
+    .from('profiles').select('role, organization_id').eq('id', user.id).single()
+  if (!profile || !['teacher', 'admin'].includes(profile.role)) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+
+  const parsed = patchSchema.safeParse(await req.json().catch(() => null))
+  if (!parsed.success) {
+    return NextResponse.json({ error: parsed.error.issues[0]?.message }, { status: 400 })
+  }
+  const { name, description } = parsed.data
+  if (name === undefined && description === undefined) {
+    return NextResponse.json({ error: 'Нечего сохранять' }, { status: 400 })
+  }
+
+  // Чтение через user-клиент — RLS уже скрывает чужие группы от учителя
+  const { data: group } = await supabase
+    .from('groups').select('organization_id, created_by, roadmap_id').eq('id', groupId).single()
+  if (!group || group.organization_id !== profile.organization_id) {
+    return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  }
+
+  // Системная группа учебной программы — не самостоятельная сущность,
+  // её имя ведёт редактор программы (см. app/teacher/groups/[id]/page.tsx)
+  if (group.roadmap_id) {
+    return NextResponse.json({ error: 'Это системная группа программы — переименуйте саму программу' }, { status: 422 })
+  }
+
+  if (profile.role !== 'admin' && group.created_by !== user.id) {
+    return NextResponse.json({ error: 'Редактировать может только создатель группы или администратор' }, { status: 403 })
+  }
+
+  const update: { name?: string; description?: string | null } = {}
+  if (name !== undefined) update.name = name
+  if (description !== undefined) update.description = description || null
+
+  const admin = createAdminClient()
+  const { error } = await admin.from('groups').update(update).eq('id', groupId)
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  return NextResponse.json({ ok: true, ...update })
+}
 
 // DELETE /api/groups/[id]
 // Removes group_members, group assignments (+ their attempts/answers), then the group.

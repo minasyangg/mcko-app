@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge'
 import { ArrowLeft, Users } from 'lucide-react'
 import { GroupMembersEditor } from '@/components/teacher/GroupMembersEditor'
 import { DeleteGroupButton } from '@/components/teacher/DeleteGroupButton'
+import { EditGroupDialog } from '@/components/teacher/EditGroupDialog'
 
 interface Props {
   params: Promise<{ id: string }>
@@ -71,7 +72,15 @@ export default async function GroupDetailPage({ params }: Props) {
             )}
           </div>
         </div>
-        <DeleteGroupButton groupId={groupId} groupName={group.name} redirectAfterDelete />
+        <div className="flex items-center gap-2">
+          <EditGroupDialog
+            groupId={groupId}
+            groupName={group.name}
+            groupDescription={group.description}
+            variant="button"
+          />
+          <DeleteGroupButton groupId={groupId} groupName={group.name} redirectAfterDelete />
+        </div>
       </div>
 
       <div className="flex items-center gap-2">

@@ -22,6 +22,10 @@ export interface StudentRow {
   id: string
   full_name: string
   grade: string | null
+  // 'student' = выпускник школы, учится в вузе: класса нет, вместо него бейдж.
+  // string, а не литералы: в БД это text с CHECK-констрейнтом, и generate-types
+  // отдаёт его как string — сужать тип пришлось бы кастом на каждой странице.
+  study_stage?: string | null
   is_active: boolean | null
   created_at: string | null
   created_by?: string | null
@@ -191,7 +195,11 @@ export function StudentsClient({ students: initial, isAdmin = false, teachers = 
                     )}
                   </td>
                   <td className="px-4 py-3 text-muted-foreground text-xs">{s.email || '—'}</td>
-                  <td className="px-4 py-3 text-muted-foreground">{s.grade ?? '—'}</td>
+                  <td className="px-4 py-3 text-muted-foreground">
+                    {s.study_stage === 'student'
+                      ? <Badge variant="secondary" className="font-normal">Студент</Badge>
+                      : (s.grade ?? '—')}
+                  </td>
                   {isAdmin && (
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-1.5 flex-wrap max-w-64">
