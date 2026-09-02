@@ -31,7 +31,13 @@ export async function GET(request: NextRequest) {
   const q          = sp.get('q')?.trim()
   const page       = Math.max(1, parseInt(sp.get('page') ?? '1'))
   const perPage    = Math.min(50, Math.max(1, parseInt(sp.get('per_page') ?? '20')))
-  const from       = (page - 1) * perPage
+  // offset — явное смещение вместо (page-1)*per_page: библиотека грузит первую
+  // страницу крупной, а догружает мелкими порциями, поэтому арифметика по
+  // номеру страницы промахнулась бы. Без параметра поведение прежнее.
+  const offsetRaw  = sp.get('offset')
+  const from       = offsetRaw !== null
+    ? Math.max(0, parseInt(offsetRaw) || 0)
+    : (page - 1) * perPage
   const to         = from + perPage - 1
 
   const orgId = profile.organization_id ?? ''
@@ -93,6 +99,10 @@ export async function GET(request: NextRequest) {
     total:       count ?? 0,
     page,
     per_page:    perPage,
+    offset:      from,
+    // has_more считаем от реального смещения — при страницах разного размера
+    // total_pages по perPage врал бы (последняя порция могла «исчезнуть»).
+    has_more:    from + (data?.length ?? 0) < (count ?? 0),
     total_pages: Math.ceil((count ?? 0) / perPage),
   })
 

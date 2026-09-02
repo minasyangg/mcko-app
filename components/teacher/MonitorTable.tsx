@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -214,10 +215,19 @@ const FILTER_FIELDS: FilterField[] = [
 
 export function MonitorTable({ initialAttempts, isAdmin = false, assignments = [], programSummaries = [] }: Props) {
   const [attempts, setAttempts] = useState<AttemptRow[]>(initialAttempts)
+
   const [selectedAttemptId, setSelectedAttemptId] = useState<string | null>(null)
   const [tab, setTab] = useState<Tab>('assignments')
   const [finishingAll, setFinishingAll] = useState(false)
+  const router = useRouter()
   const supabase = createClient()
+
+  // Пересинхронизация с сервером. Состояние инициализируется из initialAttempts
+  // ОДИН раз, поэтому router.refresh() (его зовёт «Завершить тест»/«Открыть» в
+  // CloseAssignmentButton) молча ничего не менял: сервер присылал свежие строки,
+  // а таблица продолжала показывать старый стейт до ручной перезагрузки — из-за
+  // этого не двигались ни подписи кнопок, ни счётчики на табах.
+  useEffect(() => { setAttempts(initialAttempts) }, [initialAttempts])
 
   async function handleDelete(a: AttemptRow) {
     const res = await fetch(`/api/admin/attempts/${a.id}`, { method: 'DELETE' })
@@ -228,6 +238,9 @@ export function MonitorTable({ initialAttempts, isAdmin = false, assignments = [
     const max = json.max_attempts ?? 1
     const last = json.last_score != null ? `, результат последней: ${json.last_score}/${json.last_max ?? '?'}` : ''
     toast.success(`Попытка удалена. Использовано ${used} из ${max}${last}`)
+    // Локального фильтра мало: счётчики табов и «использовано N из M» считает
+    // сервер по student_final_results — без refresh они остаются старыми.
+    router.refresh()
   }
 
   async function handleFinish(a: AttemptRow) {
@@ -241,6 +254,7 @@ export function MonitorTable({ initialAttempts, isAdmin = false, assignments = [
     toast.success(json.status === 'expired'
       ? 'Попытка помечена как истёкшая (ученик не приступал)'
       : `Попытка завершена: ${json.score ?? 0}/${json.max_score ?? '?'}`)
+    router.refresh()
   }
 
   async function handleFinishAll() {
@@ -256,6 +270,7 @@ export function MonitorTable({ initialAttempts, isAdmin = false, assignments = [
           ? { ...x, status: x.status === 'not_started' ? 'expired' : 'submitted' }
           : x
       ))
+      router.refresh()
     } finally {
       setFinishingAll(false)
     }
@@ -392,6 +407,7 @@ export function MonitorTable({ initialAttempts, isAdmin = false, assignments = [
         onGraded={(id, score) => {
           setAttempts((prev) => prev.map((a) => a.id === id ? { ...a, status: 'checked', score } : a))
           setSelectedAttemptId(null)
+          router.refresh()
         }}
       />
     </>
