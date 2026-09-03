@@ -151,7 +151,10 @@ export function TeacherNav({ fullName, isAdmin = false, pendingRequests, pending
         </div>
         <NavList isAdmin={isAdmin} pendingRequests={pendingRequests} monitorBadge={monitorBadge} />
         <div className="p-4 border-t space-y-1 shrink-0">
-          <p className="text-xs text-muted-foreground truncate">{fullName}</p>
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-xs text-muted-foreground truncate">{fullName}</p>
+            <SwitchAccountButton variant="inline" />
+          </div>
           <Link
             href="/teacher/settings"
             className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors py-1"
@@ -159,7 +162,6 @@ export function TeacherNav({ fullName, isAdmin = false, pendingRequests, pending
             <Settings className="h-3.5 w-3.5" />
             Настройки
           </Link>
-          <SwitchAccountButton />
           <LogoutButton size="sm" variant="ghost" className="w-full justify-start px-0" />
         </div>
       </aside>
@@ -203,7 +205,10 @@ export function TeacherNav({ fullName, isAdmin = false, pendingRequests, pending
               onLinkClick={() => setMobileOpen(false)}
             />
             <div className="p-4 border-t space-y-1 shrink-0">
-              <p className="text-xs text-muted-foreground truncate">{fullName}</p>
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-xs text-muted-foreground truncate">{fullName}</p>
+                <SwitchAccountButton variant="inline" />
+              </div>
               <Link
                 href="/teacher/settings"
                 className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors py-1"
@@ -211,7 +216,6 @@ export function TeacherNav({ fullName, isAdmin = false, pendingRequests, pending
                 <Settings className="h-3.5 w-3.5" />
                 Настройки
               </Link>
-              <SwitchAccountButton />
               <LogoutButton size="sm" variant="ghost" className="w-full justify-start px-0" />
             </div>
           </div>

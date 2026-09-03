@@ -26,7 +26,7 @@ interface SwitchTarget {
 // открывает окно с полем пароля — как подтверждение операции в банковских
 // приложениях. Какой именно случай, решает сервер (requires_password), клиент
 // только отрисовывает: проверка прав здесь была бы декоративной.
-export function SwitchAccountButton() {
+export function SwitchAccountButton({ variant = 'row' }: { variant?: 'row' | 'inline' } = {}) {
   const [targets, setTargets] = useState<SwitchTarget[]>([])
   const [pending, setPending] = useState<SwitchTarget | null>(null)
   const [password, setPassword] = useState('')
@@ -95,12 +95,18 @@ export function SwitchAccountButton() {
           onClick={() => handleClick(t)}
           disabled={busy}
           title={`Переключиться на аккаунт: ${t.label}`}
-          className="flex w-full items-center gap-1.5 py-1 text-xs text-muted-foreground transition-colors hover:text-foreground disabled:opacity-60"
+          className={
+            variant === 'inline'
+              ? 'shrink-0 rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-60'
+              : 'flex w-full items-center gap-1.5 py-1 text-xs text-muted-foreground transition-colors hover:text-foreground disabled:opacity-60'
+          }
         >
           {busy && !pending
             ? <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
             : <ArrowLeftRight className="h-3.5 w-3.5 shrink-0" />}
-          <span className="truncate">{t.label}</span>
+          {/* В inline-варианте подпись не нужна: рядом уже стоит имя текущего
+              аккаунта, а цель перехода видна в подсказке */}
+          {variant === 'row' && <span className="truncate">{t.label}</span>}
         </button>
       ))}
 
