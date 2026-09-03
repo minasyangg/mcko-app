@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { LogoutButton } from '@/components/shared/LogoutButton'
+import { SwitchAccountButton } from '@/components/shared/SwitchAccountButton'
 import { BookOpen, BookMarked, Users, GraduationCap, Monitor, FileText, BarChart2, TrendingUp, Menu, X, ListChecks, Library, Route, Bell, Settings, PenLine } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
@@ -150,7 +151,10 @@ export function TeacherNav({ fullName, isAdmin = false, pendingRequests, pending
         </div>
         <NavList isAdmin={isAdmin} pendingRequests={pendingRequests} monitorBadge={monitorBadge} />
         <div className="p-4 border-t space-y-1 shrink-0">
-          <p className="text-xs text-muted-foreground truncate">{fullName}</p>
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-xs text-muted-foreground truncate">{fullName}</p>
+            <SwitchAccountButton variant="inline" />
+          </div>
           <Link
             href="/teacher/settings"
             className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors py-1"
@@ -201,7 +205,10 @@ export function TeacherNav({ fullName, isAdmin = false, pendingRequests, pending
               onLinkClick={() => setMobileOpen(false)}
             />
             <div className="p-4 border-t space-y-1 shrink-0">
-              <p className="text-xs text-muted-foreground truncate">{fullName}</p>
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-xs text-muted-foreground truncate">{fullName}</p>
+                <SwitchAccountButton variant="inline" />
+              </div>
               <Link
                 href="/teacher/settings"
                 className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors py-1"
