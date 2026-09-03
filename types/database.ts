@@ -284,6 +284,171 @@ export type Database = {
           },
         ]
       }
+      attendance_days: {
+        Row: {
+          created_at: string
+          day: string
+          id: string
+          journal_id: string
+          note: string | null
+        }
+        Insert: {
+          created_at?: string
+          day: string
+          id?: string
+          journal_id: string
+          note?: string | null
+        }
+        Update: {
+          created_at?: string
+          day?: string
+          id?: string
+          journal_id?: string
+          note?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "attendance_days_journal_id_fkey"
+            columns: ["journal_id"]
+            isOneToOne: false
+            referencedRelation: "attendance_journals"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      attendance_journals: {
+        Row: {
+          created_at: string
+          created_by: string
+          id: string
+          organization_id: string
+          subject: string | null
+          title: string
+        }
+        Insert: {
+          created_at?: string
+          created_by: string
+          id?: string
+          organization_id: string
+          subject?: string | null
+          title: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          id?: string
+          organization_id?: string
+          subject?: string | null
+          title?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "attendance_journals_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attendance_journals_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      attendance_marks: {
+        Row: {
+          day_id: string
+          id: string
+          journal_id: string
+          status: string
+          student_id: string
+          updated_at: string
+        }
+        Insert: {
+          day_id: string
+          id?: string
+          journal_id: string
+          status: string
+          student_id: string
+          updated_at?: string
+        }
+        Update: {
+          day_id?: string
+          id?: string
+          journal_id?: string
+          status?: string
+          student_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "attendance_marks_day_id_fkey"
+            columns: ["day_id"]
+            isOneToOne: false
+            referencedRelation: "attendance_days"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attendance_marks_journal_id_fkey"
+            columns: ["journal_id"]
+            isOneToOne: false
+            referencedRelation: "attendance_journals"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attendance_marks_student_id_fkey"
+            columns: ["student_id"]
+            isOneToOne: false
+            referencedRelation: "attendance_students"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      attendance_students: {
+        Row: {
+          created_at: string
+          full_name: string
+          id: string
+          journal_id: string
+          sort_order: number
+          student_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          full_name: string
+          id?: string
+          journal_id: string
+          sort_order?: number
+          student_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          full_name?: string
+          id?: string
+          journal_id?: string
+          sort_order?: number
+          student_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "attendance_students_journal_id_fkey"
+            columns: ["journal_id"]
+            isOneToOne: false
+            referencedRelation: "attendance_journals"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attendance_students_student_id_fkey"
+            columns: ["student_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       audit_logs: {
         Row: {
           action: string
@@ -2563,6 +2728,10 @@ export type Database = {
       }
       check_attempt_student_owned_by_auth: {
         Args: { p_attempt_id: string }
+        Returns: boolean
+      }
+      check_attendance_journal_access: {
+        Args: { p_journal_id: string }
         Returns: boolean
       }
       check_group_in_auth_org: {

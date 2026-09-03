@@ -5,14 +5,15 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { LogoutButton } from '@/components/shared/LogoutButton'
 import { SwitchAccountButton } from '@/components/shared/SwitchAccountButton'
-import { BookOpen, BookMarked, Users, GraduationCap, Monitor, FileText, BarChart2, TrendingUp, Menu, X, ListChecks, Library, Route, Bell, Settings, PenLine, ChevronDown } from 'lucide-react'
+import { BookOpen, BookMarked, Users, GraduationCap, Monitor, FileText, BarChart2, TrendingUp, Menu, X, ListChecks, Library, Route, Bell, Settings, PenLine, ChevronDown, ClipboardCheck } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
 
 interface NavItem {
   href: string
   label: string
-  icon: React.ElementType
+  /** У подпунктов групп иконки нет — их различает подпись, а не значок */
+  icon?: React.ElementType
   exact?: boolean
   adminOnly?: boolean
   teacherOnly?: boolean
@@ -22,24 +23,36 @@ interface NavItem {
 
 const navItems: NavItem[] = [
   { href: '/teacher', label: 'Дашборд', icon: BarChart2, exact: true },
-  { href: '/teacher/tests', label: 'Мои задания', icon: BookOpen },
+  // «Мои задания» — группа: собственные тесты/ДЗ и учебные программы.
+  // Программы раньше были отдельным пунктом меню, но по смыслу это тот же
+  // собственный учебный материал учителя, только сгруппированный по темам.
+  {
+    href: '/teacher/tests', label: 'Мои задания', icon: BookOpen, teacherOnly: true,
+    children: [
+      { href: '/teacher/tests',    label: 'Тесты/ДЗ' },
+      { href: '/teacher/roadmaps', label: 'Программы' },
+    ],
+  },
+  // У админа программ нет (они всегда чьи-то), поэтому для него — обычная ссылка
+  { href: '/teacher/tests', label: 'Мои задания', icon: BookOpen, adminOnly: true },
   // «Библиотека» — не ссылка, а группа из двух каталогов: банк задач ОГЭ/ЕГЭ
   // (library_problems) и учебники (books). Раньше это были два независимых
   // пункта меню, из-за чего «Библиотека» читалась как что-то одно конкретное.
   {
     href: '/teacher/library', label: 'Библиотека', icon: Library,
     children: [
-      { href: '/teacher/library', label: 'ОГЭ/ЕГЭ', icon: Library },
-      { href: '/teacher/books',   label: 'Книги',   icon: BookMarked },
+      { href: '/teacher/library', label: 'ОГЭ/ЕГЭ' },
+      { href: '/teacher/books',   label: 'Книги' },
     ],
   },
-  // «Назначения» — первый таб внутри «Мониторинга»
-  { href: '/teacher/roadmaps', label: 'Программы', icon: Route, teacherOnly: true },
   { href: '/teacher/monitor', label: 'Мониторинг', icon: Monitor },
   { href: '/teacher/results', label: 'Результаты', icon: TrendingUp },
   // admin: единая панель пользователей; teacher: только свои ученики (read-only)
   // «Группы» — внутри «Ученики»/«Пользователи» (ссылка в шапке), не в меню
   { href: '/teacher/users', label: 'Пользователи', icon: GraduationCap, adminOnly: true },
+  // Журналы посещаемости — отдельно от «Мониторинга»: там результаты тестов,
+  // здесь учёт присутствия на очных занятиях
+  { href: '/teacher/attendance', label: 'Посещение', icon: ClipboardCheck },
   { href: '/teacher/students', label: 'Ученики', icon: Users, teacherOnly: true },
   // доски заводятся здесь, а не кнопкой напротив ученика: у пары их может быть
   // несколько, по одной на предмет
@@ -68,7 +81,7 @@ function NavLink({
 }: {
   href: string
   label: string
-  icon: React.ElementType
+  icon?: React.ElementType
   exact?: boolean
   badge?: number
   badgeVariant?: 'default' | 'warning'
@@ -88,7 +101,7 @@ function NavLink({
           : 'text-muted-foreground hover:text-foreground hover:bg-muted'
       )}
     >
-      <Icon className="h-4 w-4 shrink-0" />
+      {Icon && <Icon className="h-4 w-4 shrink-0" />}
       <span className="truncate">{label}</span>
       {badge != null && badge > 0 && (
         <span className={cn(
@@ -130,7 +143,7 @@ function NavGroup({ item, onLinkClick }: { item: NavItem; onLinkClick?: () => vo
             : 'text-muted-foreground hover:text-foreground hover:bg-muted'
         )}
       >
-        <Icon className="h-4 w-4 shrink-0" />
+        {Icon && <Icon className="h-4 w-4 shrink-0" />}
         <span className="truncate">{item.label}</span>
         <ChevronDown className={cn('ml-auto h-3.5 w-3.5 shrink-0 transition-transform', open && 'rotate-180')} />
       </button>
