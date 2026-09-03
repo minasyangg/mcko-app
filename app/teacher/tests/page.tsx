@@ -48,7 +48,7 @@ export default async function TestsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold">Задания</h1>
+        <h1 className="text-2xl font-semibold">Мои задания</h1>
         <p className="text-sm text-muted-foreground mt-1">Тесты и домашние задания</p>
       </div>
       <TestsListClient rows={rows} isAdmin={isAdmin} teachers={teacherOptions} />
