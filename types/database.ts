@@ -332,6 +332,45 @@ export type Database = {
           },
         ]
       }
+      auth_switch_log: {
+        Row: {
+          created_at: string
+          from_user_id: string | null
+          id: string
+          to_user_id: string | null
+          with_password: boolean
+        }
+        Insert: {
+          created_at?: string
+          from_user_id?: string | null
+          id?: string
+          to_user_id?: string | null
+          with_password?: boolean
+        }
+        Update: {
+          created_at?: string
+          from_user_id?: string | null
+          id?: string
+          to_user_id?: string | null
+          with_password?: boolean
+        }
+        Relationships: [
+          {
+            foreignKeyName: "auth_switch_log_from_user_id_fkey"
+            columns: ["from_user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "auth_switch_log_to_user_id_fkey"
+            columns: ["to_user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       book_editors: {
         Row: {
           book_id: string

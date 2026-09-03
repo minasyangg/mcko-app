@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { LogoutButton } from '@/components/shared/LogoutButton'
+import { SwitchAccountButton } from '@/components/shared/SwitchAccountButton'
 import { BookOpen, BookMarked, Users, GraduationCap, Monitor, FileText, BarChart2, TrendingUp, Menu, X, ListChecks, Library, Route, Bell, Settings, PenLine } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
@@ -158,6 +159,7 @@ export function TeacherNav({ fullName, isAdmin = false, pendingRequests, pending
             <Settings className="h-3.5 w-3.5" />
             Настройки
           </Link>
+          <SwitchAccountButton />
           <LogoutButton size="sm" variant="ghost" className="w-full justify-start px-0" />
         </div>
       </aside>
@@ -209,6 +211,7 @@ export function TeacherNav({ fullName, isAdmin = false, pendingRequests, pending
                 <Settings className="h-3.5 w-3.5" />
                 Настройки
               </Link>
+              <SwitchAccountButton />
               <LogoutButton size="sm" variant="ghost" className="w-full justify-start px-0" />
             </div>
           </div>
