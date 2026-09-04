@@ -54,35 +54,22 @@ export default async function AttemptPage({ params }: PageProps) {
     redirect('/student')
   }
 
-  // Check that student has access to this assignment:
-  // either directly assigned or is a group member
-  let hasAccess = assignment.student_id === user.id
+  // Доступ: назначено лично либо через группу. Проверка членства, список
+  // попыток и итог назначения не зависят друг от друга, поэтому идут одной
+  // волной — раньше членство было отдельным круговым запросом ПЕРЕД ними, и
+  // при полном классе это давало лишний последовательный круг на каждого
+  // ученика (см. нагрузочный тест: открытие теста — самая медленная фаза).
+  const needMembershipCheck = assignment.student_id !== user.id && !!assignment.group_id
 
-  if (!hasAccess && assignment.group_id) {
-    const { data: membership } = await supabase
-      .from('group_members')
-      .select('user_id')
-      .eq('group_id', assignment.group_id)
-      .eq('user_id', user.id)
-      .single()
-    hasAccess = !!membership
-  }
-
-  if (!hasAccess) {
-    redirect('/student')
-  }
-
-  const tv = assignment.test_versions as any
-  const test = tv?.tests as any
-
-  const timeLimitSec: number | null =
-    assignment.time_limit_override_sec ?? tv?.time_limit_sec ?? null
-
-  const listHref = assignment.roadmap_topic_id != null ? '/student/roadmap' : '/student'
-
-  // Find existing in_progress or not_started attempt + признак «назначение
-  // закрыто» (полный балл / решение учителя, см. миграцию 038)
-  const [{ data: existingAttempts }, { data: finalResult }] = await Promise.all([
+  const [{ data: membership }, { data: existingAttempts }, { data: finalResult }] = await Promise.all([
+    needMembershipCheck
+      ? supabase
+          .from('group_members')
+          .select('user_id')
+          .eq('group_id', assignment.group_id!)
+          .eq('user_id', user.id)
+          .maybeSingle()
+      : Promise.resolve({ data: null }),
     supabase
       .from('attempts')
       .select('id, status, started_at')
@@ -97,6 +84,20 @@ export default async function AttemptPage({ params }: PageProps) {
       .eq('student_id', user.id)
       .maybeSingle(),
   ])
+
+  const hasAccess = assignment.student_id === user.id || !!membership
+  if (!hasAccess) {
+    redirect('/student')
+  }
+
+  const tv = assignment.test_versions as any
+  const test = tv?.tests as any
+
+  const timeLimitSec: number | null =
+    assignment.time_limit_override_sec ?? tv?.time_limit_sec ?? null
+
+  const listHref = assignment.roadmap_topic_id != null ? '/student/roadmap' : '/student'
+
 
   // Count completed attempts to check if more are available
   const completedAttempts = (existingAttempts ?? []).filter(
