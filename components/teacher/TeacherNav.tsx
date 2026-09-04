@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { LogoutButton } from '@/components/shared/LogoutButton'
 import { SwitchAccountButton } from '@/components/shared/SwitchAccountButton'
-import { BookOpen, BookMarked, Users, GraduationCap, Monitor, FileText, BarChart2, TrendingUp, Menu, X, ListChecks, Library, Route, Bell, Settings, PenLine, ChevronDown, ClipboardCheck } from 'lucide-react'
+import { BookOpen, Users, GraduationCap, Monitor, FileText, BarChart2, TrendingUp, Menu, X, ListChecks, Library, Bell, Settings, PenLine, ChevronDown, ClipboardCheck } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
 
@@ -124,16 +124,20 @@ function NavGroup({ item, onLinkClick }: { item: NavItem; onLinkClick?: () => vo
   const pathname = usePathname()
   const children = item.children ?? []
   const childActive = children.some(c => pathname.startsWith(c.href))
-  const [open, setOpen] = useState(childActive)
-
-  useEffect(() => { if (childActive) setOpen(true) }, [childActive])
+  // Храним только РУЧНОЕ переключение, а фактическую открытость выводим:
+  // группа с активным подпунктом открыта всегда. Раньше активность
+  // синхронизировалась в состояние через useEffect — лишний каскад рендеров
+  // (react-hooks/set-state-in-effect) и дубль одного и того же факта.
+  const [manualOpen, setManualOpen] = useState<boolean | null>(null)
+  const open = manualOpen ?? childActive
+  const setOpen = (v: boolean) => setManualOpen(v)
 
   const Icon = item.icon
   return (
     <div>
       <button
         type="button"
-        onClick={() => setOpen(o => !o)}
+        onClick={() => setOpen(!open)}
         aria-expanded={open}
         className={cn(
           'flex w-full items-center gap-2.5 px-3 py-2 text-sm rounded-md mx-2 transition-colors',
@@ -158,7 +162,7 @@ function NavGroup({ item, onLinkClick }: { item: NavItem; onLinkClick?: () => vo
   )
 }
 
-function NavList({ isAdmin, pendingRequests, monitorBadge, onLinkClick }: { isAdmin: boolean; pendingRequests: number; monitorBadge: number; onLinkClick?: () => void }) {
+function NavList({ isAdmin, pendingRequests, monitorBadge, moderationBadge, onLinkClick }: { isAdmin: boolean; pendingRequests: number; monitorBadge: number; moderationBadge: number; onLinkClick?: () => void }) {
   return (
     <nav className="flex-1 py-2 space-y-0.5 overflow-y-auto">
       {navItems.filter(item => (!item.adminOnly || isAdmin) && (!item.teacherOnly || !isAdmin)).map((item) => (
@@ -172,11 +176,12 @@ function NavList({ isAdmin, pendingRequests, monitorBadge, onLinkClick }: { isAd
             icon={item.icon}
             exact={item.exact}
             badge={
+              item.href === '/teacher/users' ? moderationBadge :
               item.href === '/teacher/solution-requests' ? pendingRequests :
               item.href === '/teacher/monitor' ? monitorBadge :
               undefined
             }
-            badgeVariant={item.href === '/teacher/monitor' ? 'warning' : 'default'}
+            badgeVariant={item.href === '/teacher/monitor' || item.href === '/teacher/users' ? 'warning' : 'default'}
             onClick={onLinkClick}
           />
         )
@@ -188,6 +193,39 @@ function NavList({ isAdmin, pendingRequests, monitorBadge, onLinkClick }: { isAd
 export function TeacherNav({ fullName, isAdmin = false, pendingRequests, pendingReview }: Props) {
   const [mobileOpen, setMobileOpen] = useState(false)
   const [monitorBadge, setMonitorBadge] = useState(pendingReview)
+  // Заявки на модерацию — счётчик над «Пользователями», чтобы новая
+  // регистрация не потерялась, пока админ не заглянул в раздел
+  const [moderationBadge, setModerationBadge] = useState(0)
+
+  useEffect(() => {
+    if (!isAdmin) return
+
+    const fetchModeration = async () => {
+      try {
+        const res = await fetch('/api/admin/moderation/pending-count')
+        if (!res.ok) return
+        const { count } = await res.json()
+        setModerationBadge(count)
+      } catch { /* сеть моргнула — счётчик обновится следующим событием */ }
+    }
+    fetchModeration()
+
+    // Обновляем опросом, а не подпиской: realtime в проекте не включён ни для
+    // одной таблицы (publication supabase_realtime пуста), поэтому
+    // postgres_changes молча не сработал бы. Минута — компромисс: заявки
+    // приходят редко, а лишних запросов почти нет.
+    const timer = setInterval(fetchModeration, 60_000)
+
+    // Плюс мгновенное обновление, когда админ возвращается на вкладку —
+    // типичный сценарий «одобрил в другой вкладке, вернулся сюда»
+    const onFocus = () => fetchModeration()
+    window.addEventListener('focus', onFocus)
+
+    return () => {
+      clearInterval(timer)
+      window.removeEventListener('focus', onFocus)
+    }
+  }, [isAdmin])
 
   useEffect(() => {
     const supabase = createClient()
@@ -217,7 +255,7 @@ export function TeacherNav({ fullName, isAdmin = false, pendingRequests, pending
         <div className="h-14 flex items-center px-4 border-b shrink-0">
           <span className="font-semibold text-sm">ExamPlatform</span>
         </div>
-        <NavList isAdmin={isAdmin} pendingRequests={pendingRequests} monitorBadge={monitorBadge} />
+        <NavList isAdmin={isAdmin} pendingRequests={pendingRequests} monitorBadge={monitorBadge} moderationBadge={moderationBadge} />
         <div className="p-4 border-t space-y-1 shrink-0">
           <div className="flex items-center justify-between gap-2">
             <p className="text-xs text-muted-foreground truncate">{fullName}</p>
@@ -270,6 +308,7 @@ export function TeacherNav({ fullName, isAdmin = false, pendingRequests, pending
               isAdmin={isAdmin}
               pendingRequests={pendingRequests}
               monitorBadge={monitorBadge}
+              moderationBadge={moderationBadge}
               onLinkClick={() => setMobileOpen(false)}
             />
             <div className="p-4 border-t space-y-1 shrink-0">
