@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { toast } from 'sonner'
+import { AlertTriangle } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import {
   Dialog,
@@ -35,6 +36,12 @@ export interface AddToTestDialogProps {
   addUrl: string | null
   // подпись задания в заголовке диалога, например "№ 735"
   problemLabel: string
+  /**
+   * id задачи в книге/библиотеке. Нужен, чтобы предупредить о повторе:
+   * та же задача могла уже уйти этим ученикам в другом ДЗ. Без него
+   * проверка просто не выполняется (диалог работает как раньше).
+   */
+  problemId?: string
   // вызывается после успешного добавления — родитель помечает задачу
   // «добавлено в <testTitle>» (без перезагрузки страницы)
   onAdded?: (testTitle: string) => void
@@ -42,11 +49,14 @@ export interface AddToTestDialogProps {
 
 // Универсальный диалог «добавить задание в тест/ДЗ»: работает и для книг,
 // и для библиотеки — отличается только addUrl.
-export function AddToTestDialog({ open, onClose, addUrl, problemLabel, onAdded }: AddToTestDialogProps) {
+export function AddToTestDialog({ open, onClose, addUrl, problemLabel, problemId, onAdded }: AddToTestDialogProps) {
   const [tests, setTests] = useState<EditableTest[] | null>(null)
   const [versionId, setVersionId] = useState('')
   const [maxScore, setMaxScore] = useState('1')
   const [adding, setAdding] = useState(false)
+  // Кому эта задача уже задавалась в других ДЗ (см. /api/assignments/duplicates)
+  const [dups, setDups] = useState<{ student_name: string; test_title: string; assigned_at: string }[]>([])
+  const [checkingDups, setCheckingDups] = useState(false)
 
   useEffect(() => {
     if (!open) return
@@ -91,6 +101,24 @@ export function AddToTestDialog({ open, onClose, addUrl, problemLabel, onAdded }
         } catch { /* sessionStorage недоступен — просто без предвыбора */ }
       })
   }, [open])
+
+  // Проверяем повтор, когда выбрано целевое ДЗ: адресаты известны только по
+  // нему. Пока ДЗ никому не назначено, сравнивать не с чем — API вернёт пусто.
+  useEffect(() => {
+    if (!open || !problemId || !versionId) { setDups([]); return }
+    let cancelled = false
+    setCheckingDups(true)
+    fetch('/api/assignments/duplicates', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ problem_ids: [problemId], test_version_id: versionId }),
+    })
+      .then(r => r.ok ? r.json() : { duplicates: [] })
+      .then(d => { if (!cancelled) setDups(d.duplicates ?? []) })
+      .catch(() => { if (!cancelled) setDups([]) })
+      .finally(() => { if (!cancelled) setCheckingDups(false) })
+    return () => { cancelled = true }
+  }, [open, problemId, versionId])
 
   async function handleAdd() {
     if (!addUrl || !versionId) return
@@ -164,6 +192,27 @@ export function AddToTestDialog({ open, onClose, addUrl, problemLabel, onAdded }
               </p>
             )}
           </div>
+
+          {/* Предупреждение о повторе. Именно предупреждение: кнопка добавления
+              остаётся активной — повторить задачу может быть осознанным
+              решением учителя. */}
+          {dups.length > 0 && (
+            <div className="flex items-start gap-2.5 rounded-md border border-amber-300 bg-amber-50 px-3 py-2.5 text-sm dark:border-amber-900 dark:bg-amber-950/40">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+              <div className="min-w-0 text-amber-900 dark:text-amber-200">
+                <div className="font-medium">Эта задача уже задавалась</div>
+                <ul className="mt-1 space-y-0.5 text-amber-800/90 dark:text-amber-200/80">
+                  {dups.slice(0, 4).map((d, i) => (
+                    <li key={i} className="truncate">
+                      {d.student_name} — «{d.test_title}»
+                      {d.assigned_at ? `, ${new Date(d.assigned_at).toLocaleDateString('ru-RU')}` : ''}
+                    </li>
+                  ))}
+                  {dups.length > 4 && <li>…и ещё {dups.length - 4}</li>}
+                </ul>
+              </div>
+            </div>
+          )}
 
           <div className="space-y-1.5">
             <Label>Макс. балл</Label>

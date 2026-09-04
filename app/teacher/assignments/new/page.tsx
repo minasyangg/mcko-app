@@ -12,7 +12,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { ArrowLeft, Loader2 } from 'lucide-react'
+import { ArrowLeft, Loader2, AlertTriangle } from 'lucide-react'
 import Link from 'next/link'
 
 const schema = z.object({
@@ -53,6 +53,33 @@ export default function NewAssignmentPage() {
     defaultValues: { target_type: 'group', max_attempts: 1, preserve_answers: false },
   })
   const targetType = watch('target_type')
+  const testId = watch('test_id')
+  const studentId = watch('student_id')
+  const groupId = watch('group_id')
+
+  // «Этот тест уже проходили» — информационно: назначить повторно можно
+  // (например, для отработки), поэтому кнопку не блокируем.
+  const [alreadyTaken, setAlreadyTaken] = useState<
+    { student_name: string; score: number | null; max_score: number | null; submitted_at: string | null }[]
+  >([])
+
+  useEffect(() => {
+    const target = targetType === 'group' ? groupId : studentId
+    if (!testId || !target) { setAlreadyTaken([]); return }
+    let cancelled = false
+    fetch('/api/assignments/already-taken', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        test_id: testId,
+        ...(targetType === 'group' ? { group_id: target } : { student_id: target }),
+      }),
+    })
+      .then(r => r.ok ? r.json() : { taken: [] })
+      .then(d => { if (!cancelled) setAlreadyTaken(d.taken ?? []) })
+      .catch(() => { if (!cancelled) setAlreadyTaken([]) })
+    return () => { cancelled = true }
+  }, [testId, studentId, groupId, targetType])
 
   useEffect(() => {
     async function load() {
@@ -257,6 +284,25 @@ export default function NewAssignmentPage() {
                   </label>
                 )}
               </div>
+
+              {alreadyTaken.length > 0 && (
+                <div className="flex items-start gap-2.5 rounded-md border border-amber-300 bg-amber-50 px-3 py-2.5 text-sm dark:border-amber-900 dark:bg-amber-950/40">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+                  <div className="min-w-0 text-amber-900 dark:text-amber-200">
+                    <div className="font-medium">Этот тест уже проходили</div>
+                    <ul className="mt-1 space-y-0.5 text-amber-800/90 dark:text-amber-200/80">
+                      {alreadyTaken.slice(0, 5).map((t, i) => (
+                        <li key={i} className="truncate">
+                          {t.student_name}
+                          {t.score != null ? ` — ${t.score}/${t.max_score ?? '?'}` : ''}
+                          {t.submitted_at ? `, ${new Date(t.submitted_at).toLocaleDateString('ru-RU')}` : ''}
+                        </li>
+                      ))}
+                      {alreadyTaken.length > 5 && <li>…и ещё {alreadyTaken.length - 5}</li>}
+                    </ul>
+                  </div>
+                </div>
+              )}
 
               <Button type="submit" className="w-full" disabled={isSubmitting || loading}>
                 {isSubmitting ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Создание...</> : 'Создать назначение'}

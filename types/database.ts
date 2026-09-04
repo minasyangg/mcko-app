@@ -272,6 +272,13 @@ export type Database = {
             foreignKeyName: "attempts_assignment_id_fkey"
             columns: ["assignment_id"]
             isOneToOne: false
+            referencedRelation: "assigned_problems"
+            referencedColumns: ["assignment_id"]
+          },
+          {
+            foreignKeyName: "attempts_assignment_id_fkey"
+            columns: ["assignment_id"]
+            isOneToOne: false
             referencedRelation: "assignments"
             referencedColumns: ["id"]
           },
@@ -2185,6 +2192,13 @@ export type Database = {
             foreignKeyName: "student_final_results_assignment_id_fkey"
             columns: ["assignment_id"]
             isOneToOne: false
+            referencedRelation: "assigned_problems"
+            referencedColumns: ["assignment_id"]
+          },
+          {
+            foreignKeyName: "student_final_results_assignment_id_fkey"
+            columns: ["assignment_id"]
+            isOneToOne: false
             referencedRelation: "assignments"
             referencedColumns: ["id"]
           },
@@ -2607,6 +2621,13 @@ export type Database = {
             foreignKeyName: "test_versions_test_id_fkey"
             columns: ["test_id"]
             isOneToOne: false
+            referencedRelation: "assigned_problems"
+            referencedColumns: ["test_id"]
+          },
+          {
+            foreignKeyName: "test_versions_test_id_fkey"
+            columns: ["test_id"]
+            isOneToOne: false
             referencedRelation: "tests"
             referencedColumns: ["id"]
           },
@@ -2697,7 +2718,43 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      assigned_problems: {
+        Row: {
+          assigned_at: string | null
+          assignment_id: string | null
+          book_problem_id: string | null
+          library_problem_id: string | null
+          problem_id: string | null
+          student_id: string | null
+          teacher_id: string | null
+          test_id: string | null
+          test_kind: string | null
+          test_title: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "test_tasks_book_problem_id_fkey"
+            columns: ["book_problem_id"]
+            isOneToOne: false
+            referencedRelation: "book_problems"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "test_tasks_library_problem_id_fkey"
+            columns: ["library_problem_id"]
+            isOneToOne: false
+            referencedRelation: "library_problems"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tests_created_by_fkey"
+            columns: ["teacher_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Functions: {
       auth_org: { Args: never; Returns: string }

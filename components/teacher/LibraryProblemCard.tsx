@@ -302,6 +302,7 @@ export function LibraryProblemCard({ problem }: Props) {
         onClose={() => setAddOpen(false)}
         addUrl={`/api/library/problems/${problem.id}/add-to-test`}
         problemLabel={codeLabel ?? ''}
+        problemId={problem.id}
         onAdded={(title) => setAddedTo(title)}
       />
     </div>
