@@ -13,6 +13,7 @@ import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { ArrowLeft, Loader2, AlertTriangle } from 'lucide-react'
+import { SearchableSelect } from '@/components/shared/SearchableSelect'
 import Link from 'next/link'
 
 const schema = z.object({
@@ -161,20 +162,17 @@ export default function NewAssignmentPage() {
               {/* Тест */}
               <div className="space-y-1">
                 <Label>Тест *</Label>
+                {/* Тесты приходят отсортированными по дате создания, поэтому
+                    первые в списке — недавно созданные: их назначают чаще всего */}
                 <Controller name="test_id" control={control} render={({ field }) => (
-                  <Select
-                    value={field.value || undefined}
-                    onValueChange={(v) => field.onChange(v)}
-                  >
-                    <SelectTrigger className={errors.test_id ? 'border-destructive' : ''}>
-                      <SelectValue placeholder="Выберите тест" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {tests.length === 0
-                        ? <SelectItem value="_none" disabled>Нет опубликованных тестов</SelectItem>
-                        : tests.map(t => <SelectItem key={t.id} value={t.id}>{t.title}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
+                  <SearchableSelect
+                    options={tests.map(t => ({ value: t.id, label: t.title }))}
+                    value={field.value ?? ''}
+                    onChange={field.onChange}
+                    placeholder="Выберите тест"
+                    recentLabel="Недавно созданные"
+                    emptyText="Нет опубликованных тестов"
+                  />
                 )} />
                 {errors.test_id && <p className="text-sm text-destructive">{errors.test_id.message}</p>}
               </div>
@@ -205,19 +203,14 @@ export default function NewAssignmentPage() {
               <div className={targetType !== 'group' ? 'hidden' : 'space-y-1'}>
                 <Label>Группа *</Label>
                 <Controller name="group_id" control={control} render={({ field }) => (
-                  <Select
-                    value={field.value || undefined}
-                    onValueChange={(v) => field.onChange(v)}
-                  >
-                    <SelectTrigger className={errors.group_id ? 'border-destructive' : ''}>
-                      <SelectValue placeholder="Выберите группу" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {groups.length === 0
-                        ? <SelectItem value="_none" disabled>Нет групп — создайте сначала</SelectItem>
-                        : groups.map(g => <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
+                  <SearchableSelect
+                    options={groups.map(g => ({ value: g.id, label: g.name }))}
+                    value={field.value ?? ''}
+                    onChange={field.onChange}
+                    placeholder="Выберите группу"
+                    recentCount={0}
+                    emptyText="Нет групп — создайте сначала"
+                  />
                 )} />
                 {errors.group_id && <p className="text-sm text-destructive">{errors.group_id.message}</p>}
               </div>
@@ -226,23 +219,20 @@ export default function NewAssignmentPage() {
               <div className={targetType !== 'student' ? 'hidden' : 'space-y-1'}>
                 <Label>Ученик *</Label>
                 <Controller name="student_id" control={control} render={({ field }) => (
-                  <Select
-                    value={field.value || undefined}
-                    onValueChange={(v) => field.onChange(v)}
-                  >
-                    <SelectTrigger className={errors.student_id ? 'border-destructive' : ''}>
-                      <SelectValue placeholder="Выберите ученика" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {students.length === 0
-                        ? <SelectItem value="_none" disabled>Нет учеников в организации</SelectItem>
-                        : students.map(s => (
-                            <SelectItem key={s.id} value={s.id}>
-                              {s.full_name}{s.grade ? ` (${s.grade})` : ''}
-                            </SelectItem>
-                          ))}
-                    </SelectContent>
-                  </Select>
+                  <SearchableSelect
+                    options={students.map(s => ({
+                      value: s.id,
+                      label: s.full_name,
+                      badge: s.grade ? `${s.grade} кл.` : null,
+                    }))}
+                    value={field.value ?? ''}
+                    onChange={field.onChange}
+                    placeholder="Выберите ученика"
+                    // Учеников много и порядок алфавитный — «последние» тут
+                    // не имеют смысла, помогает именно поиск
+                    recentCount={0}
+                    emptyText="Нет учеников в организации"
+                  />
                 )} />
                 {errors.student_id && <p className="text-sm text-destructive">{errors.student_id.message}</p>}
               </div>

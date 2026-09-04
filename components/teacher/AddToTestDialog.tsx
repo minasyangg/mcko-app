@@ -14,13 +14,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
+import { SearchableSelect } from '@/components/shared/SearchableSelect'
 
 interface EditableTest {
   testId: string
@@ -173,19 +167,21 @@ export function AddToTestDialog({ open, onClose, addUrl, problemLabel, problemId
         <div className="space-y-4">
           <div className="space-y-1.5">
             <Label>Тест или домашнее задание</Label>
-            <Select value={versionId || '_none'} onValueChange={(v) => setVersionId(v === '_none' ? '' : v)}>
-              <SelectTrigger>
-                <SelectValue placeholder="Выберите тест..." />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="_none">— Выберите —</SelectItem>
-                {(tests ?? []).map(t => (
-                  <SelectItem key={t.versionId} value={t.versionId}>
-                    {t.title}{t.kind === 'homework' ? ' · ДЗ' : ''}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            {/* Список отсортирован по дате создания (запрос выше), поэтому
+                первые пять — последние созданные учителем: именно в них чаще
+                всего и добавляют задание сразу после создания */}
+            <SearchableSelect
+              options={(tests ?? []).map(t => ({
+                value: t.versionId,
+                label: t.title,
+                badge: t.kind === 'homework' ? 'ДЗ' : null,
+              }))}
+              value={versionId}
+              onChange={setVersionId}
+              placeholder="Выберите тест или ДЗ..."
+              recentLabel="Недавно созданные"
+              emptyText="Ничего не найдено"
+            />
             {tests !== null && tests.length === 0 && (
               <p className="text-xs text-muted-foreground">
                 Нет тестов или ДЗ, доступных для редактирования. Создайте их в разделе «Задания».
