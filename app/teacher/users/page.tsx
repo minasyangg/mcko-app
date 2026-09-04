@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { redirect } from 'next/navigation'
 import { UsersClient } from '@/components/teacher/UsersClient'
 
@@ -59,9 +60,16 @@ export default async function UsersPage() {
     student_count: countByTeacher.get(t.id) ?? 0,
   }))
 
-  // Заявки с публичной регистрации (миграция 054). Видит только админ —
-  // страница и так админская (проверка роли выше).
-  const { data: pending } = await supabase
+  // Заявки с публичной регистрации (миграция 054).
+  //
+  // Читаем admin-клиентом СОЗНАТЕЛЬНО: у заявки organization_id ещё пуст —
+  // организацию назначает админ в момент одобрения. Политика
+  // «profiles: admin read org» требует organization_id = auth_org(), поэтому
+  // под обычным клиентом такие строки не видны вообще, и таб модерации
+  // оставался пустым при живых заявках в базе.
+  // Доступ безопасен: страница уже отсечена проверкой role === 'admin' выше.
+  const adminClient = createAdminClient()
+  const { data: pending } = await adminClient
     .from('profiles')
     .select('id, full_name, email, telegram_username, phone, pd_consent_at, created_at')
     .eq('moderation_status', 'pending')
