@@ -17,6 +17,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Plus, Eye, EyeOff, UserPlus, UsersRound } from 'lucide-react'
 import { StudentsClient, type StudentRow, type TeacherOption } from '@/components/teacher/StudentsClient'
 import { TeachersClient } from '@/components/teacher/TeachersClient'
+import { ModerationTab, type PendingUser } from '@/components/teacher/ModerationTab'
 
 interface TeacherRow {
   id: string
@@ -29,10 +30,11 @@ interface TeacherRow {
 type Role = 'student' | 'teacher'
 
 export function UsersClient({
-  students, teachers,
+  students, teachers, pending = [],
 }: {
   students: StudentRow[]
   teachers: TeacherRow[]
+  pending?: PendingUser[]
 }) {
   const router = useRouter()
   const teacherOptions: TeacherOption[] = teachers.map(t => ({ id: t.id, full_name: t.full_name }))
@@ -108,6 +110,16 @@ export function UsersClient({
         <TabsList>
           <TabsTrigger value="students">Ученики ({students.length})</TabsTrigger>
           <TabsTrigger value="teachers">Учителя ({teachers.length})</TabsTrigger>
+          {/* Счётчик заявок — как бейдж «на проверке» в мониторинге: админ
+              должен видеть новые регистрации, не заходя в таб */}
+          <TabsTrigger value="moderation" className="gap-1.5">
+            На модерации
+            {pending.length > 0 && (
+              <span className="inline-flex h-4.5 min-w-4.5 items-center justify-center rounded-full bg-orange-500 px-1 text-[11px] font-semibold leading-none text-white">
+                {pending.length}
+              </span>
+            )}
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="students" className="pt-4">
@@ -116,6 +128,10 @@ export function UsersClient({
           ) : (
             <StudentsClient students={students} isAdmin teachers={teacherOptions} />
           )}
+        </TabsContent>
+
+        <TabsContent value="moderation" className="pt-4">
+          <ModerationTab pending={pending} teachers={teacherOptions} />
         </TabsContent>
 
         <TabsContent value="teachers" className="pt-4">

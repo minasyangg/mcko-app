@@ -1,11 +1,13 @@
 'use client'
 
+import { useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
+import { Loader2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -35,8 +37,13 @@ export default function LoginPage() {
     resolver: zodResolver(schema),
   })
 
+  // Индикатор держится и на время редиректа после успешного входа
+  const [redirecting, setRedirecting] = useState(false)
+  const busy = isSubmitting || redirecting
+
   async function onSubmit(data: FormData) {
     const supabase = createClient()
+    setRedirecting(false)
     const { error } = await supabase.auth.signInWithPassword({
       email: data.email,
       password: data.password,
@@ -45,6 +52,10 @@ export default function LoginPage() {
       toast.error(error.message)
       return
     }
+    // Держим индикатор до самого перехода: isSubmitting снимется раньше, чем
+    // отрисуется следующая страница, и без этого кнопка на секунду
+    // возвращалась в исходное состояние — выглядело как «клик не сработал».
+    setRedirecting(true)
     // Пришли за доской — возвращаем туда, а не в кабинет. Именно
     // location.assign, а не router: next ведёт на /api/doska/open, это не
     // страница, и клиентский роутер на ней спотыкается, тогда как обычный
@@ -75,8 +86,10 @@ export default function LoginPage() {
             <PasswordInput id="password" autoComplete="current-password" {...register('password')} />
             {errors.password && <p className="text-sm text-destructive">{errors.password.message}</p>}
           </div>
-          <Button type="submit" className="w-full" disabled={isSubmitting}>
-            {isSubmitting ? 'Вход...' : 'Войти'}
+          <Button type="submit" className="w-full" disabled={busy}>
+            {busy
+              ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Вход...</>
+              : 'Войти'}
           </Button>
           <p className="text-center text-sm text-muted-foreground">
             Нет аккаунта?{' '}

@@ -14,30 +14,6 @@ export type Database = {
   }
   public: {
     Tables: {
-      _backup_034_wrongly_locked: {
-        Row: {
-          backed_up_at: string | null
-          id: string | null
-          is_correct: boolean | null
-          is_locked: boolean | null
-          locked_in_attempt_id: string | null
-        }
-        Insert: {
-          backed_up_at?: string | null
-          id?: string | null
-          is_correct?: boolean | null
-          is_locked?: boolean | null
-          locked_in_attempt_id?: string | null
-        }
-        Update: {
-          backed_up_at?: string | null
-          id?: string | null
-          is_correct?: boolean | null
-          is_locked?: boolean | null
-          locked_in_attempt_id?: string | null
-        }
-        Relationships: []
-      }
       assignments: {
         Row: {
           closed_at: string | null
@@ -1782,8 +1758,14 @@ export type Database = {
           grade: string | null
           id: string
           is_active: boolean | null
+          moderated_at: string | null
+          moderated_by: string | null
+          moderation_note: string | null
+          moderation_status: string
           notifications_enabled: boolean
           organization_id: string | null
+          pd_consent_at: string | null
+          phone: string | null
           role: string
           study_stage: string
           telegram_chat_id: number | null
@@ -1798,8 +1780,14 @@ export type Database = {
           grade?: string | null
           id: string
           is_active?: boolean | null
+          moderated_at?: string | null
+          moderated_by?: string | null
+          moderation_note?: string | null
+          moderation_status?: string
           notifications_enabled?: boolean
           organization_id?: string | null
+          pd_consent_at?: string | null
+          phone?: string | null
           role: string
           study_stage?: string
           telegram_chat_id?: number | null
@@ -1814,8 +1802,14 @@ export type Database = {
           grade?: string | null
           id?: string
           is_active?: boolean | null
+          moderated_at?: string | null
+          moderated_by?: string | null
+          moderation_note?: string | null
+          moderation_status?: string
           notifications_enabled?: boolean
           organization_id?: string | null
+          pd_consent_at?: string | null
+          phone?: string | null
           role?: string
           study_stage?: string
           telegram_chat_id?: number | null
@@ -1825,6 +1819,13 @@ export type Database = {
           {
             foreignKeyName: "profiles_created_by_fkey"
             columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "profiles_moderated_by_fkey"
+            columns: ["moderated_by"]
             isOneToOne: false
             referencedRelation: "profiles"
             referencedColumns: ["id"]
