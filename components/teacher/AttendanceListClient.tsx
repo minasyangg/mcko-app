@@ -17,6 +17,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import { ConfirmDeleteAction } from '@/components/shared/ConfirmDeleteAction'
 import { Plus, ClipboardCheck, Trash2 } from 'lucide-react'
+import { AdminAuthorNotice } from '@/components/shared/AdminAuthorNotice'
 
 export interface JournalRow {
   id: string
@@ -96,6 +97,8 @@ export function AttendanceListClient({ journals }: { journals: JournalRow[] }) {
           </DialogContent>
         </Dialog>
       </div>
+
+      <AdminAuthorNotice what="журнал" />
 
       {journals.length === 0 ? (
         <div className="flex flex-col items-center justify-center gap-3 py-16 text-center text-muted-foreground">
