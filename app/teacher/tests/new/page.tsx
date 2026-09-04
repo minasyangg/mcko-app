@@ -19,6 +19,7 @@ import {
 } from '@/components/ui/select'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import Link from 'next/link'
+import { AdminAuthorNotice } from '@/components/shared/AdminAuthorNotice'
 
 const schema = z.object({
   title: z.string().min(1, 'Название обязательно'),
@@ -143,6 +144,10 @@ export default function NewTestPage() {
             ? 'Домашнее задание собирается из готовых заданий — из книг или библиотеки задач. Баллы задаёте вы сами.'
             : 'Заполните информацию о тесте, затем загрузите PDF с заданиями'}
         </p>
+      </div>
+
+      <div className="mb-4">
+        <AdminAuthorNotice what={isHomework ? 'домашнее задание' : 'тест'} />
       </div>
 
       <Card>

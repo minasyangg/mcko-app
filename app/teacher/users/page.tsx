@@ -59,6 +59,15 @@ export default async function UsersPage() {
     student_count: countByTeacher.get(t.id) ?? 0,
   }))
 
+  // Заявки с публичной регистрации (миграция 054). Видит только админ —
+  // страница и так админская (проверка роли выше).
+  const { data: pending } = await supabase
+    .from('profiles')
+    .select('id, full_name, email, telegram_username, phone, pd_consent_at, created_at')
+    .eq('moderation_status', 'pending')
+    .is('deleted_at', null)
+    .order('created_at', { ascending: false })
+
   return (
     <div className="space-y-6">
       <div>
@@ -67,7 +76,7 @@ export default async function UsersPage() {
           Ученики и учителя организации
         </p>
       </div>
-      <UsersClient students={studentsWithEmail} teachers={teachersWithMeta} />
+      <UsersClient students={studentsWithEmail} teachers={teachersWithMeta} pending={pending ?? []} />
     </div>
   )
 }

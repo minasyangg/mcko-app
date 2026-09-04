@@ -14,30 +14,6 @@ export type Database = {
   }
   public: {
     Tables: {
-      _backup_034_wrongly_locked: {
-        Row: {
-          backed_up_at: string | null
-          id: string | null
-          is_correct: boolean | null
-          is_locked: boolean | null
-          locked_in_attempt_id: string | null
-        }
-        Insert: {
-          backed_up_at?: string | null
-          id?: string | null
-          is_correct?: boolean | null
-          is_locked?: boolean | null
-          locked_in_attempt_id?: string | null
-        }
-        Update: {
-          backed_up_at?: string | null
-          id?: string | null
-          is_correct?: boolean | null
-          is_locked?: boolean | null
-          locked_in_attempt_id?: string | null
-        }
-        Relationships: []
-      }
       assignments: {
         Row: {
           closed_at: string | null
@@ -272,11 +248,183 @@ export type Database = {
             foreignKeyName: "attempts_assignment_id_fkey"
             columns: ["assignment_id"]
             isOneToOne: false
+            referencedRelation: "assigned_problems"
+            referencedColumns: ["assignment_id"]
+          },
+          {
+            foreignKeyName: "attempts_assignment_id_fkey"
+            columns: ["assignment_id"]
+            isOneToOne: false
             referencedRelation: "assignments"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "attempts_student_id_fkey"
+            columns: ["student_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      attendance_days: {
+        Row: {
+          created_at: string
+          day: string
+          id: string
+          journal_id: string
+          note: string | null
+        }
+        Insert: {
+          created_at?: string
+          day: string
+          id?: string
+          journal_id: string
+          note?: string | null
+        }
+        Update: {
+          created_at?: string
+          day?: string
+          id?: string
+          journal_id?: string
+          note?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "attendance_days_journal_id_fkey"
+            columns: ["journal_id"]
+            isOneToOne: false
+            referencedRelation: "attendance_journals"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      attendance_journals: {
+        Row: {
+          created_at: string
+          created_by: string
+          id: string
+          organization_id: string
+          subject: string | null
+          title: string
+        }
+        Insert: {
+          created_at?: string
+          created_by: string
+          id?: string
+          organization_id: string
+          subject?: string | null
+          title: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          id?: string
+          organization_id?: string
+          subject?: string | null
+          title?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "attendance_journals_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attendance_journals_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      attendance_marks: {
+        Row: {
+          day_id: string
+          id: string
+          journal_id: string
+          status: string
+          student_id: string
+          updated_at: string
+        }
+        Insert: {
+          day_id: string
+          id?: string
+          journal_id: string
+          status: string
+          student_id: string
+          updated_at?: string
+        }
+        Update: {
+          day_id?: string
+          id?: string
+          journal_id?: string
+          status?: string
+          student_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "attendance_marks_day_id_fkey"
+            columns: ["day_id"]
+            isOneToOne: false
+            referencedRelation: "attendance_days"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attendance_marks_journal_id_fkey"
+            columns: ["journal_id"]
+            isOneToOne: false
+            referencedRelation: "attendance_journals"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attendance_marks_student_id_fkey"
+            columns: ["student_id"]
+            isOneToOne: false
+            referencedRelation: "attendance_students"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      attendance_students: {
+        Row: {
+          created_at: string
+          full_name: string
+          id: string
+          journal_id: string
+          sort_order: number
+          student_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          full_name: string
+          id?: string
+          journal_id: string
+          sort_order?: number
+          student_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          full_name?: string
+          id?: string
+          journal_id?: string
+          sort_order?: number
+          student_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "attendance_students_journal_id_fkey"
+            columns: ["journal_id"]
+            isOneToOne: false
+            referencedRelation: "attendance_journals"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attendance_students_student_id_fkey"
             columns: ["student_id"]
             isOneToOne: false
             referencedRelation: "profiles"
@@ -1610,8 +1758,14 @@ export type Database = {
           grade: string | null
           id: string
           is_active: boolean | null
+          moderated_at: string | null
+          moderated_by: string | null
+          moderation_note: string | null
+          moderation_status: string
           notifications_enabled: boolean
           organization_id: string | null
+          pd_consent_at: string | null
+          phone: string | null
           role: string
           study_stage: string
           telegram_chat_id: number | null
@@ -1626,8 +1780,14 @@ export type Database = {
           grade?: string | null
           id: string
           is_active?: boolean | null
+          moderated_at?: string | null
+          moderated_by?: string | null
+          moderation_note?: string | null
+          moderation_status?: string
           notifications_enabled?: boolean
           organization_id?: string | null
+          pd_consent_at?: string | null
+          phone?: string | null
           role: string
           study_stage?: string
           telegram_chat_id?: number | null
@@ -1642,8 +1802,14 @@ export type Database = {
           grade?: string | null
           id?: string
           is_active?: boolean | null
+          moderated_at?: string | null
+          moderated_by?: string | null
+          moderation_note?: string | null
+          moderation_status?: string
           notifications_enabled?: boolean
           organization_id?: string | null
+          pd_consent_at?: string | null
+          phone?: string | null
           role?: string
           study_stage?: string
           telegram_chat_id?: number | null
@@ -1653,6 +1819,13 @@ export type Database = {
           {
             foreignKeyName: "profiles_created_by_fkey"
             columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "profiles_moderated_by_fkey"
+            columns: ["moderated_by"]
             isOneToOne: false
             referencedRelation: "profiles"
             referencedColumns: ["id"]
@@ -2016,6 +2189,13 @@ export type Database = {
           updated_at?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "student_final_results_assignment_id_fkey"
+            columns: ["assignment_id"]
+            isOneToOne: false
+            referencedRelation: "assigned_problems"
+            referencedColumns: ["assignment_id"]
+          },
           {
             foreignKeyName: "student_final_results_assignment_id_fkey"
             columns: ["assignment_id"]
@@ -2442,6 +2622,13 @@ export type Database = {
             foreignKeyName: "test_versions_test_id_fkey"
             columns: ["test_id"]
             isOneToOne: false
+            referencedRelation: "assigned_problems"
+            referencedColumns: ["test_id"]
+          },
+          {
+            foreignKeyName: "test_versions_test_id_fkey"
+            columns: ["test_id"]
+            isOneToOne: false
             referencedRelation: "tests"
             referencedColumns: ["id"]
           },
@@ -2452,6 +2639,7 @@ export type Database = {
           created_at: string | null
           created_by: string | null
           current_published_version_id: string | null
+          deleted_at: string | null
           description: string | null
           exam_type: string | null
           grade: string | null
@@ -2469,6 +2657,7 @@ export type Database = {
           created_at?: string | null
           created_by?: string | null
           current_published_version_id?: string | null
+          deleted_at?: string | null
           description?: string | null
           exam_type?: string | null
           grade?: string | null
@@ -2486,6 +2675,7 @@ export type Database = {
           created_at?: string | null
           created_by?: string | null
           current_published_version_id?: string | null
+          deleted_at?: string | null
           description?: string | null
           exam_type?: string | null
           grade?: string | null
@@ -2532,7 +2722,43 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      assigned_problems: {
+        Row: {
+          assigned_at: string | null
+          assignment_id: string | null
+          book_problem_id: string | null
+          library_problem_id: string | null
+          problem_id: string | null
+          student_id: string | null
+          teacher_id: string | null
+          test_id: string | null
+          test_kind: string | null
+          test_title: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "test_tasks_book_problem_id_fkey"
+            columns: ["book_problem_id"]
+            isOneToOne: false
+            referencedRelation: "book_problems"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "test_tasks_library_problem_id_fkey"
+            columns: ["library_problem_id"]
+            isOneToOne: false
+            referencedRelation: "library_problems"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tests_created_by_fkey"
+            columns: ["teacher_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Functions: {
       auth_org: { Args: never; Returns: string }
@@ -2563,6 +2789,10 @@ export type Database = {
       }
       check_attempt_student_owned_by_auth: {
         Args: { p_attempt_id: string }
+        Returns: boolean
+      }
+      check_attendance_journal_access: {
+        Args: { p_journal_id: string }
         Returns: boolean
       }
       check_group_in_auth_org: {

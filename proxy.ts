@@ -41,11 +41,19 @@ export async function proxy(request: NextRequest) {
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('role')
+    .select('role, moderation_status')
     .eq('id', user.id)
     .single()
 
   const role = profile?.role
+
+  // Заявка с публичной регистрации (миграция 054) до подтверждения админом
+  // не даёт доступа никуда: аккаунт в auth уже существует и человек может
+  // войти по паролю, поэтому отсечка обязана быть здесь, а не только в UI.
+  if (profile?.moderation_status === 'pending' || profile?.moderation_status === 'rejected') {
+    if (pathname.startsWith('/register/pending')) return response
+    return NextResponse.redirect(new URL('/register/pending', request.url))
+  }
 
   // Redirect authenticated users away from auth pages
   if (pathname.startsWith('/login') || pathname.startsWith('/register')) {

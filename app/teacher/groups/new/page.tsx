@@ -14,6 +14,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { ArrowLeft } from 'lucide-react'
 import Link from 'next/link'
+import { AdminAuthorNotice } from '@/components/shared/AdminAuthorNotice'
 
 const schema = z.object({
   name: z.string().min(1, 'Введите название группы'),
@@ -74,6 +75,10 @@ export default function NewGroupPage() {
           </Link>
         </Button>
         <h1 className="text-2xl font-semibold">Новая группа</h1>
+      </div>
+
+      <div className="mb-4">
+        <AdminAuthorNotice what="группа" />
       </div>
 
       <Card>

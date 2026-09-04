@@ -881,6 +881,7 @@ export function BookReader({
         onClose={() => setDialogProblem(null)}
         addUrl={dialogProblem ? `/api/books/problems/${dialogProblem.id}/add-to-test` : null}
         problemLabel={dialogProblem ? `№ ${dialogProblem.task_number}` : ''}
+        problemId={dialogProblem?.id}
         onAdded={(title) => {
           if (dialogProblem) setAddedProblems(prev => new Map(prev).set(dialogProblem.id, title))
         }}

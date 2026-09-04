@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/dialog'
 import { Plus, Route, Users, ListChecks } from 'lucide-react'
 import { EditRoadmapDialog } from '@/components/teacher/EditRoadmapDialog'
+import { AdminAuthorNotice } from '@/components/shared/AdminAuthorNotice'
 
 export interface RoadmapRow {
   id: string
@@ -62,6 +63,8 @@ export function RoadmapClient({ roadmaps }: { roadmaps: RoadmapRow[] }) {
           Создать программу
         </Button>
       </div>
+
+      <AdminAuthorNotice what="программа" />
 
       {roadmaps.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-16 text-center text-muted-foreground gap-3">

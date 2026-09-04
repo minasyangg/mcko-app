@@ -2,6 +2,7 @@
 
 import { useState, useMemo } from 'react'
 import Link from 'next/link'
+import { BulkDeleteTestsBar } from '@/components/teacher/BulkDeleteTestsBar'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -43,12 +44,31 @@ type Tab = 'test' | 'homework'
 
 // showExamType=false — вкладка ДЗ: у домашних заданий нет типа экзамена
 // showOwner=true — админ видит тесты всех учителей, показываем автора
-function TestsTable({ rows, showExamType = true, showOwner = false }: { rows: TestRow[]; showExamType?: boolean; showOwner?: boolean }) {
+function TestsTable({
+  rows, showExamType = true, showOwner = false, selected, onToggle, onToggleAll,
+}: {
+  rows: TestRow[]
+  showExamType?: boolean
+  showOwner?: boolean
+  selected: Set<string>
+  onToggle: (id: string) => void
+  onToggleAll: (ids: string[], checked: boolean) => void
+}) {
+  const allChecked = rows.length > 0 && rows.every(r => selected.has(r.id))
   return (
     <div className="rounded-md border overflow-hidden">
       <table className="w-full text-sm">
         <thead className="bg-muted/50">
           <tr>
+            <th className="w-10 px-3 py-3">
+              <input
+                type="checkbox"
+                className="h-4 w-4"
+                checked={allChecked}
+                onChange={(e) => onToggleAll(rows.map(r => r.id), e.target.checked)}
+                title="Выбрать все на вкладке"
+              />
+            </th>
             <th className="text-left px-4 py-3 font-medium">Название</th>
             {showOwner && <th className="text-left px-4 py-3 font-medium">Учитель</th>}
             <th className="text-left px-4 py-3 font-medium">Предмет</th>
@@ -62,6 +82,14 @@ function TestsTable({ rows, showExamType = true, showOwner = false }: { rows: Te
         <tbody className="divide-y">
           {rows.map((test) => (
             <tr key={test.id} className="hover:bg-muted/30 transition-colors">
+              <td className="px-3 py-3">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4"
+                  checked={selected.has(test.id)}
+                  onChange={() => onToggle(test.id)}
+                />
+              </td>
               <td className="px-4 py-3 font-medium">{test.title}</td>
               {showOwner && <td className="px-4 py-3 text-muted-foreground">{test.owner_name ?? '—'}</td>}
               <td className="px-4 py-3 text-muted-foreground">{test.subject ?? '—'}</td>
@@ -111,6 +139,20 @@ export function TestsListClient({
   const [tab, setTab] = useState<Tab>('test')
   // фильтр по учителю — только у админа (видит тесты всех)
   const [filterTeacher, setFilterTeacher] = useState<string>('all')
+
+  // Массовый выбор для удаления. Сбрасывается при смене вкладки: набор строк
+  // там другой, и «выбрано 5» от прошлой вкладки сбивало бы с толку.
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const toggle = (id: string) => setSelected(prev => {
+    const n = new Set(prev)
+    if (n.has(id)) n.delete(id); else n.add(id)
+    return n
+  })
+  const toggleAll = (ids: string[], checked: boolean) => setSelected(prev => {
+    const n = new Set(prev)
+    for (const id of ids) { if (checked) n.add(id); else n.delete(id) }
+    return n
+  })
 
   const filtered = useMemo(
     () => (isAdmin && filterTeacher !== 'all')
@@ -193,7 +235,21 @@ export function TestsListClient({
           </Button>
         </div>
       ) : (
-        <TestsTable rows={current} showExamType={tab === 'test'} showOwner={isAdmin} />
+        <div className="space-y-3">
+          <BulkDeleteTestsBar
+            selectedIds={[...selected]}
+            onClear={() => setSelected(new Set())}
+            label={tab === 'homework' ? 'ДЗ' : 'тест'}
+          />
+          <TestsTable
+            rows={current}
+            showExamType={tab === 'test'}
+            showOwner={isAdmin}
+            selected={selected}
+            onToggle={toggle}
+            onToggleAll={toggleAll}
+          />
+        </div>
       )}
     </>
   )

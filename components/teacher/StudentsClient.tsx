@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
+import { BulkDeleteStudentsBar } from '@/components/teacher/BulkDeleteStudentsBar'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -50,6 +51,8 @@ interface Props {
 export function StudentsClient({ students: initial, isAdmin = false, teachers = [] }: Props) {
   const router = useRouter()
   const [students, setStudents] = useState<StudentRow[]>(initial)
+  // Массовый выбор для удаления (только у админа, см. панель ниже)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
   const [editTarget, setEditTarget] = useState<StudentRow | null>(null)
   const [editForm, setEditForm] = useState({ full_name: '', grade: '', email: '', password: '', telegram: '' })
   const [showPwd, setShowPwd] = useState(false)
@@ -166,10 +169,35 @@ export function StudentsClient({ students: initial, isAdmin = false, teachers = 
 
   return (
     <>
+      {/* Массовое удаление — только админу: у учителя нет прав удалять чужих
+          учеников, и панель ему только мешала бы */}
+      {isAdmin && (
+        <div className="mb-3">
+          <BulkDeleteStudentsBar
+            selectedIds={[...selected]}
+            onClear={() => setSelected(new Set())}
+          />
+        </div>
+      )}
       <div className="rounded-md border overflow-hidden">
         <table className="w-full text-sm">
           <thead className="bg-muted/50">
             <tr>
+              {isAdmin && (
+                <th className="w-10 px-3 py-3">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4"
+                    checked={students.length > 0 && students.every(s => selected.has(s.id))}
+                    onChange={(e) => setSelected(prev => {
+                      const n = new Set(prev)
+                      for (const s of students) { if (e.target.checked) n.add(s.id); else n.delete(s.id) }
+                      return n
+                    })}
+                    title="Выбрать всех"
+                  />
+                </th>
+              )}
               <th className="text-left px-4 py-3 font-medium">ФИО</th>
               <th className="text-left px-4 py-3 font-medium">Email</th>
               <th className="text-left px-4 py-3 font-medium">Класс</th>
@@ -184,6 +212,20 @@ export function StudentsClient({ students: initial, isAdmin = false, teachers = 
               const isActive = s.is_active !== false
               return (
                 <tr key={s.id} className={`hover:bg-muted/30 transition-colors ${!isActive ? 'opacity-60' : ''}`}>
+                  {isAdmin && (
+                    <td className="px-3 py-3">
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4"
+                        checked={selected.has(s.id)}
+                        onChange={() => setSelected(prev => {
+                          const n = new Set(prev)
+                          if (n.has(s.id)) n.delete(s.id); else n.add(s.id)
+                          return n
+                        })}
+                      />
+                    </td>
+                  )}
                   <td className="px-4 py-3 font-medium">
                     <span className={!isActive ? 'text-muted-foreground line-through' : ''}>
                       {s.full_name}
