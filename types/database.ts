@@ -2639,6 +2639,7 @@ export type Database = {
           created_at: string | null
           created_by: string | null
           current_published_version_id: string | null
+          deleted_at: string | null
           description: string | null
           exam_type: string | null
           grade: string | null
@@ -2656,6 +2657,7 @@ export type Database = {
           created_at?: string | null
           created_by?: string | null
           current_published_version_id?: string | null
+          deleted_at?: string | null
           description?: string | null
           exam_type?: string | null
           grade?: string | null
@@ -2673,6 +2675,7 @@ export type Database = {
           created_at?: string | null
           created_by?: string | null
           current_published_version_id?: string | null
+          deleted_at?: string | null
           description?: string | null
           exam_type?: string | null
           grade?: string | null

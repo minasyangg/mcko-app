@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { deleteVersionStorage } from '@/app/api/parsing/trigger/route'
+import { analyzeTestUsage, deleteTest } from '@/lib/tests/delete'
 
 // PATCH /api/tests/[id] — update test metadata
 export async function PATCH(
@@ -108,117 +108,20 @@ export async function DELETE(
 
     const admin = createAdminClient()
 
-    // Get all versions for this test
-    const { data: versions } = await admin
-      .from('test_versions')
-      .select('id')
-      .eq('test_id', testId)
+    // Способ удаления решает analyzeTestUsage: тест, который никто не решал,
+    // стирается физически; тест с попытками только помечается скрытым, иначе
+    // вместе с ним пропали бы результаты учеников (student_final_results
+    // каскадится от test_versions, а прежний код здесь ещё и вручную удалял
+    // attempts вместе с ответами).
+    const [usage] = await analyzeTestUsage(admin, [testId])
+    const mode = usage?.mode ?? 'hard'
 
-    const versionIds = (versions ?? []).map((v) => v.id)
-
-    if (versionIds.length > 0) {
-      // Get all tasks for these versions
-      const { data: tasks } = await admin
-        .from('test_tasks')
-        .select('id')
-        .in('test_version_id', versionIds)
-
-      const taskIds = (tasks ?? []).map((t) => t.id)
-
-      if (taskIds.length > 0) {
-        // Delete task_answer_keys
-        await admin.from('task_answer_keys').delete().in('task_id', taskIds)
-
-        // Delete task_solutions (and their media via cascade or explicit)
-        const { data: solutions } = await admin
-          .from('task_solutions')
-          .select('id')
-          .in('task_id', taskIds)
-
-        const solutionIds = (solutions ?? []).map((s) => s.id)
-        if (solutionIds.length > 0) {
-          await admin.from('solution_media').delete().in('solution_id', solutionIds)
-          await admin.from('task_solutions').delete().in('id', solutionIds)
-        }
-
-        // Delete task_media storage files, then DB rows
-        const { data: mediaRows } = await admin.from('task_media').select('storage_path').in('task_id', taskIds)
-        const mediaPaths = (mediaRows ?? []).map(r => r.storage_path).filter(Boolean)
-        if (mediaPaths.length) await admin.storage.from('task-media').remove(mediaPaths)
-        await admin.from('task_media').delete().in('task_id', taskIds)
-
-        // Delete solution_requests
-        await admin.from('solution_requests').delete().in('task_id', taskIds)
-
-        // Delete parsing_warnings for tasks
-        await admin.from('parsing_warnings').delete().in('task_id', taskIds)
-
-        // Delete attempt_task_answers
-        await admin.from('attempt_task_answers').delete().in('task_id', taskIds)
-
-        // Delete test_tasks
-        await admin.from('test_tasks').delete().in('id', taskIds)
-      }
-
-      // Delete parsing_warnings for parsing_jobs of these versions
-      const { data: jobs } = await admin
-        .from('parsing_jobs')
-        .select('id')
-        .in('test_version_id', versionIds)
-
-      const jobIds = (jobs ?? []).map((j) => j.id)
-      if (jobIds.length > 0) {
-        await admin.from('parsing_warnings').delete().in('parsing_job_id', jobIds)
-        await admin.from('parsing_jobs').delete().in('id', jobIds)
-      }
-
-      // Delete test_documents
-      await admin.from('test_documents').delete().in('test_version_id', versionIds)
-
-      // Get assignments for these versions
-      const { data: assignments } = await admin
-        .from('assignments')
-        .select('id')
-        .in('test_version_id', versionIds)
-
-      const assignmentIds = (assignments ?? []).map((a) => a.id)
-      if (assignmentIds.length > 0) {
-        // Delete attempts for these assignments
-        const { data: attempts } = await admin
-          .from('attempts')
-          .select('id')
-          .in('assignment_id', assignmentIds)
-
-        const attemptIds = (attempts ?? []).map((a) => a.id)
-        if (attemptIds.length > 0) {
-          await admin.from('attempt_task_answers').delete().in('attempt_id', attemptIds)
-          await admin.from('presence_events').delete().in('attempt_id', attemptIds)
-          await admin.from('attempts').delete().in('id', attemptIds)
-        }
-
-        await admin.from('assignments').delete().in('id', assignmentIds)
-      }
-
-      // Delete any remaining Storage files for each version (e.g. unmatched images with task_id=null)
-      for (const vId of versionIds) {
-        await deleteVersionStorage(admin, vId)
-      }
-
-      // Delete test_versions
-      await admin.from('test_versions').delete().in('id', versionIds)
+    const res = await deleteTest(admin, testId, mode)
+    if (!res.ok) {
+      return Response.json({ error: res.error }, { status: 500 })
     }
 
-    // Finally delete the test itself
-    const { error: deleteError } = await admin
-      .from('tests')
-      .delete()
-      .eq('id', testId)
-
-    if (deleteError) {
-      return Response.json({ error: deleteError.message }, { status: 500 })
-    }
-
-    return Response.json({ success: true })
+    return Response.json({ success: true, mode })
   } catch (err) {
     console.error('[DELETE /api/tests/[id]]', err)
     return Response.json({ error: 'Internal server error' }, { status: 500 })
