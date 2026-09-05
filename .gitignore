@@ -2,10 +2,11 @@ node_modules/
 .next/
 __pycache__/
 *.pyc
-.env
-.env.local
-.env.*.local
-.env.production
+# Файлы среды: в git попадает ТОЛЬКО .env.example (в нём одни плейсхолдеры).
+# Правило «всё .env* кроме образца» — чтобы новый файл со ключами не утёк
+# по недосмотру, как это уже случалось с .env.development.local.example.
+.env*
+!.env.example
 out/
 build/
 .claude/*
