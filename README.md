@@ -1,36 +1,66 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# ExamPlatform
 
-## Getting Started
+Платформа компьютерного тестирования для школьников: учитель собирает тесты и
+домашние задания, назначает их ученикам и группам, следит за ходом работы и
+проверяет результаты.
 
-First, run the development server:
+**Стек:** Next.js (App Router) · Supabase (Postgres + Auth + Storage) ·
+TypeScript · Tailwind · Vercel.
+
+## Запуск
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
+npm run dev          # http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Нужен `.env.local` — список переменных в `.env.example`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Проверки перед пушем:
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+npx tsc --noEmit     # обязательно
+npm run lint
+```
 
-## Learn More
+## Что где лежит
 
-To learn more about Next.js, take a look at the following resources:
+| Каталог | Что внутри |
+|---|---|
+| `app/teacher/` | Кабинет учителя и админа |
+| `app/student/` | Кабинет ученика, прохождение теста |
+| `app/api/` | Серверные роуты |
+| `lib/` | Бизнес-логика: оценивание, парсинг, роли, уведомления |
+| `components/` | UI, сгруппирован по разделам |
+| `supabase/migrations/` | Схема БД — единственный источник правды |
+| `scripts/` | Импорт книг, нагрузочный тест, служебные утилиты |
+| `docs/` | Разбор пайплайна импорта OCR-книг |
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Основные модули
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+- **Тесты и ДЗ** — сборка из PDF (распознавание через PaddleOCR), из библиотеки
+  задач и из учебников; версионирование, ключи ответов, критерии.
+- **Библиотека** — банк задач ОГЭ/ЕГЭ и учебники, с фильтрами по темам ФИПИ.
+- **Назначения и мониторинг** — кому что задано, кто пишет прямо сейчас, что
+  ждёт проверки.
+- **Оценивание** — автопроверка по ключам, ручная проверка развёрнутых ответов,
+  накопительный итог по назначению.
+- **Учебные программы** — темы с прикреплёнными заданиями и прогрессом учеников.
+- **Посещаемость** — журнал занятий с расписанием на несколько недель.
+- **Доски** — совместное рабочее полотно с учеником или группой.
 
-## Deploy on Vercel
+## Правила разработки
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Соглашения проекта — в [AGENTS.md](AGENTS.md), он же подключён к
+[CLAUDE.md](CLAUDE.md).
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Важное про схему: **актуальная структура БД — это миграции и
+`types/database.ts`**, а не документация. Типы генерируются из живой базы, при
+изменении схемы их нужно перегенерировать.
+
+## Архив
+
+`_local/` не под контролем версий и содержит рабочие материалы: образцы
+OCR-вывода, документы ФИПИ и устаревшую документацию v1 (май 2026), которая
+описывает уже заменённые решения — оставлена только на случай, если
+понадобится свериться с историей.

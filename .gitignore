@@ -21,3 +21,14 @@ supabase/functions/.tmp
 *_by_PaddleOCR*.json
 algebra_*.json
 book-import-sql/
+
+# Локальный архив: образцы OCR, документы ФИПИ, устаревшая документация v1.
+# Не под контролем версий — это рабочие материалы, а не часть проекта.
+/_local/
+
+# Артефакт инкрементальной сборки TypeScript
+tsconfig.tsbuildinfo
+
+# Windows-устройство, а не файл: появляется от ошибочных перенаправлений
+# вида `cmd > nul` и ломает git add
+nul
