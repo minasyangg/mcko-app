@@ -99,6 +99,12 @@ export async function PATCH(
     await admin.from('attempts').update({
       status: 'checked',
       checked_at: now,
+      // Отдельно от checked_at: тот ставится и при чистой авто-проверке без
+      // участия учителя (lib/grading/finalize.ts). teacher_reviewed_at — знак
+      // именно ручной проверки, по нему таб «На проверке» в мониторинге сразу
+      // отпускает работу, даже если у ученика остались попытки (см. миграцию
+      // 057 и случай Власенко Глеба).
+      teacher_reviewed_at: now,
       score: attemptScore,
       ...(body.teacher_comment ? { teacher_comment: body.teacher_comment } : {}),
     }).eq('id', attemptId)
