@@ -1,13 +1,13 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { LogoutButton } from '@/components/shared/LogoutButton'
 import { SwitchAccountButton } from '@/components/shared/SwitchAccountButton'
 import { BookOpen, Users, GraduationCap, Monitor, FileText, BarChart2, TrendingUp, Menu, X, ListChecks, Library, Bell, Settings, PenLine, ChevronDown, ClipboardCheck } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { createClient } from '@/lib/supabase/client'
+import { useLiveCount } from '@/lib/hooks/usePolling'
 
 interface NavItem {
   href: string
@@ -192,61 +192,15 @@ function NavList({ isAdmin, pendingRequests, monitorBadge, moderationBadge, onLi
 
 export function TeacherNav({ fullName, isAdmin = false, pendingRequests, pendingReview }: Props) {
   const [mobileOpen, setMobileOpen] = useState(false)
-  const [monitorBadge, setMonitorBadge] = useState(pendingReview)
+
+  // Единый механизм живого обновления для всех бейджей — см. lib/hooks/usePolling.
+  // Раньше «на проверке» держался на postgres_changes подписке, которая в этом
+  // проекте молча не работает (publication supabase_realtime пуста), а «на
+  // модерации» опрашивался вручную с тем же кодом — теперь один хук на оба.
+  const monitorBadge = useLiveCount('/api/teacher/monitor/pending-count', { initial: pendingReview })
   // Заявки на модерацию — счётчик над «Пользователями», чтобы новая
-  // регистрация не потерялась, пока админ не заглянул в раздел
-  const [moderationBadge, setModerationBadge] = useState(0)
-
-  useEffect(() => {
-    if (!isAdmin) return
-
-    const fetchModeration = async () => {
-      try {
-        const res = await fetch('/api/admin/moderation/pending-count')
-        if (!res.ok) return
-        const { count } = await res.json()
-        setModerationBadge(count)
-      } catch { /* сеть моргнула — счётчик обновится следующим событием */ }
-    }
-    fetchModeration()
-
-    // Обновляем опросом, а не подпиской: realtime в проекте не включён ни для
-    // одной таблицы (publication supabase_realtime пуста), поэтому
-    // postgres_changes молча не сработал бы. Минута — компромисс: заявки
-    // приходят редко, а лишних запросов почти нет.
-    const timer = setInterval(fetchModeration, 60_000)
-
-    // Плюс мгновенное обновление, когда админ возвращается на вкладку —
-    // типичный сценарий «одобрил в другой вкладке, вернулся сюда»
-    const onFocus = () => fetchModeration()
-    window.addEventListener('focus', onFocus)
-
-    return () => {
-      clearInterval(timer)
-      window.removeEventListener('focus', onFocus)
-    }
-  }, [isAdmin])
-
-  useEffect(() => {
-    const supabase = createClient()
-
-    const fetchPendingReview = async () => {
-      try {
-        const res = await fetch('/api/teacher/monitor/pending-count')
-        if (!res.ok) return
-        const { count } = await res.json()
-        setMonitorBadge(count)
-      } catch { /* ignore transient errors */ }
-    }
-
-    const channel = supabase
-      .channel('monitor-badge')
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'attempts' }, fetchPendingReview)
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'attempts' }, fetchPendingReview)
-      .subscribe()
-
-    return () => { supabase.removeChannel(channel) }
-  }, [])
+  // регистрация не потерялась, пока админ не заглянул в раздел. Только admin.
+  const moderationBadge = useLiveCount('/api/admin/moderation/pending-count', { enabled: isAdmin })
 
   return (
     <>

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { createClient } from '@/lib/supabase/client'
+import { usePolling } from '@/lib/hooks/usePolling'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import {
@@ -220,7 +220,6 @@ export function MonitorTable({ initialAttempts, isAdmin = false, assignments = [
   const [tab, setTab] = useState<Tab>('assignments')
   const [finishingAll, setFinishingAll] = useState(false)
   const router = useRouter()
-  const supabase = createClient()
 
   // Пересинхронизация с сервером. Состояние инициализируется из initialAttempts
   // ОДИН раз, поэтому router.refresh() (его зовёт «Завершить тест»/«Открыть» в
@@ -276,37 +275,15 @@ export function MonitorTable({ initialAttempts, isAdmin = false, assignments = [
     }
   }
 
-  useEffect(() => {
-    const channel = supabase
-      .channel('attempts-monitor')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'attempts' }, (payload) => {
-        if (payload.eventType === 'UPDATE') {
-          // status НЕ берём из payload: это сырое значение attempts.status в БД,
-          // а таблица показывает вычисленный статус («completed» при исчерпанных
-          // попытках/закрытии — см. app/teacher/monitor/page.tsx). Раньше сырой
-          // статус из realtime перезатирал уже посчитанный «completed» обратно на
-          // «checked», и проверенная работа с исчерпанными попытками навсегда
-          // оставалась в табе «На проверке» — сам пересчёт делает router.refresh(),
-          // который зовётся сразу после любого действия, меняющего статус.
-          setAttempts((prev) =>
-            prev.map((a) =>
-              a.id === payload.new.id
-                ? {
-                    ...a,
-                    current_task_number: payload.new.current_task_number ?? a.current_task_number,
-                    score: payload.new.score ?? a.score,
-                    max_score: payload.new.max_score ?? a.max_score,
-                    last_activity_at: payload.new.last_activity_at ?? a.last_activity_at,
-                    submitted_at: payload.new.submitted_at ?? a.submitted_at,
-                  }
-                : a
-            )
-          )
-        }
-      })
-      .subscribe()
-    return () => { supabase.removeChannel(channel) }
-  }, [])
+  // Живое обновление таблицы — единый механизм с бейджами в TeacherNav (см.
+  // lib/hooks/usePolling). Раньше здесь была подписка на postgres_changes,
+  // которая в этом проекте молча не работает (publication supabase_realtime
+  // пуста): сырой статус из неё ещё и перезатирал вычисленный «completed»
+  // обратно на «checked», из-за чего проверенная работа с исчерпанными
+  // попытками навсегда оставалась в табе «На проверке». router.refresh()
+  // подтягивает пересчитанные строки с сервера (включая статус/баллы), тот
+  // же вызов уже используется после действий учителя (delete/finish/grade).
+  usePolling(() => router.refresh())
 
   const active  = attempts.filter((a) => ['not_started', 'in_progress'].includes(a.status))
   // «На проверке» включает и уже авто-проверенные (checked) попытки — иначе
