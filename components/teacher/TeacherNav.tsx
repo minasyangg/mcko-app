@@ -67,7 +67,6 @@ interface Props {
   fullName: string
   isAdmin?: boolean
   pendingRequests: number
-  pendingReview: number
 }
 
 function NavLink({
@@ -190,14 +189,16 @@ function NavList({ isAdmin, pendingRequests, monitorBadge, moderationBadge, onLi
   )
 }
 
-export function TeacherNav({ fullName, isAdmin = false, pendingRequests, pendingReview }: Props) {
+export function TeacherNav({ fullName, isAdmin = false, pendingRequests }: Props) {
   const [mobileOpen, setMobileOpen] = useState(false)
 
   // Единый механизм живого обновления для всех бейджей — см. lib/hooks/usePolling.
   // Раньше «на проверке» держался на postgres_changes подписке, которая в этом
   // проекте молча не работает (publication supabase_realtime пуста), а «на
   // модерации» опрашивался вручную с тем же кодом — теперь один хук на оба.
-  const monitorBadge = useLiveCount('/api/teacher/monitor/pending-count', { initial: pendingReview })
+  // initial: 0 — useLiveCount сам делает первый запрос сразу при монтировании,
+  // считать «на проверке» заранее на сервере (в layout) больше не нужно.
+  const monitorBadge = useLiveCount('/api/teacher/monitor/pending-count')
   // Заявки на модерацию — счётчик над «Пользователями», чтобы новая
   // регистрация не потерялась, пока админ не заглянул в раздел. Только admin.
   const moderationBadge = useLiveCount('/api/admin/moderation/pending-count', { enabled: isAdmin })
