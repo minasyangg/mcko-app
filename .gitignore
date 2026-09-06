@@ -2,10 +2,11 @@ node_modules/
 .next/
 __pycache__/
 *.pyc
-.env
-.env.local
-.env.*.local
-.env.production
+# Файлы среды: в git попадает ТОЛЬКО .env.example (в нём одни плейсхолдеры).
+# Правило «всё .env* кроме образца» — чтобы новый файл со ключами не утёк
+# по недосмотру, как это уже случалось с .env.development.local.example.
+.env*
+!.env.example
 out/
 build/
 .claude/*
@@ -21,3 +22,14 @@ supabase/functions/.tmp
 *_by_PaddleOCR*.json
 algebra_*.json
 book-import-sql/
+
+# Локальный архив: образцы OCR, документы ФИПИ, устаревшая документация v1.
+# Не под контролем версий — это рабочие материалы, а не часть проекта.
+/_local/
+
+# Артефакт инкрементальной сборки TypeScript
+tsconfig.tsbuildinfo
+
+# Windows-устройство, а не файл: появляется от ошибочных перенаправлений
+# вида `cmd > nul` и ломает git add
+nul

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { createClient } from '@/lib/supabase/client'
+import { usePolling } from '@/lib/hooks/usePolling'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import {
@@ -220,7 +220,6 @@ export function MonitorTable({ initialAttempts, isAdmin = false, assignments = [
   const [tab, setTab] = useState<Tab>('assignments')
   const [finishingAll, setFinishingAll] = useState(false)
   const router = useRouter()
-  const supabase = createClient()
 
   // Пересинхронизация с сервером. Состояние инициализируется из initialAttempts
   // ОДИН раз, поэтому router.refresh() (его зовёт «Завершить тест»/«Открыть» в
@@ -276,39 +275,29 @@ export function MonitorTable({ initialAttempts, isAdmin = false, assignments = [
     }
   }
 
-  useEffect(() => {
-    const channel = supabase
-      .channel('attempts-monitor')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'attempts' }, (payload) => {
-        if (payload.eventType === 'UPDATE') {
-          setAttempts((prev) =>
-            prev.map((a) =>
-              a.id === payload.new.id
-                ? {
-                    ...a,
-                    status: payload.new.status ?? a.status,
-                    current_task_number: payload.new.current_task_number ?? a.current_task_number,
-                    score: payload.new.score ?? a.score,
-                    max_score: payload.new.max_score ?? a.max_score,
-                    last_activity_at: payload.new.last_activity_at ?? a.last_activity_at,
-                    submitted_at: payload.new.submitted_at ?? a.submitted_at,
-                  }
-                : a
-            )
-          )
-        }
-      })
-      .subscribe()
-    return () => { supabase.removeChannel(channel) }
-  }, [])
+  // Живое обновление таблицы — единый механизм с бейджами в TeacherNav (см.
+  // lib/hooks/usePolling). Раньше здесь была подписка на postgres_changes,
+  // которая в этом проекте молча не работает (publication supabase_realtime
+  // пуста): сырой статус из неё ещё и перезатирал вычисленный «completed»
+  // обратно на «checked», из-за чего проверенная работа с исчерпанными
+  // попытками навсегда оставалась в табе «На проверке». router.refresh()
+  // подтягивает пересчитанные строки с сервера (включая статус/баллы), тот
+  // же вызов уже используется после действий учителя (delete/finish/grade).
+  usePolling(() => router.refresh())
 
   const active  = attempts.filter((a) => ['not_started', 'in_progress'].includes(a.status))
   // «На проверке» включает и уже авто-проверенные (checked) попытки — иначе
   // 100%-автоматическая проверка (в т.ч. ошибочная, см. ключи с неверным
   // grading_method) уходит сразу в «Проверено» и учитель её никогда не видит.
   // Дублируется с «Проверено» намеренно: это витрина «покажи мне, что
-  // проверено, и дай проверить/убедиться», а не строгая непересекающаяся
-  // партиция статусов.
+  // проверено, и дай проверить/убедиться» — НО только пока это не подтвердил
+  // человек. Как только учитель САМ проверил и сохранил оценку, сервер сразу
+  // переводит статус в «completed» (см. teacher_reviewed_at, миграция 057, и
+  // app/teacher/monitor/page.tsx) — независимо от того, остались ли у ученика
+  // попытки. Поэтому «checked» здесь — это ровно то, что проверено только
+  // автоматически и ждёт человека; «completed» сюда не входит (раньше входило
+  // тоже, и работа Власенко Глеба зависала в «На проверке» навсегда даже
+  // после ручной проверки).
   const review  = attempts.filter((a) => ['submitted', 'under_review', 'checked'].includes(a.status))
   const checked = attempts.filter((a) => ['checked', 'completed'].includes(a.status))
 
@@ -405,7 +394,11 @@ export function MonitorTable({ initialAttempts, isAdmin = false, assignments = [
         attemptId={selectedAttemptId}
         onClose={() => setSelectedAttemptId(null)}
         onGraded={(id, score) => {
-          setAttempts((prev) => prev.map((a) => a.id === id ? { ...a, status: 'checked', score } : a))
+          // status здесь намеренно не трогаем: сырое «checked» из PATCH — не то
+          // же самое, что вычисленный статус таблицы. После ручной проверки
+          // сервер сразу переведёт её в «completed» (teacher_reviewed_at,
+          // миграция 057) — этот пересчёт придёт с router.refresh() ниже.
+          setAttempts((prev) => prev.map((a) => a.id === id ? { ...a, score } : a))
           setSelectedAttemptId(null)
           router.refresh()
         }}

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { toast } from 'sonner'
@@ -141,10 +141,40 @@ export function RoadmapEditor({ roadmap, topics, tests, students, memberIds, gro
   const [itemTopic, setItemTopic] = useState<EditorTopic | null>(null)
   const [itemForm, setItemForm] = useState({ test_id: '', kind: 'homework' as 'homework' | 'test', max_attempts: 1, ends_at: '' })
 
+  // Сверка повторов при привязке теста к теме — тот же механизм и те же
+  // пороги, что на экране «Назначить тест» (см. /api/assignments/duplicates).
+  // Адресаты здесь — все ученики программы (memberIds), т.к. привязка теста
+  // к теме назначает его сразу всем; is_group=true включает пороговый режим
+  // (>50% учеников с пересечением >30% задач) — поштучный список по каждому
+  // ученику здесь не показываем (в отличие от одиночного назначения): у
+  // программы адресатов обычно много, а решение уже агрегировано сервером.
+  const [itemGroupWarning, setItemGroupWarning] = useState<
+    { affected_students: number; total_students: number; avg_overlap_percent: number } | null
+  >(null)
+
   function openItem(topic: EditorTopic) {
     setItemTopic(topic)
     setItemForm({ test_id: '', kind: 'homework', max_attempts: 1, ends_at: '' })
+    setItemGroupWarning(null)
   }
+
+  useEffect(() => {
+    // Не запрашиваем и НЕ трогаем состояние сразу в теле эффекта здесь: форма
+    // и так стартует с test_id: '' при каждом openItem(), поэтому предыдущее
+    // предупреждение само не переживёт открытие диалога для другой темы —
+    // достаточно просто не делать запрос, когда сравнивать ещё не с чем.
+    if (!itemTopic || !itemForm.test_id || memberIds.length === 0) return
+    let cancelled = false
+    fetch('/api/assignments/duplicates', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ test_id: itemForm.test_id, student_ids: memberIds, is_group: true }),
+    })
+      .then(r => r.ok ? r.json() : { group_warning: null })
+      .then(d => { if (!cancelled) setItemGroupWarning(d.group_warning ?? null) })
+      .catch(() => { if (!cancelled) setItemGroupWarning(null) })
+    return () => { cancelled = true }
+  }, [itemTopic, itemForm.test_id, memberIds])
 
   async function addItem() {
     if (!itemTopic || !itemForm.test_id) return
@@ -417,6 +447,22 @@ export function RoadmapEditor({ roadmap, topics, tests, students, memberIds, gro
                   onChange={(e) => setItemForm(p => ({ ...p, ends_at: e.target.value }))} />
               </div>
             </div>
+
+            {/* Мягкое предупреждение, не блокирует привязку — повтор задачи
+                для закрепления может быть осознанным решением учителя. */}
+            {itemGroupWarning && (
+              <div className="flex items-start gap-2.5 rounded-md border border-amber-300 bg-amber-50 px-3 py-2.5 text-sm dark:border-amber-900 dark:bg-amber-950/40">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+                <div className="min-w-0 text-amber-900 dark:text-amber-200">
+                  <div className="font-medium">Похоже, это ДЗ во многом повторяет уже заданное</div>
+                  <p className="mt-1 text-amber-800/90 dark:text-amber-200/80">
+                    У {itemGroupWarning.affected_students} из {itemGroupWarning.total_students} учеников
+                    программы в среднем {itemGroupWarning.avg_overlap_percent}% задач этого теста уже
+                    встречались в других заданиях.
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setItemTopic(null)} disabled={busy}>Отмена</Button>

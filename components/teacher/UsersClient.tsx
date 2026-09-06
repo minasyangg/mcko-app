@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { toast } from 'sonner'
+import { usePolling } from '@/lib/hooks/usePolling'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -37,6 +38,13 @@ export function UsersClient({
   pending?: PendingUser[]
 }) {
   const router = useRouter()
+
+  // Живое обновление списков — единый механизм с мониторингом (см.
+  // lib/hooks/usePolling): без него новая заявка на модерацию или новый
+  // ученик, заведённый в другой вкладке, не появлялись здесь без ручной
+  // перезагрузки страницы, пока админ на ней сидит.
+  usePolling(() => router.refresh())
+
   const teacherOptions: TeacherOption[] = teachers.map(t => ({ id: t.id, full_name: t.full_name }))
   const studentsForAssign = students.map(s => ({
     id: s.id, full_name: s.full_name, grade: s.grade, teacher_ids: s.teacher_ids ?? [], is_active: s.is_active,

@@ -82,6 +82,45 @@ export default function NewAssignmentPage() {
     return () => { cancelled = true }
   }, [testId, studentId, groupId, targetType])
 
+  // «Задачи из этого ДЗ уже задавались» — сверка по каждой задаче теста
+  // (см. /api/assignments/duplicates, миграция 052). В отличие от
+  // alreadyTaken (тест целиком), это про пересечение НАБОРА задач с уже
+  // заданными — то самое «сверка в реальный момент назначения», о которой
+  // просил пользователь: пока ДЗ не назначено никому, сравнивать не с кем.
+  //
+  // Ученику — показываем список совпадений напрямую. Группе — сервер сам
+  // решает, стоит ли вообще предупреждать (пороги: >50% учеников группы имеют
+  // личное пересечение >30% задач теста), чтобы один ученик с полным
+  // повтором в группе из 20 не выглядел как «всем это уже задавали».
+  const [studentDups, setStudentDups] = useState<
+    { student_name: string; test_title: string; assigned_at: string }[]
+  >([])
+  const [groupWarning, setGroupWarning] = useState<
+    { affected_students: number; total_students: number; avg_overlap_percent: number } | null
+  >(null)
+
+  useEffect(() => {
+    const target = targetType === 'group' ? groupId : studentId
+    if (!testId || !target) { setStudentDups([]); setGroupWarning(null); return }
+    let cancelled = false
+    fetch('/api/assignments/duplicates', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        test_id: testId,
+        ...(targetType === 'group' ? { group_id: target } : { student_id: target }),
+      }),
+    })
+      .then(r => r.ok ? r.json() : { duplicates: [], group_warning: null })
+      .then(d => {
+        if (cancelled) return
+        setStudentDups(targetType === 'student' ? (d.duplicates ?? []) : [])
+        setGroupWarning(targetType === 'group' ? (d.group_warning ?? null) : null)
+      })
+      .catch(() => { if (!cancelled) { setStudentDups([]); setGroupWarning(null) } })
+    return () => { cancelled = true }
+  }, [testId, studentId, groupId, targetType])
+
   useEffect(() => {
     async function load() {
       try {
@@ -275,22 +314,67 @@ export default function NewAssignmentPage() {
                 )}
               </div>
 
-              {alreadyTaken.length > 0 && (
-                <div className="flex items-start gap-2.5 rounded-md border border-amber-300 bg-amber-50 px-3 py-2.5 text-sm dark:border-amber-900 dark:bg-amber-950/40">
-                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
-                  <div className="min-w-0 text-amber-900 dark:text-amber-200">
-                    <div className="font-medium">Этот тест уже проходили</div>
-                    <ul className="mt-1 space-y-0.5 text-amber-800/90 dark:text-amber-200/80">
-                      {alreadyTaken.slice(0, 5).map((t, i) => (
-                        <li key={i} className="truncate">
-                          {t.student_name}
-                          {t.score != null ? ` — ${t.score}/${t.max_score ?? '?'}` : ''}
-                          {t.submitted_at ? `, ${new Date(t.submitted_at).toLocaleDateString('ru-RU')}` : ''}
-                        </li>
-                      ))}
-                      {alreadyTaken.length > 5 && <li>…и ещё {alreadyTaken.length - 5}</li>}
-                    </ul>
-                  </div>
+              {/* Оба предупреждения информационные, кнопку не блокируют — повтор
+                  может быть осознанным решением учителя (отработка, повторение).
+                  Объединены в один блок секциями, а не два отдельных amber-бокса
+                  подряд: касаются одного и того же выбора теста+адресата. */}
+              {(alreadyTaken.length > 0 || studentDups.length > 0 || groupWarning) && (
+                <div className="space-y-2.5 rounded-md border border-amber-300 bg-amber-50 px-3 py-2.5 text-sm dark:border-amber-900 dark:bg-amber-950/40">
+                  {alreadyTaken.length > 0 && (
+                    <div className="flex items-start gap-2.5">
+                      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+                      <div className="min-w-0 text-amber-900 dark:text-amber-200">
+                        <div className="font-medium">Этот тест уже проходили</div>
+                        <ul className="mt-1 space-y-0.5 text-amber-800/90 dark:text-amber-200/80">
+                          {alreadyTaken.slice(0, 5).map((t, i) => (
+                            <li key={i} className="truncate">
+                              {t.student_name}
+                              {t.score != null ? ` — ${t.score}/${t.max_score ?? '?'}` : ''}
+                              {t.submitted_at ? `, ${new Date(t.submitted_at).toLocaleDateString('ru-RU')}` : ''}
+                            </li>
+                          ))}
+                          {alreadyTaken.length > 5 && <li>…и ещё {alreadyTaken.length - 5}</li>}
+                        </ul>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Ученик: показываем сам факт и где именно уже встречалась задача */}
+                  {studentDups.length > 0 && (
+                    <div className="flex items-start gap-2.5">
+                      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+                      <div className="min-w-0 text-amber-900 dark:text-amber-200">
+                        <div className="font-medium">
+                          В этом ДЗ есть задачи, которые ученику уже задавали
+                        </div>
+                        <ul className="mt-1 space-y-0.5 text-amber-800/90 dark:text-amber-200/80">
+                          {studentDups.slice(0, 5).map((d, i) => (
+                            <li key={i} className="truncate">
+                              «{d.test_title}»{d.assigned_at ? `, ${new Date(d.assigned_at).toLocaleDateString('ru-RU')}` : ''}
+                            </li>
+                          ))}
+                          {studentDups.length > 5 && <li>…и ещё {studentDups.length - 5}</li>}
+                        </ul>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Группа: не по задачам и не по ученикам поимённо — сводка,
+                      мягкое предупреждение только при выходе за оба порога
+                      (см. GROUP_MIN_STUDENT_SHARE/GROUP_MIN_OVERLAP_SHARE) */}
+                  {groupWarning && (
+                    <div className="flex items-start gap-2.5">
+                      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+                      <div className="min-w-0 text-amber-900 dark:text-amber-200">
+                        <div className="font-medium">Похоже, это ДЗ во многом повторяет уже заданное</div>
+                        <p className="mt-1 text-amber-800/90 dark:text-amber-200/80">
+                          У {groupWarning.affected_students} из {groupWarning.total_students} учеников
+                          группы в среднем {groupWarning.avg_overlap_percent}% задач этого ДЗ уже
+                          встречались в других заданиях.
+                        </p>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 

@@ -16,27 +16,17 @@ export default async function TeacherLayout({ children }: { children: React.Reac
   if (!profile) redirect('/no-profile')
   if (profile.role !== 'teacher' && profile.role !== 'admin') redirect('/student')
 
-  const [{ count: pendingRequests }, { data: completedAttempts }] = await Promise.all([
-    supabase
-      .from('solution_requests')
-      .select('*', { count: 'exact', head: true })
-      .eq('status', 'pending'),
-    supabase
-      .from('attempts')
-      .select('student_id, assignment_id, status, last_activity_at')
-      .in('status', ['submitted', 'under_review', 'checked'])
-      .order('last_activity_at', { ascending: false })
-      .limit(1000),
-  ])
+  const { count: pendingRequests } = await supabase
+    .from('solution_requests')
+    .select('*', { count: 'exact', head: true })
+    .eq('status', 'pending')
 
-  // Count groups where the LATEST attempt needs review (matches MonitorTable "На проверке" tab)
-  const latestByGroup = new Map<string, string>()
-  for (const a of completedAttempts ?? []) {
-    const key = `${a.student_id}:${a.assignment_id}`
-    if (!latestByGroup.has(key)) latestByGroup.set(key, a.status)
-  }
-  const pendingReview = [...latestByGroup.values()]
-    .filter(s => s === 'submitted' || s === 'under_review').length
+  // «На проверке» больше не считаем здесь: раньше это дублировало логику
+  // app/api/teacher/monitor/pending-count (и разошлось с ней — тот роут учёл
+  // закрытые назначения, closed_reason, а этот расчёт остался старым).
+  // Единственный источник истины — сам роут: TeacherNav сразу при монтировании
+  // запрашивает его через useLiveCount (см. lib/hooks/usePolling), так что
+  // initial-заглушки в 0 достаточно — счётчик досчитается за один запрос.
 
   return (
     <div className="min-h-screen flex flex-col md:flex-row">
@@ -44,7 +34,6 @@ export default async function TeacherLayout({ children }: { children: React.Reac
         fullName={profile.full_name ?? ''}
         isAdmin={profile.role === 'admin'}
         pendingRequests={pendingRequests ?? 0}
-        pendingReview={pendingReview ?? 0}
       />
       <main className="flex-1 min-w-0 p-4 md:p-6">{children}</main>
     </div>

@@ -210,6 +210,7 @@ export type Database = {
           student_id: string
           submitted_at: string | null
           teacher_comment: string | null
+          teacher_reviewed_at: string | null
         }
         Insert: {
           assignment_id: string
@@ -226,6 +227,7 @@ export type Database = {
           student_id: string
           submitted_at?: string | null
           teacher_comment?: string | null
+          teacher_reviewed_at?: string | null
         }
         Update: {
           assignment_id?: string
@@ -242,6 +244,7 @@ export type Database = {
           student_id?: string
           submitted_at?: string | null
           teacher_comment?: string | null
+          teacher_reviewed_at?: string | null
         }
         Relationships: [
           {

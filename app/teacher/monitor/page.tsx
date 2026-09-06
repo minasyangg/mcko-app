@@ -18,7 +18,7 @@ export default async function MonitorPage() {
     .select(`
       id, status, current_task_number, score, max_score,
       last_activity_at, started_at, submitted_at, student_id,
-      assignment_id,
+      assignment_id, teacher_reviewed_at,
       assignments!inner (
         id,
         max_attempts,
@@ -103,13 +103,19 @@ export default async function MonitorPage() {
     // для строки это тот же «completed», что и при исчерпанных попытках
     const closedReason = asgn?.closed_at ? 'forced' : final?.closed_reason ?? null
     const isClosed = closedReason != null
+    // Учитель проверил вручную (PATCH /api/attempts/[id]/grade, finalize=true,
+    // см. миграцию 057) — пересматривать больше нечего, работа уходит в
+    // «Проверено» сразу, даже если у ученика остались попытки. Отдельно от
+    // allUsed/isClosed: та пара — про исчерпанные попытки/закрытое назначение,
+    // это — про то, что проверка человеком уже состоялась.
+    const teacherReviewed = a.teacher_reviewed_at != null
 
     return {
       id: a.id,
       student_id: a.student_id,
       assignment_id: (a as any).assignment_id as string,
       closed_reason: closedReason,
-      status: (allUsed || isClosed) && a.status === 'checked' ? 'completed' : a.status,
+      status: (allUsed || isClosed || teacherReviewed) && a.status === 'checked' ? 'completed' : a.status,
       current_task_number: a.current_task_number,
       score: final?.final_score ?? a.score,
       max_score: final?.max_score ?? a.max_score,
