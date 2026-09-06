@@ -1,34 +1,21 @@
 import { createClient } from '@/lib/supabase/server'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
-import { ClipboardList } from 'lucide-react'
-import Link from 'next/link'
-import { closedReasonLabel } from '@/lib/assignments/completion'
+import { StudentHome, type AssignmentCardData, type RoadmapGroup } from '@/components/student/StudentHome'
+import type { TimelineTopic } from '@/components/student/RoadmapTimeline'
 
-type AttemptStatus = 'not_started' | 'in_progress' | 'submitted' | 'checked'
+type Search = { tab?: string }
 
-function StatusBadge({ status, score, maxScore }: { status: AttemptStatus; score?: number | null; maxScore?: number | null }) {
-  if (status === 'checked') {
-    const pct = maxScore && maxScore > 0 ? Math.round(((score ?? 0) / maxScore) * 100) : null
-    return (
-      <Badge variant={pct != null && pct >= 60 ? 'default' : 'destructive'}>
-        Проверено {score ?? 0}/{maxScore ?? 0}
-      </Badge>
-    )
-  }
-  if (status === 'submitted') return <Badge variant="secondary">На проверке</Badge>
-  if (status === 'in_progress') return <Badge variant="outline" className="border-orange-400 text-orange-600">В процессе</Badge>
-  return <Badge variant="outline">Не начато</Badge>
-}
-
-export default async function StudentHomePage() {
+// Главная страница кабинета ученика: ВСЁ назначенное в одном месте, вне
+// зависимости от того, как оно попало к ученику — обычное назначение
+// (лично или на группу) или задание учебной программы. Раньше это были два
+// разных раздела («Мои тесты» и «Программа»), и назначение из программы не
+// показывалось на первом экране вообще — ученик мог не заметить его, пока
+// специально не зашёл в «Программа» (см. живой случай: Абрамян Варвара не
+// видела, что ей назначено, пока не открыла нужный раздел).
+export default async function StudentHomePage({ searchParams }: { searchParams: Promise<Search> }) {
+  const { tab } = await searchParams
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return null
-
-  // Доски переехали в свою вкладку «Мои доски»: их стало несколько на учителя —
-  // по одной на предмет, — и полоской кнопок над тестами они больше не читались.
 
   const { data: memberships } = await supabase
     .from('group_members')
@@ -40,69 +27,98 @@ export default async function StudentHomePage() {
     (memberships ?? []).map((m) => [m.group_id as string, new Date(m.added_at as string).getTime()])
   )
 
-  let query = supabase
-    .from('assignments')
-    .select(`
-      id, starts_at, ends_at, max_attempts, closed_at, created_at, group_id,
-      test_versions!test_version_id (
-        id, time_limit_sec,
-        tests!test_id ( id, title, subject, exam_type, is_active )
-      )
-    `)
-
-  if (groupIds.length > 0) {
-    query = query.or(`student_id.eq.${user.id},group_id.in.(${groupIds.join(',')})`)
-  } else {
-    query = query.eq('student_id', user.id)
-  }
-
-  // Задания из программ (road map) показываем во вкладке «Программа», не здесь
-  query = query.is('roadmap_topic_id', null)
-
-  const { data: rawAssignments } = await query.order('created_at', { ascending: false })
-
-  // Скрываем ГРУППОВОЕ назначение, если ученик вступил в группу больше чем
-  // на 3 дня ПОЗЖЕ его создания (см. миграцию 058) — иначе давняя группа
-  // молча отдаёт новому участнику всю накопленную историю назначений.
-  // Личные (student_id === user.id) правило не касается.
+  // Правило «вступил в группу больше чем на 3 дня позже назначения» — общее
+  // для обычных и программных назначений, см. миграцию 058.
   const THREE_DAYS_MS = 3 * 24 * 60 * 60 * 1000
   const notJoinedLate = (a: { group_id: string | null; created_at: string | null }) => {
     if (!a.group_id) return true
     const joinedAt = joinedAtByGroup.get(a.group_id)
-    if (joinedAt == null) return true // не должно случиться при .or() выше, но не блокируем на всякий
+    if (joinedAt == null) return true
     return joinedAt <= new Date(a.created_at ?? 0).getTime() + THREE_DAYS_MS
   }
 
-  // Filter out assignments for inactive tests + слишком поздние групповые
-  const assignments = (rawAssignments ?? []).filter((a) => {
+  // ── Обычные назначения (лично или на группу, вне программ) ──
+  let plainQuery = supabase
+    .from('assignments')
+    .select(`
+      id, starts_at, ends_at, max_attempts, closed_at, created_at, group_id,
+      groups ( name ),
+      test_versions!test_version_id (
+        id, time_limit_sec,
+        tests!test_id ( id, title, subject, exam_type, is_active, kind )
+      )
+    `)
+
+  plainQuery = groupIds.length > 0
+    ? plainQuery.or(`student_id.eq.${user.id},group_id.in.(${groupIds.join(',')})`)
+    : plainQuery.eq('student_id', user.id)
+  plainQuery = plainQuery.is('roadmap_topic_id', null)
+
+  const { data: rawPlain } = await plainQuery.order('created_at', { ascending: false })
+  const plainAssignments = (rawPlain ?? []).filter((a) => {
     const tv = a.test_versions as any
     return tv?.tests?.is_active !== false && notJoinedLate(a)
   })
 
-  // Load all attempts for these assignments + накопительные итоги
-  const assignmentIds = (assignments ?? []).map((a) => a.id)
-  const [{ data: attempts }, { data: finals }] = assignmentIds.length > 0
+  // ── Программы ученика: roadmaps → topics → assignments(roadmap_topic_id) ──
+  const { data: roadmaps } = groupIds.length
+    ? await supabase.from('roadmaps')
+        .select('id, title, subject, group_id')
+        .in('group_id', groupIds)
+        .order('subject')
+        .order('title')
+    : { data: [] as { id: string; title: string; subject: string | null; group_id: string | null }[] }
+
+  const roadmapIds = (roadmaps ?? []).map(r => r.id)
+  const roadmapById = new Map((roadmaps ?? []).map(r => [r.id, r]))
+
+  const [{ data: topics }, { data: rawRoadmapItems }] = await Promise.all([
+    roadmapIds.length
+      ? supabase.from('roadmap_topics').select('id, roadmap_id, title, sort_order').in('roadmap_id', roadmapIds).order('sort_order')
+      : Promise.resolve({ data: [] as { id: string; roadmap_id: string; title: string; sort_order: number }[] }),
+    groupIds.length
+      ? supabase.from('assignments')
+          .select('id, roadmap_topic_id, kind, max_attempts, ends_at, closed_at, created_at, group_id, test_versions!test_version_id(tests!test_id(title, subject, exam_type, is_active))')
+          .in('group_id', groupIds).not('roadmap_topic_id', 'is', null)
+      : Promise.resolve({ data: [] as never[] }),
+  ])
+
+  const topicById = new Map((topics ?? []).map(t => [t.id, t]))
+  const roadmapItems = (rawRoadmapItems ?? []).filter(a => {
+    const tv = a.test_versions as { tests?: { is_active?: boolean } } | null
+    return tv?.tests?.is_active !== false && notJoinedLate(a)
+  })
+
+  // ── Попытки + накопительные итоги — одним запросом на ВСЕ назначения (и
+  // обычные, и программные), а не двумя отдельными как раньше ──
+  const allAssignmentIds = [
+    ...plainAssignments.map(a => a.id),
+    ...roadmapItems.map(a => a.id),
+  ]
+  const [{ data: attempts }, { data: finals }] = allAssignmentIds.length > 0
     ? await Promise.all([
         supabase
           .from('attempts')
           .select('id, assignment_id, status, score, max_score')
-          .in('assignment_id', assignmentIds)
+          .in('assignment_id', allAssignmentIds)
           .eq('student_id', user.id)
           .order('created_at', { ascending: false }),
         supabase
           .from('student_final_results')
           .select('assignment_id, final_score, max_score, attempt_count, closed_reason')
-          .in('assignment_id', assignmentIds)
+          .in('assignment_id', allAssignmentIds)
           .eq('student_id', user.id),
       ])
     : [{ data: [] }, { data: [] }]
 
   type AttemptRow = { id: string; assignment_id: string | null; status: string; score: number | null; max_score: number | null }
-  // Group attempts by assignment_id, keep latest per assignment
   const attemptMap = new Map<string, AttemptRow>()
+  const usedByAssignment = new Map<string, number>()
   for (const a of (attempts ?? []) as AttemptRow[]) {
-    if (a.assignment_id && !attemptMap.has(a.assignment_id)) {
-      attemptMap.set(a.assignment_id, a)
+    if (!a.assignment_id) continue
+    if (!attemptMap.has(a.assignment_id)) attemptMap.set(a.assignment_id, a)
+    if (['submitted', 'checked'].includes(a.status)) {
+      usedByAssignment.set(a.assignment_id, (usedByAssignment.get(a.assignment_id) ?? 0) + 1)
     }
   }
 
@@ -112,107 +128,121 @@ export default async function StudentHomePage() {
     if (f.assignment_id) finalMap.set(f.assignment_id, f)
   }
 
-  return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold">Мои тесты</h1>
-        <p className="text-muted-foreground text-sm mt-1">Назначенные вам тесты</p>
-      </div>
+  // ── Собираем единые карточки для табов «Всё» / «Тесты» / «ДЗ» ──
+  const cards: AssignmentCardData[] = []
 
-      {!assignments?.length ? (
-        <div className="flex flex-col items-center justify-center py-16 gap-3 text-center text-muted-foreground">
-          <ClipboardList className="h-10 w-10 opacity-40" />
-          <p>Вам пока не назначено ни одного теста.</p>
-        </div>
-      ) : (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {assignments.map((a) => {
-            const tv = a.test_versions as any
-            const test = tv?.tests as any
-            const attempt = attemptMap.get(a.id)
-            const fin = finalMap.get(a.id)
+  for (const a of plainAssignments) {
+    const tv = a.test_versions as any
+    const test = tv?.tests as any
+    const attempt = attemptMap.get(a.id)
+    const fin = finalMap.get(a.id)
+    const status = (attempt?.status as AssignmentCardData['status']) ?? 'not_started'
+    const attemptsUsed = Math.max(fin?.attempt_count ?? 0, usedByAssignment.get(a.id) ?? 0)
+    const closedReason = (a.closed_at ? 'forced' : null) ?? fin?.closed_reason ?? null
+    const group = a.groups as any
 
-            const attemptStatus: AttemptStatus = (attempt?.status as AttemptStatus) ?? 'not_started'
-            const isDone = attemptStatus === 'submitted' || attemptStatus === 'checked'
-            const liveUsed = (attempts ?? []).filter(
-              (at) => at.assignment_id === a.id && (at.status === 'submitted' || at.status === 'checked')
-            ).length
-            // attempt_count в итоге не уменьшается при удалении попытки админом
-            const attemptsUsed = Math.max(fin?.attempt_count ?? 0, liveUsed)
-            const attemptsLeft = (a.max_attempts ?? 1) - attemptsUsed
-            // Назначение может быть закрыто досрочно — набран максимум или
-            // учитель завершил его принудительно (миграция 038). Тогда
-            // оставшиеся попытки уже не имеют значения.
-            const closedReason = (a.closed_at ? 'forced' : null) ?? fin?.closed_reason ?? null
-            const isClosed = closedReason != null
-            const canStart = !isClosed && attemptsLeft > 0 && !['in_progress', 'submitted'].includes(attemptStatus)
+    cards.push({
+      assignment_id: a.id,
+      test_title: test?.title ?? 'Тест',
+      subject: test?.subject ?? null,
+      exam_type: test?.exam_type ?? null,
+      kind: test?.kind === 'homework' ? 'homework' : 'test',
+      // Персональное назначение и назначение без группы (не должно
+      // случаться, но на всякий) источник не показывают — незачем.
+      source: group?.name ? `Группа «${group.name}»` : null,
+      time_limit_sec: tv?.time_limit_sec ?? null,
+      status,
+      score: fin?.final_score ?? attempt?.score ?? null,
+      max_score: fin?.max_score ?? attempt?.max_score ?? null,
+      attempts_used: attemptsUsed,
+      max_attempts: a.max_attempts ?? 1,
+      ends_at: a.ends_at,
+      closed_reason: closedReason,
+    })
+  }
 
-            return (
-              <Card key={a.id} className="flex flex-col">
-                <CardHeader className="pb-2">
-                  <div className="flex items-start justify-between gap-2">
-                    <CardTitle className="text-base leading-tight">{test?.title ?? 'Тест'}</CardTitle>
-                    {test?.exam_type && <Badge variant="secondary" className="shrink-0">{test.exam_type}</Badge>}
-                  </div>
-                  {test?.subject && <CardDescription>{test.subject}</CardDescription>}
-                </CardHeader>
-                <CardContent className="flex-1 text-sm text-muted-foreground space-y-2">
-                  {/* накопительный итог, а не балл последней попытки — то же
-                      число, что на странице результата */}
-                  <StatusBadge
-                    status={attemptStatus}
-                    score={fin?.final_score ?? attempt?.score}
-                    maxScore={fin?.max_score ?? attempt?.max_score}
-                  />
+  for (const a of roadmapItems) {
+    const tv = a.test_versions as any
+    const test = tv?.tests as any
+    const attempt = attemptMap.get(a.id)
+    const fin = finalMap.get(a.id)
+    const status = (attempt?.status as AssignmentCardData['status']) ?? 'not_started'
+    const attemptsUsed = Math.max(fin?.attempt_count ?? 0, usedByAssignment.get(a.id) ?? 0)
+    const closedReason = fin?.closed_reason ?? (a.closed_at ? 'forced' : null)
+    const topic = topicById.get(a.roadmap_topic_id as string)
+    const roadmap = topic ? roadmapById.get(topic.roadmap_id) : null
 
-                  <div className="space-y-1 text-xs">
-                    {tv?.time_limit_sec && (
-                      <p>Время: {Math.round(tv.time_limit_sec / 60)} мин</p>
-                    )}
-                    {a.ends_at && (
-                      <p>До: {new Date(a.ends_at).toLocaleDateString('ru-RU')}</p>
-                    )}
-                    {isClosed
-                      ? ((a.max_attempts ?? 1) > 1 || closedReason !== 'attempts_exhausted') && (
-                          <p className="font-medium text-emerald-700 dark:text-emerald-400">
-                            ✓ Тест завершён — {closedReasonLabel(closedReason)} ({attemptsUsed}/{a.max_attempts ?? 1} попыток)
-                          </p>
-                        )
-                      : (a.max_attempts ?? 1) > 1 && (
-                          <p>Попыток использовано: {attemptsUsed}/{a.max_attempts ?? 1}</p>
-                        )}
-                  </div>
+    cards.push({
+      assignment_id: a.id,
+      test_title: test?.title ?? 'Тест',
+      subject: test?.subject ?? null,
+      exam_type: test?.exam_type ?? null,
+      kind: (a.kind as 'homework' | 'test') ?? 'test',
+      source: `Программа «${roadmap?.title ?? 'без названия'}»${topic ? ` → ${topic.title}` : ''}`,
+      time_limit_sec: null,
+      status,
+      score: fin?.final_score ?? attempt?.score ?? null,
+      max_score: fin?.max_score ?? attempt?.max_score ?? null,
+      attempts_used: attemptsUsed,
+      max_attempts: a.max_attempts ?? 1,
+      ends_at: a.ends_at,
+      closed_reason: closedReason,
+    })
+  }
 
-                  <div className="pt-2 space-y-2">
-                    {isDone && (
-                      <Button asChild variant="outline" size="sm" className="w-full">
-                        <Link href={`/student/attempt/${a.id}/result`}>Посмотреть результат</Link>
-                      </Button>
-                    )}
-                    {isDone && canStart ? (
-                      <Button asChild size="sm" className="w-full">
-                        <Link href={`/student/attempt/${a.id}`}>Пройти ещё раз</Link>
-                      </Button>
-                    ) : !isDone && attemptStatus === 'in_progress' ? (
-                      <Button asChild size="sm" className="w-full">
-                        <Link href={`/student/attempt/${a.id}`}>Продолжить</Link>
-                      </Button>
-                    ) : !isDone && canStart ? (
-                      <Button asChild size="sm" className="w-full">
-                        <Link href={`/student/attempt/${a.id}`}>Начать тест</Link>
-                      </Button>
-                    ) : !isDone && !canStart ? (
-                      <p className="text-xs text-muted-foreground text-center">
-                        {isClosed ? 'Тест завершён' : 'Попытки исчерпаны'}
-                      </p>
-                    ) : null}
-                  </div>
-                </CardContent>
-              </Card>
-            )
-          })}
-        </div>
-      )}
-    </div>
-  )
+  cards.sort((a, b) => {
+    // Активные и непроверенные — выше уже закрытых, внутри группы порядок
+    // по сроку (у кого он есть) не считаем: сортировка по дате создания
+    // назначения потерялась бы при слиянии двух источников без лишнего
+    // джойна, а видимого смысла «когда именно назначено» в карточке нет.
+    const rank = (c: AssignmentCardData) => c.closed_reason != null ? 2 : c.status === 'checked' ? 1 : 0
+    return rank(a) - rank(b)
+  })
+
+  // ── Для вкладки «Программа»: те же roadmapItems, сгруппированные по темам ──
+  const itemsByTopic = new Map<string, TimelineTopic['items']>()
+  for (const a of roadmapItems) {
+    const tid = a.roadmap_topic_id as string
+    const tv = a.test_versions as { tests?: { title?: string } } | null
+    const attempt = attemptMap.get(a.id)
+    const fin = finalMap.get(a.id)
+    const arr = itemsByTopic.get(tid) ?? []
+    arr.push({
+      assignment_id: a.id,
+      test_title: tv?.tests?.title ?? 'Тест',
+      kind: (a.kind as 'homework' | 'test') ?? 'test',
+      status: attempt?.status ?? 'not_started',
+      score: fin?.final_score ?? attempt?.score ?? null,
+      max_score: fin?.max_score ?? attempt?.max_score ?? null,
+      attempts_used: Math.max(fin?.attempt_count ?? 0, usedByAssignment.get(a.id) ?? 0),
+      max_attempts: a.max_attempts ?? 1,
+      ends_at: a.ends_at,
+      closed_reason: fin?.closed_reason ?? (a.closed_at ? 'forced' : null),
+    })
+    itemsByTopic.set(tid, arr)
+  }
+
+  const topicsByRoadmap = new Map<string, TimelineTopic[]>()
+  for (const t of topics ?? []) {
+    const its = itemsByTopic.get(t.id) ?? []
+    const state: TimelineTopic['state'] = its.length > 0 && its.every(i => i.status === 'checked')
+      ? 'done'
+      : its.some(i => ['in_progress', 'submitted', 'checked'].includes(i.status))
+        ? 'active'
+        : 'pending'
+    const arr = topicsByRoadmap.get(t.roadmap_id) ?? []
+    arr.push({ id: t.id, title: t.title, state, items: its })
+    topicsByRoadmap.set(t.roadmap_id, arr)
+  }
+
+  const roadmapGroups: RoadmapGroup[] = (roadmaps ?? []).map(r => ({
+    id: r.id,
+    title: r.title,
+    subject: r.subject,
+    topics: topicsByRoadmap.get(r.id) ?? [],
+  }))
+
+  const initialTab = tab === 'test' || tab === 'homework' || tab === 'roadmap' ? tab : 'all'
+
+  return <StudentHome assignments={cards} roadmaps={roadmapGroups} initialTab={initialTab} />
 }

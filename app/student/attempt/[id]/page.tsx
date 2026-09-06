@@ -103,7 +103,9 @@ export default async function AttemptPage({ params }: PageProps) {
   const timeLimitSec: number | null =
     assignment.time_limit_override_sec ?? tv?.time_limit_sec ?? null
 
-  const listHref = assignment.roadmap_topic_id != null ? '/student/roadmap' : '/student'
+  // «Программа» — таб на главной странице, не отдельный роут (см.
+  // components/student/StudentHome.tsx)
+  const listHref = assignment.roadmap_topic_id != null ? '/student?tab=roadmap' : '/student'
 
 
   // Count completed attempts to check if more are available

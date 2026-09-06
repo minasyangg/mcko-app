@@ -1,8 +1,8 @@
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
-import { Button } from '@/components/ui/button'
 import { LogoutButton } from '@/components/shared/LogoutButton'
+import { Settings } from 'lucide-react'
 
 export default async function StudentLayout({ children }: { children: React.ReactNode }) {
   const supabase = await createClient()
@@ -26,22 +26,30 @@ export default async function StudentLayout({ children }: { children: React.Reac
             <Link href="/student" className="font-semibold text-sm">
               ExamPlatform
             </Link>
+            {/* «Мои тесты» и «Программа» объединены в табы на главной странице
+                (/student) — назначение может прийти как обычный тест/ДЗ, так и
+                через программу, и ученик должен видеть всё назначенное в одном
+                месте, а не искать по разным разделам. «Мои доски» — отдельная
+                функция, не назначение, остаётся самостоятельным пунктом. */}
             <nav className="flex items-center gap-1 text-sm">
               <Link href="/student" className="px-2 py-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
-                Мои тесты
+                Мои задания
               </Link>
               <Link href="/student/boards" className="px-2 py-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
                 Мои доски
               </Link>
-              <Link href="/student/roadmap" className="px-2 py-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
-                Программа
-              </Link>
-              <Link href="/student/settings" className="px-2 py-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
-                Настройки
-              </Link>
             </nav>
           </div>
+          {/* Настройки — служебный пункт, не рабочий раздел: место у профиля,
+              не в одном ряду с заданиями/досками */}
           <div className="flex items-center gap-3">
+            <Link
+              href="/student/settings"
+              className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+              title="Настройки"
+            >
+              <Settings className="h-4 w-4" />
+            </Link>
             <span className="text-sm text-muted-foreground">{profile.full_name}</span>
             <LogoutButton />
           </div>
