@@ -4,12 +4,24 @@ import { zUuid } from '@/lib/uuid'
 import { createClient } from '@/lib/supabase/server'
 
 const schema = z.object({
-  // Задачи, которые учитель собирается добавить (id в книге/библиотеке)
-  problem_ids: z.array(zUuid()).min(1).max(300),
-  // Куда добавляет — по версии теста определяем адресатов
+  // Задачи, которые учитель собирается добавить (id в книге/библиотеке).
+  // Не нужен вместе с test_id — тогда сервер сам берёт задачи опубликованной
+  // версии теста (сценарий «Назначить тест»: там известен весь тест, а не
+  // отдельная задача).
+  problem_ids: z.array(zUuid()).min(1).max(300).optional(),
+  // Тест целиком — для экрана назначения (до создания assignment ещё нет
+  // ни test_version_id, ни своего набора problem_ids на клиенте).
+  test_id: zUuid().optional(),
+  // Куда добавляет одну задачу — по версии теста определяем адресатов
+  // (сценарий AddToTestDialog: задача уже добавляется в существующее ДЗ).
   test_version_id: zUuid().optional(),
-  // Либо адресаты заданы напрямую (карточки каталога знают выбранного ученика)
+  // Адресаты напрямую: конкретный ученик или группа (разворачивается в
+  // участников на сервере) — либо явный список id.
+  student_id: zUuid().optional(),
+  group_id: zUuid().optional(),
   student_ids: z.array(zUuid()).max(200).optional(),
+}).refine(d => d.problem_ids || d.test_id, {
+  message: 'Нужен либо problem_ids, либо test_id',
 })
 
 export interface DuplicateHit {
@@ -19,6 +31,13 @@ export interface DuplicateHit {
   test_title: string
   assigned_at: string
 }
+
+// Пороги мягкого группового предупреждения (по требованию пользователя):
+// если у группы объединять по каждой задаче бессмысленно — 20 разных
+// учеников с одним общим совпадением не значит «это ДЗ дублирует другое»,
+// поэтому смотрим на ДОЛЮ учеников с ЗАМЕТНЫМ личным пересечением.
+const GROUP_MIN_STUDENT_SHARE = 0.5   // >50% учеников группы...
+const GROUP_MIN_OVERLAP_SHARE = 0.3   // ...у кого совпало >30% задач теста
 
 // POST /api/assignments/duplicates — «эти задачи уже задавались?»
 //
@@ -36,11 +55,43 @@ export async function POST(request: NextRequest) {
 
   const parsed = schema.safeParse(await request.json().catch(() => null))
   if (!parsed.success) return NextResponse.json({ error: 'Invalid body' }, { status: 400 })
-  const { problem_ids, test_version_id, student_ids } = parsed.data
+  const { test_id, test_version_id, student_id, group_id, student_ids } = parsed.data
+  let { problem_ids } = parsed.data
 
-  // Определяем адресатов: либо переданы явно, либо выводим из назначений
-  // целевого ДЗ (групповые раскрываются в участников).
-  let students = student_ids ?? []
+  // test_id → задачи его опубликованной версии (экран «Назначить тест»:
+  // сравниваем ВЕСЬ тест, а не одну задачу — problem_ids с клиента не нужен).
+  if (!problem_ids && test_id) {
+    const { data: test } = await supabase
+      .from('tests').select('current_published_version_id').eq('id', test_id).single()
+    if (!test?.current_published_version_id) return NextResponse.json({ duplicates: [] })
+
+    const { data: tasks } = await supabase
+      .from('test_tasks')
+      .select('book_problem_id, library_problem_id')
+      .eq('test_version_id', test.current_published_version_id)
+
+    problem_ids = [...new Set(
+      (tasks ?? [])
+        .map(t => t.book_problem_id ?? t.library_problem_id)
+        .filter((id): id is string => id != null)
+    )]
+    if (problem_ids.length === 0) return NextResponse.json({ duplicates: [] })
+  }
+  if (!problem_ids) return NextResponse.json({ duplicates: [] })
+
+  // Определяем адресатов: явный список / ученик / группа — либо, если ничего
+  // не передано, выводим из назначений целевого ДЗ (групповые раскрываются
+  // в участников — старый путь для AddToTestDialog).
+  let students = student_ids ?? (student_id ? [student_id] : [])
+  // isGroupTarget — знак того, что нужна групповая логика порогов (доля
+  // учеников с заметным пересечением), а не список конкретных совпадений
+  // как для одного адресата.
+  const isGroupTarget = !!group_id
+  if (group_id) {
+    const { data: members } = await supabase
+      .from('group_members').select('user_id').eq('group_id', group_id)
+    students = [...new Set([...students, ...(members ?? []).map(m => m.user_id)])]
+  }
   if (students.length === 0 && test_version_id) {
     const { data: asgns } = await supabase
       .from('assignments')
@@ -59,7 +110,7 @@ export async function POST(request: NextRequest) {
     students = [...new Set([...direct, ...fromGroups])]
   }
 
-  // ДЗ ещё никому не назначено — сравнивать не с кем, это не ошибка
+  // Адресат ещё не выбран/ДЗ никому не назначено — сравнивать не с кем
   if (students.length === 0) return NextResponse.json({ duplicates: [] })
 
   // teacher_id = сам пользователь: учитываем только собственные задания,
@@ -90,5 +141,35 @@ export async function POST(request: NextRequest) {
     assigned_at: r.assigned_at as string,
   }))
 
-  return NextResponse.json({ duplicates })
+  // Для одиночного адресата (ученик / явный список / через test_version_id)
+  // пороги не нужны — учителю показывают сам факт и список совпадений, решение
+  // за ним. Пороги — только для группы: иначе один ученик с 100% пересечением
+  // в группе из 20 не должен выглядеть как «всей группе это уже задавали».
+  if (!isGroupTarget) {
+    return NextResponse.json({ duplicates, group_warning: null })
+  }
+
+  const overlapByStudent = new Map<string, Set<string>>()
+  for (const r of rows ?? []) {
+    const sid = r.student_id as string
+    if (!overlapByStudent.has(sid)) overlapByStudent.set(sid, new Set())
+    overlapByStudent.get(sid)!.add(r.problem_id as string)
+  }
+  const overlapShares = students.map(sid => (overlapByStudent.get(sid)?.size ?? 0) / problem_ids!.length)
+  const studentsWithNotableOverlap = overlapShares.filter(share => share >= GROUP_MIN_OVERLAP_SHARE).length
+  const affectedShare = studentsWithNotableOverlap / students.length
+  const groupWarning = affectedShare >= GROUP_MIN_STUDENT_SHARE
+    ? {
+        affected_students: studentsWithNotableOverlap,
+        total_students: students.length,
+        // средний % пересечения именно среди «заметно задетых» — общий средний
+        // по всей группе смазал бы картину нулями от тех, кого не касается
+        avg_overlap_percent: Math.round(
+          100 * overlapShares.filter(s => s >= GROUP_MIN_OVERLAP_SHARE)
+            .reduce((sum, s) => sum + s, 0) / studentsWithNotableOverlap
+        ),
+      }
+    : null
+
+  return NextResponse.json({ duplicates, group_warning: groupWarning })
 }
