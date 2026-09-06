@@ -20,22 +20,16 @@ export default async function AttendanceJournalPage({ params }: { params: Promis
     .maybeSingle()
   if (!journal) notFound()
 
-  // Кого можно добавить в журнал. Учителю RLS отдаёт только его учеников,
-  // админу — всех в организации; отдельного фильтра здесь не ставим, иначе
-  // продублируем правило доступа в двух местах.
-  const { data: students } = await supabase
-    .from('profiles')
-    .select('id, full_name, grade')
-    .eq('role', 'student')
-    .is('deleted_at', null)
-    .order('full_name')
+  // Кого можно добавить — больше не грузим здесь: список зависит от состава
+  // ИМЕННО этого журнала на момент открытия диалога и от поиска/фильтра по
+  // классу, поэтому тянется клиентом по требованию, см.
+  // /api/attendance/[id]/available-students.
 
   return (
     <AttendanceJournalClient
       journalId={journal.id}
       title={journal.title}
       subject={journal.subject}
-      availableStudents={students ?? []}
     />
   )
 }

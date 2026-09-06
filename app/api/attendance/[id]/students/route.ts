@@ -48,8 +48,11 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const rows: { journal_id: string; student_id: string | null; full_name: string; sort_order: number }[] = []
 
   if (student_ids.length > 0) {
-    // ФИО берём из БД, а не с клиента: имя в журнале должно совпадать с профилем.
-    // Видимость профилей ограничена RLS — чужих учеников подставить не выйдет.
+    // ФИО берём из БД, а не с клиента: имя в журнале должно совпадать с
+    // профилем. Видимость профилей ограничена RLS ("profiles: teacher read
+    // own students" / "admin read org") — чужого ученика тут не окажется
+    // вообще, даже если id пришёл в запросе: строки просто не будет в ответе,
+    // и она молча не попадёт в rows ниже.
     const { data: profiles } = await supabase
       .from('profiles').select('id, full_name').in('id', student_ids)
     for (const p of profiles ?? []) {
