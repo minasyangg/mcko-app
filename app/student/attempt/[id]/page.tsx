@@ -33,6 +33,7 @@ export default async function AttemptPage({ params }: PageProps) {
       starts_at,
       ends_at,
       closed_at,
+      created_at,
       preserve_answers,
       roadmap_topic_id,
       test_versions!test_version_id (
@@ -65,7 +66,7 @@ export default async function AttemptPage({ params }: PageProps) {
     needMembershipCheck
       ? supabase
           .from('group_members')
-          .select('user_id')
+          .select('user_id, added_at')
           .eq('group_id', assignment.group_id!)
           .eq('user_id', user.id)
           .maybeSingle()
@@ -85,7 +86,13 @@ export default async function AttemptPage({ params }: PageProps) {
       .maybeSingle(),
   ])
 
-  const hasAccess = assignment.student_id === user.id || !!membership
+  // Групповое назначение не показываем, если ученик вступил в группу больше
+  // чем на 3 дня ПОЗЖЕ, чем оно создано (см. миграцию 058 и её RLS-двойник
+  // student_sees_group_assignment): иначе, придя в давнюю группу, ученик
+  // получает прямую ссылку доступа ко всей истории назначений группы.
+  const joinedLate = !!membership?.added_at &&
+    new Date(membership.added_at).getTime() > new Date(assignment.created_at ?? 0).getTime() + 3 * 24 * 60 * 60 * 1000
+  const hasAccess = assignment.student_id === user.id || (!!membership && !joinedLate)
   if (!hasAccess) {
     redirect('/student')
   }

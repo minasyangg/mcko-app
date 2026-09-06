@@ -32,15 +32,18 @@ export default async function StudentHomePage() {
 
   const { data: memberships } = await supabase
     .from('group_members')
-    .select('group_id')
+    .select('group_id, added_at')
     .eq('user_id', user.id)
 
   const groupIds = (memberships ?? []).map((m) => m.group_id as string)
+  const joinedAtByGroup = new Map(
+    (memberships ?? []).map((m) => [m.group_id as string, new Date(m.added_at as string).getTime()])
+  )
 
   let query = supabase
     .from('assignments')
     .select(`
-      id, starts_at, ends_at, max_attempts, closed_at,
+      id, starts_at, ends_at, max_attempts, closed_at, created_at, group_id,
       test_versions!test_version_id (
         id, time_limit_sec,
         tests!test_id ( id, title, subject, exam_type, is_active )
@@ -58,10 +61,22 @@ export default async function StudentHomePage() {
 
   const { data: rawAssignments } = await query.order('created_at', { ascending: false })
 
-  // Filter out assignments for inactive tests
+  // Скрываем ГРУППОВОЕ назначение, если ученик вступил в группу больше чем
+  // на 3 дня ПОЗЖЕ его создания (см. миграцию 058) — иначе давняя группа
+  // молча отдаёт новому участнику всю накопленную историю назначений.
+  // Личные (student_id === user.id) правило не касается.
+  const THREE_DAYS_MS = 3 * 24 * 60 * 60 * 1000
+  const notJoinedLate = (a: { group_id: string | null; created_at: string | null }) => {
+    if (!a.group_id) return true
+    const joinedAt = joinedAtByGroup.get(a.group_id)
+    if (joinedAt == null) return true // не должно случиться при .or() выше, но не блокируем на всякий
+    return joinedAt <= new Date(a.created_at ?? 0).getTime() + THREE_DAYS_MS
+  }
+
+  // Filter out assignments for inactive tests + слишком поздние групповые
   const assignments = (rawAssignments ?? []).filter((a) => {
     const tv = a.test_versions as any
-    return tv?.tests?.is_active !== false
+    return tv?.tests?.is_active !== false && notJoinedLate(a)
   })
 
   // Load all attempts for these assignments + накопительные итоги

@@ -9,8 +9,11 @@ export default async function StudentRoadmapPage() {
 
   // Группы ученика → его road map (RLS также ограничивает roadmaps членством)
   const { data: memberships } = await supabase
-    .from('group_members').select('group_id').eq('user_id', user.id)
+    .from('group_members').select('group_id, added_at').eq('user_id', user.id)
   const groupIds = (memberships ?? []).map(m => m.group_id)
+  const joinedAtByGroup = new Map(
+    (memberships ?? []).map(m => [m.group_id as string, new Date(m.added_at as string).getTime()])
+  )
 
   const { data: roadmaps } = groupIds.length
     ? await supabase.from('roadmaps')
@@ -28,15 +31,27 @@ export default async function StudentRoadmapPage() {
       : Promise.resolve({ data: [] as { id: string; roadmap_id: string; title: string; sort_order: number }[] }),
     groupIds.length
       ? supabase.from('assignments')
-          .select('id, roadmap_topic_id, kind, max_attempts, ends_at, closed_at, test_versions!test_version_id(tests!test_id(title, is_active))')
+          .select('id, roadmap_topic_id, kind, max_attempts, ends_at, closed_at, created_at, group_id, test_versions!test_version_id(tests!test_id(title, is_active))')
           .in('group_id', groupIds).not('roadmap_topic_id', 'is', null)
       : Promise.resolve({ data: [] as never[] }),
   ])
 
-  // Активные назначения (тест не архивирован)
+  // Скрываем задание темы, если ученик вступил в группу программы больше
+  // чем на 3 дня ПОЗЖЕ создания этого назначения (см. миграцию 058) — тот
+  // самый случай, из-за которого писалось правило: ученица, добавленная в
+  // программу «задним числом», иначе видит все темы с начала программы.
+  const THREE_DAYS_MS = 3 * 24 * 60 * 60 * 1000
+  const notJoinedLate = (a: { group_id: string | null; created_at: string | null }) => {
+    if (!a.group_id) return true
+    const joinedAt = joinedAtByGroup.get(a.group_id)
+    if (joinedAt == null) return true
+    return joinedAt <= new Date(a.created_at ?? 0).getTime() + THREE_DAYS_MS
+  }
+
+  // Активные назначения (тест не архивирован) + не поздно вступившие
   const items = (itemRows ?? []).filter(a => {
     const tv = a.test_versions as { tests?: { is_active?: boolean } } | null
-    return tv?.tests?.is_active !== false
+    return tv?.tests?.is_active !== false && notJoinedLate(a)
   })
 
   // Попытки ученика по этим назначениям + накопительные итоги

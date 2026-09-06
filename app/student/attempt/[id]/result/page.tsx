@@ -29,7 +29,7 @@ export default async function ResultPage({ params }: PageProps) {
 
   const { data: assignment } = await supabase
     .from('assignments')
-    .select(`id, student_id, group_id, test_version_id, roadmap_topic_id, max_attempts, closed_at,
+    .select(`id, student_id, group_id, test_version_id, roadmap_topic_id, max_attempts, closed_at, created_at,
       test_versions!test_version_id ( id, result_visibility, tests!test_id ( id, title, subject, exam_type ) )`)
     .eq('id', assignmentId)
     .single()
@@ -40,12 +40,19 @@ export default async function ResultPage({ params }: PageProps) {
   // Названия программы/темы не нужны: подписи у кнопки фиксированные.
   const fromRoadmap = assignment.roadmap_topic_id != null
 
+  // Правило «вступил в группу больше чем на 3 дня позже создания назначения»
+  // (см. миграцию 058) применяется единообразно и здесь: если само
+  // назначение скрыто из «Мои тесты», уже полученный по нему результат тоже
+  // недоступен по прямой ссылке — не оставляем половинчатого состояния, при
+  // котором тест не виден в списке, но результат по нему открывается напрямую.
   let hasAccess = assignment.student_id === user.id
   if (!hasAccess && assignment.group_id) {
     const { data: m } = await supabase
-      .from('group_members').select('user_id')
+      .from('group_members').select('user_id, added_at')
       .eq('group_id', assignment.group_id).eq('user_id', user.id).single()
-    hasAccess = !!m
+    const joinedLate = !!m?.added_at &&
+      new Date(m.added_at).getTime() > new Date(assignment.created_at ?? 0).getTime() + 3 * 24 * 60 * 60 * 1000
+    hasAccess = !!m && !joinedLate
   }
   if (!hasAccess) redirect('/student')
 
