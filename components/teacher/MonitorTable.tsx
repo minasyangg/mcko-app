@@ -281,12 +281,18 @@ export function MonitorTable({ initialAttempts, isAdmin = false, assignments = [
       .channel('attempts-monitor')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'attempts' }, (payload) => {
         if (payload.eventType === 'UPDATE') {
+          // status НЕ берём из payload: это сырое значение attempts.status в БД,
+          // а таблица показывает вычисленный статус («completed» при исчерпанных
+          // попытках/закрытии — см. app/teacher/monitor/page.tsx). Раньше сырой
+          // статус из realtime перезатирал уже посчитанный «completed» обратно на
+          // «checked», и проверенная работа с исчерпанными попытками навсегда
+          // оставалась в табе «На проверке» — сам пересчёт делает router.refresh(),
+          // который зовётся сразу после любого действия, меняющего статус.
           setAttempts((prev) =>
             prev.map((a) =>
               a.id === payload.new.id
                 ? {
                     ...a,
-                    status: payload.new.status ?? a.status,
                     current_task_number: payload.new.current_task_number ?? a.current_task_number,
                     score: payload.new.score ?? a.score,
                     max_score: payload.new.max_score ?? a.max_score,
@@ -307,8 +313,12 @@ export function MonitorTable({ initialAttempts, isAdmin = false, assignments = [
   // 100%-автоматическая проверка (в т.ч. ошибочная, см. ключи с неверным
   // grading_method) уходит сразу в «Проверено» и учитель её никогда не видит.
   // Дублируется с «Проверено» намеренно: это витрина «покажи мне, что
-  // проверено, и дай проверить/убедиться», а не строгая непересекающаяся
-  // партиция статусов.
+  // проверено, и дай проверить/убедиться» — НО только пока работу ещё можно
+  // пересмотреть. «completed» (попытки исчерпаны/назначение закрыто —
+  // вычисляется на сервере, см. app/teacher/monitor/page.tsx) сюда не входит:
+  // пересматривать больше нечего, работа должна показываться только в
+  // «Проверено» (раньше входила и туда, и сюда — учитель проверял работу
+  // Власенко Глеба, а она оставалась висеть в «На проверке» навсегда).
   const review  = attempts.filter((a) => ['submitted', 'under_review', 'checked'].includes(a.status))
   const checked = attempts.filter((a) => ['checked', 'completed'].includes(a.status))
 
@@ -405,7 +415,11 @@ export function MonitorTable({ initialAttempts, isAdmin = false, assignments = [
         attemptId={selectedAttemptId}
         onClose={() => setSelectedAttemptId(null)}
         onGraded={(id, score) => {
-          setAttempts((prev) => prev.map((a) => a.id === id ? { ...a, status: 'checked', score } : a))
+          // status здесь намеренно не трогаем: сырое «checked» из PATCH — не то
+          // же самое, что вычисленный статус таблицы (см. комментарий у realtime
+          // выше). Настоящий статус («checked» или «completed», если попытки
+          // исчерпаны/назначение закрыто) придёт с router.refresh().
+          setAttempts((prev) => prev.map((a) => a.id === id ? { ...a, score } : a))
           setSelectedAttemptId(null)
           router.refresh()
         }}

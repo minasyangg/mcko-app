@@ -31,9 +31,26 @@ export async function GET() {
   }
 
   // «checked» тоже считается «на проверке» — авто-проверка (в т.ч. ошибочная)
-  // не должна проскакивать мимо учителя незамеченной, см. MonitorTable.
-  const count = [...latestByGroup.values()]
-    .filter(s => s === 'submitted' || s === 'under_review' || s === 'checked').length
+  // не должна проскакивать мимо учителя незамеченной, см. MonitorTable. НО
+  // если назначение уже закрыто (попытки исчерпаны/полный балл/решение
+  // учителя — closed_reason в student_final_results), пересматривать нечего:
+  // такую пару исключаем, иначе бейдж навсегда завышен на уже закрытые работы
+  // (см. правку статусов в MonitorTable/monitor/page.tsx — тот же баг).
+  const assignmentIds = [...new Set([...latestByGroup.keys()].map(k => k.split(':')[1]))]
+  const studentIds = [...new Set([...latestByGroup.keys()].map(k => k.split(':')[0]))]
+  const { data: finalResults } = assignmentIds.length
+    ? await supabase
+        .from('student_final_results')
+        .select('student_id, assignment_id, closed_reason')
+        .in('assignment_id', assignmentIds)
+        .in('student_id', studentIds)
+        .not('closed_reason', 'is', null)
+    : { data: [] as { student_id: string; assignment_id: string | null; closed_reason: string | null }[] }
+  const closedSet = new Set((finalResults ?? []).map(r => `${r.student_id}:${r.assignment_id}`))
+
+  const count = [...latestByGroup.entries()]
+    .filter(([key, s]) => (s === 'submitted' || s === 'under_review' || s === 'checked') && !closedSet.has(key))
+    .length
 
   return Response.json({ count })
 }
