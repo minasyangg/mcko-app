@@ -20,6 +20,12 @@ const schema = z.object({
   student_id: zUuid().optional(),
   group_id: zUuid().optional(),
   student_ids: z.array(zUuid()).max(200).optional(),
+  // Явный признак «это назначение на много учеников сразу» — нужен пороговый
+  // (не поштучный) режим предупреждения. group_id сам по себе это подразумевает;
+  // is_group нужен, когда адресаты уже развёрнуты на клиенте (программа/road
+  // map: её участники — обычный список id, не group_members конкретной группы,
+  // хотя по смыслу это то же самое «назначаю на много учеников разом»).
+  is_group: z.boolean().optional(),
 }).refine(d => d.problem_ids || d.test_id, {
   message: 'Нужен либо problem_ids, либо test_id',
 })
@@ -55,7 +61,7 @@ export async function POST(request: NextRequest) {
 
   const parsed = schema.safeParse(await request.json().catch(() => null))
   if (!parsed.success) return NextResponse.json({ error: 'Invalid body' }, { status: 400 })
-  const { test_id, test_version_id, student_id, group_id, student_ids } = parsed.data
+  const { test_id, test_version_id, student_id, group_id, student_ids, is_group } = parsed.data
   let { problem_ids } = parsed.data
 
   // test_id → задачи его опубликованной версии (экран «Назначить тест»:
@@ -86,7 +92,7 @@ export async function POST(request: NextRequest) {
   // isGroupTarget — знак того, что нужна групповая логика порогов (доля
   // учеников с заметным пересечением), а не список конкретных совпадений
   // как для одного адресата.
-  const isGroupTarget = !!group_id
+  const isGroupTarget = !!group_id || !!is_group
   if (group_id) {
     const { data: members } = await supabase
       .from('group_members').select('user_id').eq('group_id', group_id)
