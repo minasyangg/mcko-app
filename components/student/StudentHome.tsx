@@ -145,6 +145,29 @@ const TABS: { key: Tab; label: string }[] = [
   { key: 'roadmap', label: 'Программа' },
 ]
 
+// Три стадии одной и той же работы, а не «Сделано» + «Результаты» отдельно:
+// «отправлено, ждёт проверки» и «проверено» — это один путь попытки на
+// разных шагах, разносить их по двум независимым блокам только запутывает
+// (где искать сданную, но ещё не проверенную работу?). Секция явно называет
+// стадию, чтобы ученик сразу понимал, почему работы ещё нет в «Проверено».
+type Section = 'todo' | 'review' | 'checked'
+
+const SECTIONS: { key: Section; title: string; hint: string }[] = [
+  { key: 'todo', title: 'Нужно сделать', hint: 'Ещё не начато или в процессе' },
+  { key: 'review', title: 'На проверке', hint: 'Отправлено, ждёт учителя' },
+  { key: 'checked', title: 'Проверено', hint: 'Есть результат' },
+]
+
+function sectionOf(a: AssignmentCardData): Section {
+  // Завершённое (в т.ч. досрочно/по истечении срока без сдачи) — финальная
+  // стадия независимо от статуса попытки: иначе несданная просроченная
+  // работа зависала бы в «Нужно сделать», хотя сделать её уже нельзя.
+  if (a.closed_reason != null) return 'checked'
+  if (a.status === 'checked') return 'checked'
+  if (a.status === 'submitted') return 'review'
+  return 'todo'
+}
+
 export function StudentHome({
   assignments, roadmaps, initialTab,
 }: {
@@ -207,8 +230,28 @@ export function StudentHome({
           }
         />
       ) : (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {filtered.map(a => <AssignmentCard key={a.assignment_id} a={a} />)}
+        <div className="space-y-8">
+          {SECTIONS.map(sec => {
+            const items = filtered
+              .filter(a => sectionOf(a) === sec.key)
+              // внутри «Нужно сделать» начатое — выше ещё не начатого
+              .sort((a, b) => (a.status === 'in_progress' ? 0 : 1) - (b.status === 'in_progress' ? 0 : 1))
+            if (items.length === 0) return null
+            return (
+              <section key={sec.key} className="space-y-3">
+                <div className="flex items-baseline gap-2">
+                  <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+                    {sec.title}
+                  </h2>
+                  <span className="text-xs text-muted-foreground/70">{sec.hint}</span>
+                  <Badge variant="outline" className="ml-auto text-[11px]">{items.length}</Badge>
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  {items.map(a => <AssignmentCard key={a.assignment_id} a={a} />)}
+                </div>
+              </section>
+            )
+          })}
         </div>
       )}
     </div>
