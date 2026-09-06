@@ -9,7 +9,8 @@ import { Label } from '@/components/ui/label'
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
 } from '@/components/ui/dialog'
-import { ArrowLeft, CalendarPlus, UserPlus, Loader2 } from 'lucide-react'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { ArrowLeft, CalendarPlus, UserPlus, Loader2, Search } from 'lucide-react'
 import {
   AttendanceGrid, type JournalStudent, type JournalDay, type JournalMark,
 } from '@/components/teacher/AttendanceGrid'
@@ -27,12 +28,11 @@ function todayISO() {
 }
 
 export function AttendanceJournalClient({
-  journalId, title, subject, availableStudents,
+  journalId, title, subject,
 }: {
   journalId: string
   title: string
   subject: string | null
-  availableStudents: StudentOption[]
 }) {
   const [students, setStudents] = useState<JournalStudent[]>([])
   const [days, setDays] = useState<JournalDay[]>([])
@@ -56,8 +56,43 @@ export function AttendanceJournalClient({
   const [manualNames, setManualNames] = useState('')
   const [busy, setBusy] = useState(false)
 
-  const inJournal = new Set(students.map(s => s.student_id).filter(Boolean) as string[])
-  const selectable = availableStudents.filter(s => !inJournal.has(s.id))
+  // Список «кого можно добавить» тянем с сервера при каждом открытии диалога
+  // и при смене поиска/класса — не статичный проп страницы. Раньше список
+  // передавался один раз при заходе на страницу журнала и не учитывал состав
+  // ИМЕННО этого журнала при переходах между журналами без полной перезагрузки;
+  // сервер (см. /api/attendance/[id]/available-students) сам вычитает уже
+  // добавленных именно из этого journal_id и заодно применяет RLS: учителю —
+  // только его закреплённые ученики (teacher_students), админу — вся организация.
+  const [selectable, setSelectable] = useState<StudentOption[]>([])
+  const [grades, setGrades] = useState<string[]>([])
+  const [search, setSearch] = useState('')
+  const [gradeFilter, setGradeFilter] = useState('')
+  const [loadingStudents, setLoadingStudents] = useState(false)
+
+  useEffect(() => {
+    if (!stuOpen) return
+    let cancelled = false
+    const params = new URLSearchParams()
+    if (search.trim()) params.set('search', search.trim())
+    if (gradeFilter) params.set('grade', gradeFilter)
+    // Небольшая задержка на ввод в поиске — не дёргаем сервер на каждый
+    // символ; setLoadingStudents тоже внутри таймера, а не сразу в теле
+    // эффекта — иначе индикатор мигал бы уже до debounce-паузы.
+    const t = setTimeout(() => {
+      if (cancelled) return
+      setLoadingStudents(true)
+      fetch(`/api/attendance/${journalId}/available-students?${params}`)
+        .then(r => r.ok ? r.json() : { students: [], grades: [] })
+        .then(d => {
+          if (cancelled) return
+          setSelectable(d.students ?? [])
+          setGrades(d.grades ?? [])
+        })
+        .catch(() => { if (!cancelled) setSelectable([]) })
+        .finally(() => { if (!cancelled) setLoadingStudents(false) })
+    }, search ? 300 : 0)
+    return () => { cancelled = true; clearTimeout(t) }
+  }, [stuOpen, journalId, search, gradeFilter])
 
   async function addStudents() {
     const names = manualNames.split('\n').map(n => n.trim()).filter(Boolean)
@@ -75,6 +110,7 @@ export function AttendanceJournalClient({
       if (!res.ok) { toast.error(json.error ?? 'Ошибка'); return }
       toast.success(`Добавлено: ${json.added ?? 0}`)
       setStuOpen(false); setPicked(new Set()); setManualNames('')
+      setSearch(''); setGradeFilter('')
       await reload()
     } finally { setBusy(false) }
   }
@@ -146,26 +182,53 @@ export function AttendanceJournalClient({
                   </DialogDescription>
                 </DialogHeader>
 
+                {/* Поиск по ФИО + фильтр по классу — список бьёт напрямую в сервер
+                    (см. useEffect выше), не локальная фильтрация уже
+                    загруженного списка: у учителя может быть много учеников. */}
+                <div className="flex gap-2">
+                  <div className="relative flex-1">
+                    <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      value={search}
+                      onChange={e => setSearch(e.target.value)}
+                      placeholder="Поиск по ФИО"
+                      className="pl-8"
+                    />
+                  </div>
+                  <Select value={gradeFilter || '_all'} onValueChange={v => setGradeFilter(v === '_all' ? '' : v)}>
+                    <SelectTrigger className="w-28 shrink-0"><SelectValue placeholder="Класс" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="_all">Все классы</SelectItem>
+                      {grades.map(g => <SelectItem key={g} value={g}>{g}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+
                 <div className="max-h-56 space-y-1 overflow-y-auto rounded-md border divide-y">
-                  {selectable.length === 0 && (
+                  {loadingStudents ? (
+                    <div className="flex items-center justify-center gap-2 px-3 py-6 text-sm text-muted-foreground">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" /> Загрузка...
+                    </div>
+                  ) : selectable.length === 0 ? (
                     <p className="px-3 py-6 text-center text-sm text-muted-foreground">
-                      Все доступные ученики уже в журнале
+                      {search || gradeFilter ? 'Никого не найдено' : 'Все доступные ученики уже в журнале'}
                     </p>
+                  ) : (
+                    selectable.map(s => (
+                      <label key={s.id} className="flex cursor-pointer items-center gap-3 px-3 py-2 hover:bg-muted/40">
+                        <input
+                          type="checkbox" className="h-4 w-4 shrink-0"
+                          checked={picked.has(s.id)}
+                          onChange={() => setPicked(prev => {
+                            const n = new Set(prev)
+                            if (n.has(s.id)) n.delete(s.id); else n.add(s.id)
+                            return n
+                          })}
+                        />
+                        <span className="text-sm">{s.full_name}{s.grade ? ` (${s.grade})` : ''}</span>
+                      </label>
+                    ))
                   )}
-                  {selectable.map(s => (
-                    <label key={s.id} className="flex cursor-pointer items-center gap-3 px-3 py-2 hover:bg-muted/40">
-                      <input
-                        type="checkbox" className="h-4 w-4 shrink-0"
-                        checked={picked.has(s.id)}
-                        onChange={() => setPicked(prev => {
-                          const n = new Set(prev)
-                          if (n.has(s.id)) n.delete(s.id); else n.add(s.id)
-                          return n
-                        })}
-                      />
-                      <span className="text-sm">{s.full_name}{s.grade ? ` (${s.grade})` : ''}</span>
-                    </label>
-                  ))}
                 </div>
 
                 <div className="space-y-1">
