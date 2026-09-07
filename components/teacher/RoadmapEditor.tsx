@@ -34,13 +34,16 @@ interface StudentOption { id: string; full_name: string; grade: string | null }
 interface GroupOption { id: string; name: string; student_ids: string[] }
 interface Roadmap { id: string; title: string; subject: string | null; description: string | null }
 
-export function RoadmapEditor({ roadmap, topics, tests, students, memberIds, groups = [] }: {
+export function RoadmapEditor({ roadmap, topics, tests, students, memberIds, groups = [], sourceGroupIds = [] }: {
   roadmap: Roadmap
   topics: EditorTopic[]
   tests: TestOption[]
   students: StudentOption[]
   memberIds: string[]
   groups?: GroupOption[]
+  /** Группы, уже зарегистрированные как «живой источник» (миграция 059) —
+   *  их новые участники автоматически попадают в программу */
+  sourceGroupIds?: string[]
 }) {
   const router = useRouter()
   const [busy, setBusy] = useState(false)
@@ -48,6 +51,7 @@ export function RoadmapEditor({ roadmap, topics, tests, students, memberIds, gro
   // — Ученики —
   const [studentsOpen, setStudentsOpen] = useState(false)
   const [checked, setChecked] = useState<Set<string>>(new Set(memberIds))
+  const [linkedGroupIds, setLinkedGroupIds] = useState<Set<string>>(new Set(sourceGroupIds))
   const memberCount = memberIds.length
 
   // Добавление целой группы. API принимает только закреплённых за учителем
@@ -57,9 +61,16 @@ export function RoadmapEditor({ roadmap, topics, tests, students, memberIds, gro
   // учителем, роняла бы сохранение всего состава с 403.
   const studentIdSet = new Set(students.map(s => s.id))
 
-  function addGroup(g: GroupOption) {
+  // Помимо разовой отметки чекбоксов, регистрирует группу как «живой
+  // источник»: с этого момента новый ученик группы попадает в программу сам,
+  // без повторного захода сюда (см. группу_members_sync_roadmaps, 059).
+  async function addGroup(g: GroupOption) {
     const allowed = g.student_ids.filter(id => studentIdSet.has(id))
     const skipped = g.student_ids.length - allowed.length
+    if (allowed.length === 0 && linkedGroupIds.has(g.id)) {
+      toast.info(`Группа «${g.name}» уже привязана как источник`)
+      return
+    }
     if (allowed.length === 0) {
       toast.error(skipped > 0
         ? `Ученики группы «${g.name}» не закреплены за вами`
@@ -72,10 +83,33 @@ export function RoadmapEditor({ roadmap, topics, tests, students, memberIds, gro
       for (const id of allowed) n.add(id)
       return n
     })
-    toast.success(
-      added > 0 ? `Добавлено учеников: ${added}` : 'Все ученики группы уже в программе',
-      skipped > 0 ? { description: `Пропущено (не ваши ученики): ${skipped}` } : undefined,
-    )
+
+    const res = await fetch(`/api/roadmaps/${roadmap.id}/source-groups`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ group_id: g.id }),
+    })
+    if (res.ok) {
+      setLinkedGroupIds(prev => new Set(prev).add(g.id))
+      toast.success(
+        added > 0 ? `Добавлено учеников: ${added}. Группа привязана — новые ученики будут добавляться автоматически.` : 'Группа привязана как источник',
+        skipped > 0 ? { description: `Пропущено (не ваши ученики): ${skipped}` } : undefined,
+      )
+    } else {
+      const json = await res.json().catch(() => ({}))
+      toast.error(json.error ?? 'Не удалось привязать группу', {
+        description: added > 0 ? `Ученики всё же добавлены (${added}), но без автообновления — сохраните список.` : undefined,
+      })
+    }
+  }
+
+  async function unlinkGroup(g: GroupOption) {
+    setBusy(true)
+    try {
+      const res = await fetch(`/api/roadmaps/${roadmap.id}/source-groups?group_id=${g.id}`, { method: 'DELETE' })
+      if (!res.ok) { const j = await res.json().catch(() => ({})); toast.error(j.error ?? 'Ошибка'); return }
+      setLinkedGroupIds(prev => { const n = new Set(prev); n.delete(g.id); return n })
+      toast.success(`Группа «${g.name}» отвязана — уже добавленные ученики остаются в программе`)
+    } finally { setBusy(false) }
   }
 
   async function saveStudents() {
@@ -352,29 +386,53 @@ export function RoadmapEditor({ roadmap, topics, tests, students, memberIds, gro
         <DialogContent className="max-w-md">
           <DialogHeader><DialogTitle>Ученики программы</DialogTitle></DialogHeader>
 
-          {/* Добавление целой группы: отмечает всех её учеников в списке ниже.
-              Состав программы остаётся списком учеников — группа лишь способ
-              отметить их разом, поэтому дальше её можно свободно править. */}
+          {/* Добавление целой группы: отмечает всех её учеников в списке ниже
+              И регистрирует группу «живым источником» — новый ученик группы
+              дальше попадает в программу сам, без повторного захода сюда
+              (см. addGroup). Привязанные группы помечены и их можно отвязать. */}
           {groups.length > 0 && (
             <div className="space-y-1.5">
               <p className="text-xs text-muted-foreground">Добавить группу целиком</p>
               <div className="flex flex-wrap gap-1.5">
-                {groups.map(g => (
-                  <Button
-                    key={g.id}
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="h-7 text-xs"
-                    onClick={() => addGroup(g)}
-                    disabled={busy || g.student_ids.length === 0}
-                  >
-                    <Users className="h-3 w-3 mr-1" />
-                    {g.name}
-                    <span className="ml-1 text-muted-foreground">({g.student_ids.length})</span>
-                  </Button>
-                ))}
+                {groups.map(g => {
+                  const linked = linkedGroupIds.has(g.id)
+                  return linked ? (
+                    <Badge key={g.id} variant="secondary" className="h-7 text-xs gap-1 pr-1">
+                      <Users className="h-3 w-3" />
+                      {g.name}
+                      <span className="text-muted-foreground">({g.student_ids.length})</span>
+                      <button
+                        type="button"
+                        title="Отвязать группу от программы"
+                        onClick={() => unlinkGroup(g)}
+                        disabled={busy}
+                        className="ml-0.5 rounded-full p-0.5 hover:bg-muted-foreground/20"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </Badge>
+                  ) : (
+                    <Button
+                      key={g.id}
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-xs"
+                      onClick={() => addGroup(g)}
+                      disabled={busy || g.student_ids.length === 0}
+                    >
+                      <Users className="h-3 w-3 mr-1" />
+                      {g.name}
+                      <span className="ml-1 text-muted-foreground">({g.student_ids.length})</span>
+                    </Button>
+                  )
+                })}
               </div>
+              {linkedGroupIds.size > 0 && (
+                <p className="text-[11px] text-muted-foreground">
+                  Привязанные группы (отмечены) автоматически добавляют в программу новых учеников.
+                </p>
+              )}
             </div>
           )}
 
