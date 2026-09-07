@@ -2959,6 +2959,7 @@ export type Database = {
         Args: { p_assignment_id: string; p_student_id: string }
         Returns: boolean
       }
+      sync_group_to_roadmaps: { Args: { p_group_id: string }; Returns: number }
       sync_student_to_roadmaps_from_group: {
         Args: { p_group_id: string; p_user_id: string }
         Returns: number

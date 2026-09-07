@@ -350,6 +350,33 @@ export function AttemptDrawer({ attemptId, onClose, onGraded }: Props) {
     }
   }
 
+  // «Подтвердить проверку»: намеренно НЕ переиспользует handleFinalize — тот
+  // пересобирает gradeUpdates из клиентского state `grades` и всегда шлёт
+  // уведомление ученику. Здесь учитель ничего не менял, answers пустой (сервер
+  // пересчитает баллы из уже сохранённых в БД значений, а не из возможно
+  // устаревшего клиентского state), и skip_notify гасит повторное «работа
+  // проверена» — ученик уже получил его при авто-проверке.
+  const handleConfirmReview = async () => {
+    if (!attemptId) return
+    setIsSaving(true); setSaveError(null)
+    try {
+      const res = await fetch(`/api/attempts/${attemptId}/grade`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ answers: [], finalize: true, skip_notify: true }),
+      })
+      const resData = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setSaveError(resData.error ?? 'Ошибка сохранения')
+        return
+      }
+      setAttempt((prev) => prev ? { ...prev, teacher_reviewed_at: new Date().toISOString() } : prev)
+      onGraded?.(attemptId, resData.score ?? 0)
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
   const taskTypeLabel = (t: string) => ({
     manual_review: 'Развёрнутый', single_choice: 'Один ответ',
     multiple_choice: 'Несколько', numeric: 'Число',
@@ -642,7 +669,7 @@ export function AttemptDrawer({ attemptId, onClose, onGraded }: Props) {
                         <Button
                           size="sm"
                           className="w-full"
-                          onClick={handleFinalize}
+                          onClick={handleConfirmReview}
                           disabled={isSaving}
                         >
                           {isSaving

@@ -38,6 +38,10 @@ export async function PATCH(
     answers?: { answer_id: string; awarded_score: number; is_correct: boolean; teacher_comment?: string }[]
     finalize?: boolean
     teacher_comment?: string
+    // «Подтвердить проверку» (AttemptDrawer): учитель ничего не менял, только
+    // ставит teacher_reviewed_at на уже авто-проверенной попытке. Ученику уже
+    // пришло уведомление при авто-проверке — повторное не нужно.
+    skip_notify?: boolean
   }
 
   const admin = createAdminClient()
@@ -126,7 +130,9 @@ export async function PATCH(
   // учитель завершил проверку → ученику уходит результат.
   // teacherNotice: false — «работа сдана» самому проверяющему бессмысленно:
   // он только что закрыл эту работу вручную.
-  if (body.finalize) {
+  // skip_notify — «Подтвердить проверку» без изменений: ученик уже получил
+  // уведомление в момент авто-проверки, повторное читалось бы как дубль.
+  if (body.finalize && !body.skip_notify) {
     after(() => notifyAttemptFinalized(attemptId, { teacherNotice: false }))
   }
 
