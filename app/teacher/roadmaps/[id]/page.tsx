@@ -16,7 +16,7 @@ export default async function RoadmapEditPage({ params }: { params: Promise<{ id
     .from('roadmaps').select('id, title, subject, description, group_id').eq('id', id).single()
   if (!roadmap) notFound()
 
-  const [{ data: topics }, { data: itemRows }, { data: tests }, { data: links }, { data: members }] = await Promise.all([
+  const [{ data: topics }, { data: itemRows }, { data: tests }, { data: links }, { data: members }, { data: sourceGroups }] = await Promise.all([
     supabase.from('roadmap_topics').select('id, title, description, sort_order').eq('roadmap_id', id).order('sort_order'),
     supabase.from('assignments')
       .select('id, roadmap_topic_id, kind, max_attempts, ends_at, test_versions!test_version_id(tests!test_id(title))')
@@ -28,6 +28,10 @@ export default async function RoadmapEditPage({ params }: { params: Promise<{ id
     roadmap.group_id
       ? supabase.from('group_members').select('user_id').eq('group_id', roadmap.group_id)
       : Promise.resolve({ data: [] as { user_id: string }[] }),
+    // Группы-источники: их новые участники автоматически попадают в программу
+    // (триггер group_members_sync_roadmaps, миграция 059) — список нужен, чтобы
+    // в диалоге показать, какие группы уже «живьём» привязаны.
+    supabase.from('roadmap_source_groups').select('group_id').eq('roadmap_id', id),
   ])
 
   // Обычные группы учителя (системные группы программ исключаем: roadmap_id).
@@ -83,6 +87,7 @@ export default async function RoadmapEditPage({ params }: { params: Promise<{ id
         name: g.name,
         student_ids: membersByGroup.get(g.id) ?? [],
       }))}
+      sourceGroupIds={(sourceGroups ?? []).map(s => s.group_id)}
     />
   )
 }

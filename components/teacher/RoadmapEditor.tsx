@@ -34,13 +34,16 @@ interface StudentOption { id: string; full_name: string; grade: string | null }
 interface GroupOption { id: string; name: string; student_ids: string[] }
 interface Roadmap { id: string; title: string; subject: string | null; description: string | null }
 
-export function RoadmapEditor({ roadmap, topics, tests, students, memberIds, groups = [] }: {
+export function RoadmapEditor({ roadmap, topics, tests, students, memberIds, groups = [], sourceGroupIds = [] }: {
   roadmap: Roadmap
   topics: EditorTopic[]
   tests: TestOption[]
   students: StudentOption[]
   memberIds: string[]
   groups?: GroupOption[]
+  /** Группы, уже зарегистрированные как «живой источник» (миграция 059) —
+   *  их новые участники автоматически попадают в программу */
+  sourceGroupIds?: string[]
 }) {
   const router = useRouter()
   const [busy, setBusy] = useState(false)
@@ -48,6 +51,13 @@ export function RoadmapEditor({ roadmap, topics, tests, students, memberIds, gro
   // — Ученики —
   const [studentsOpen, setStudentsOpen] = useState(false)
   const [checked, setChecked] = useState<Set<string>>(new Set(memberIds))
+  // Уже подтверждённые сервером связи-источники (что реально в БД) — не
+  // меняются кликами в диалоге, только после успешного saveStudents/unlinkGroup.
+  const [linkedGroupIds, setLinkedGroupIds] = useState<Set<string>>(new Set(sourceGroupIds))
+  // Группы, отмеченные «привязать» в ЭТОМ открытии диалога, но ещё не
+  // сохранённые — до saveStudents() это чисто локальное состояние, поэтому
+  // «Отмена» откатывает его без сети (см. resetStudentsDialog).
+  const [pendingLinkGroupIds, setPendingLinkGroupIds] = useState<Set<string>>(new Set())
   const memberCount = memberIds.length
 
   // Добавление целой группы. API принимает только закреплённых за учителем
@@ -57,9 +67,16 @@ export function RoadmapEditor({ roadmap, topics, tests, students, memberIds, gro
   // учителем, роняла бы сохранение всего состава с 403.
   const studentIdSet = new Set(students.map(s => s.id))
 
+  // Только локально отмечает чекбоксы и помечает группу «к привязке» —
+  // ничего не уходит на сервер до нажатия «Сохранить» (saveStudents), чтобы
+  // «Отмена» полностью откатывала клик по группе, как и раньше.
   function addGroup(g: GroupOption) {
     const allowed = g.student_ids.filter(id => studentIdSet.has(id))
     const skipped = g.student_ids.length - allowed.length
+    if (allowed.length === 0 && linkedGroupIds.has(g.id)) {
+      toast.info(`Группа «${g.name}» уже привязана как источник`)
+      return
+    }
     if (allowed.length === 0) {
       toast.error(skipped > 0
         ? `Ученики группы «${g.name}» не закреплены за вами`
@@ -72,12 +89,37 @@ export function RoadmapEditor({ roadmap, topics, tests, students, memberIds, gro
       for (const id of allowed) n.add(id)
       return n
     })
+    setPendingLinkGroupIds(prev => new Set(prev).add(g.id))
     toast.success(
-      added > 0 ? `Добавлено учеников: ${added}` : 'Все ученики группы уже в программе',
+      added > 0 ? `Добавлено учеников: ${added}. Группа будет привязана как источник — сохраните список.` : 'Группа будет привязана как источник — сохраните список',
       skipped > 0 ? { description: `Пропущено (не ваши ученики): ${skipped}` } : undefined,
     )
   }
 
+  // Отвязка уже сохранённой связи — самостоятельное действие, вне
+  //«Сохранить»/«Отмена»: участников не убирает, только останавливает приток.
+  async function unlinkGroup(g: GroupOption) {
+    setBusy(true)
+    try {
+      const res = await fetch(`/api/roadmaps/${roadmap.id}/source-groups?group_id=${g.id}`, { method: 'DELETE' })
+      if (!res.ok) { const j = await res.json().catch(() => ({})); toast.error(j.error ?? 'Ошибка'); return }
+      setLinkedGroupIds(prev => { const n = new Set(prev); n.delete(g.id); return n })
+      toast.success(`Группа «${g.name}» отвязана — уже добавленные ученики остаются в программе`)
+    } finally { setBusy(false) }
+  }
+
+  // Полный откат диалога («Отмена» или закрытие) — оба набора возвращаются к
+  // тому, что реально сохранено на сервере, без единого сетевого запроса.
+  function resetStudentsDialog() {
+    setChecked(new Set(memberIds))
+    setPendingLinkGroupIds(new Set())
+    setStudentsOpen(false)
+  }
+
+  // Сохраняет список учеников И регистрирует все группы, отмеченные в этом
+  // открытии диалога, как живые источники — одним действием «Сохранить», а не
+  // отдельным запросом на каждый клик по группе (иначе «Отмена» не могла бы
+  // ничего откатить, см. resetStudentsDialog).
   async function saveStudents() {
     setBusy(true)
     try {
@@ -87,7 +129,28 @@ export function RoadmapEditor({ roadmap, topics, tests, students, memberIds, gro
       })
       const json = await res.json().catch(() => ({}))
       if (!res.ok) { toast.error(json.error ?? 'Ошибка'); return }
-      toast.success('Ученики программы обновлены')
+
+      const toLink = [...pendingLinkGroupIds].filter(id => !linkedGroupIds.has(id))
+      const failedIds = new Set<string>()
+      for (const groupId of toLink) {
+        const r = await fetch(`/api/roadmaps/${roadmap.id}/source-groups`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ group_id: groupId }),
+        })
+        if (r.ok) setLinkedGroupIds(prev => new Set(prev).add(groupId))
+        else failedIds.add(groupId)
+      }
+      // Только успешные снимаем из «к привязке» — неудавшиеся остаются
+      // отмеченными «будет привязана», иначе состояние «нужно повторить»,
+      // обещанное тостом ниже, нигде не сохранялось бы и группу пришлось бы
+      // искать заново методом тыка.
+      setPendingLinkGroupIds(failedIds)
+
+      if (failedIds.size > 0) {
+        toast.warning(`Ученики сохранены, но ${failedIds.size} групп(у) не удалось привязать как источник — повторите позже`)
+      } else {
+        toast.success('Ученики программы обновлены')
+      }
       setStudentsOpen(false)
       router.refresh()
     } finally { setBusy(false) }
@@ -348,33 +411,62 @@ export function RoadmapEditor({ roadmap, topics, tests, students, memberIds, gro
       </div>
 
       {/* Диалог состава учеников */}
-      <Dialog open={studentsOpen} onOpenChange={(v) => { if (!v) setStudentsOpen(false) }}>
+      <Dialog open={studentsOpen} onOpenChange={(v) => { if (!v) resetStudentsDialog() }}>
         <DialogContent className="max-w-md">
           <DialogHeader><DialogTitle>Ученики программы</DialogTitle></DialogHeader>
 
-          {/* Добавление целой группы: отмечает всех её учеников в списке ниже.
-              Состав программы остаётся списком учеников — группа лишь способ
-              отметить их разом, поэтому дальше её можно свободно править. */}
+          {/* Добавление целой группы: отмечает всех её учеников в списке ниже
+              и помечает группу «к привязке» — саму связь-источник создаёт
+              только «Сохранить» (saveStudents), а не этот клик, поэтому
+              «Отмена» полностью откатывает выбор без сетевых следов.
+              Уже сохранённые связи показаны отдельно и их можно отвязать
+              сразу, не дожидаясь общего «Сохранить». */}
           {groups.length > 0 && (
             <div className="space-y-1.5">
               <p className="text-xs text-muted-foreground">Добавить группу целиком</p>
               <div className="flex flex-wrap gap-1.5">
-                {groups.map(g => (
-                  <Button
-                    key={g.id}
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="h-7 text-xs"
-                    onClick={() => addGroup(g)}
-                    disabled={busy || g.student_ids.length === 0}
-                  >
-                    <Users className="h-3 w-3 mr-1" />
-                    {g.name}
-                    <span className="ml-1 text-muted-foreground">({g.student_ids.length})</span>
-                  </Button>
-                ))}
+                {groups.map(g => {
+                  const linked = linkedGroupIds.has(g.id)
+                  const pending = pendingLinkGroupIds.has(g.id)
+                  return linked ? (
+                    <Badge key={g.id} variant="secondary" className="h-7 text-xs gap-1 pr-1">
+                      <Users className="h-3 w-3" />
+                      {g.name}
+                      <span className="text-muted-foreground">({g.student_ids.length})</span>
+                      <button
+                        type="button"
+                        title="Отвязать группу от программы"
+                        onClick={() => unlinkGroup(g)}
+                        disabled={busy}
+                        className="ml-0.5 rounded-full p-0.5 hover:bg-muted-foreground/20"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </Badge>
+                  ) : (
+                    <Button
+                      key={g.id}
+                      type="button"
+                      variant={pending ? 'secondary' : 'outline'}
+                      size="sm"
+                      className="h-7 text-xs"
+                      onClick={() => addGroup(g)}
+                      disabled={busy || g.student_ids.length === 0}
+                    >
+                      <Users className="h-3 w-3 mr-1" />
+                      {g.name}
+                      <span className="ml-1 text-muted-foreground">({g.student_ids.length})</span>
+                      {pending && <span className="ml-1 text-[10px]">· будет привязана</span>}
+                    </Button>
+                  )
+                })}
               </div>
+              {(linkedGroupIds.size > 0 || pendingLinkGroupIds.size > 0) && (
+                <p className="text-[11px] text-muted-foreground">
+                  Привязанные группы автоматически добавляют в программу новых учеников
+                  {pendingLinkGroupIds.size > 0 ? ' (отмеченные «будет привязана» — после «Сохранить»)' : ''}.
+                </p>
+              )}
             </div>
           )}
 

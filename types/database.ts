@@ -1842,6 +1842,39 @@ export type Database = {
           },
         ]
       }
+      roadmap_source_groups: {
+        Row: {
+          added_at: string | null
+          group_id: string
+          roadmap_id: string
+        }
+        Insert: {
+          added_at?: string | null
+          group_id: string
+          roadmap_id: string
+        }
+        Update: {
+          added_at?: string | null
+          group_id?: string
+          roadmap_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "roadmap_source_groups_group_id_fkey"
+            columns: ["group_id"]
+            isOneToOne: false
+            referencedRelation: "groups"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "roadmap_source_groups_roadmap_id_fkey"
+            columns: ["roadmap_id"]
+            isOneToOne: false
+            referencedRelation: "roadmaps"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       roadmap_topics: {
         Row: {
           created_at: string | null
@@ -2921,6 +2954,15 @@ export type Database = {
       student_has_version_assignment: {
         Args: { p_version_id: string }
         Returns: boolean
+      }
+      student_sees_group_assignment: {
+        Args: { p_assignment_id: string; p_student_id: string }
+        Returns: boolean
+      }
+      sync_group_to_roadmaps: { Args: { p_group_id: string }; Returns: number }
+      sync_student_to_roadmaps_from_group: {
+        Args: { p_group_id: string; p_user_id: string }
+        Returns: number
       }
     }
     Enums: {
