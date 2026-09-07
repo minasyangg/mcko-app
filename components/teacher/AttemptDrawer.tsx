@@ -23,6 +23,7 @@ interface AttemptDetail {
   started_at: string | null
   submitted_at: string | null
   checked_at: string | null
+  teacher_reviewed_at: string | null
   current_task_number: number | null
   teacher_comment: string | null
   profiles: { full_name: string; grade: string | null } | null
@@ -166,7 +167,7 @@ export function AttemptDrawer({ attemptId, onClose, onGraded }: Props) {
       const [attemptRes, answersRes] = await Promise.all([
         supabase.from('attempts').select(`
           id, status, score, max_score, started_at, submitted_at, checked_at,
-          current_task_number, teacher_comment,
+          teacher_reviewed_at, current_task_number, teacher_comment,
           profiles ( full_name, grade ),
           assignments ( test_versions!test_version_id (
             version_number, tests!test_id ( title )
@@ -284,6 +285,12 @@ export function AttemptDrawer({ attemptId, onClose, onGraded }: Props) {
   }, [attemptId])
 
   const needsGrading = ['submitted', 'under_review'].includes(attempt?.status ?? '')
+  // Авто-проверка (объективные ответы по ключу) ставит status='checked', но
+  // teacher_reviewed_at не трогает — учитель ещё не смотрел работу. Раньше
+  // единственный способ снять её с «На проверке» в мониторинге — зайти в
+  // «Изменить баллы» и нажать «Сохранить», не поменяв ничего. Кнопка ниже
+  // делает то же самое напрямую, одним кликом, без входа в режим редактирования.
+  const isAutoCheckedUnreviewed = attempt?.status === 'checked' && !attempt.teacher_reviewed_at
 
   const handleFinalize = async () => {
     if (!attemptId) return
@@ -334,6 +341,9 @@ export function AttemptDrawer({ attemptId, onClose, onGraded }: Props) {
         ))
         setEditingScores(false)
       }
+      // Локально помечаем как подтверждённое сразу — иначе кнопка «Подтвердить
+      // проверку» осталась бы видна до повторного открытия дровера.
+      setAttempt((prev) => prev ? { ...prev, teacher_reviewed_at: new Date().toISOString() } : prev)
       onGraded?.(attemptId, resData.score ?? 0)
     } finally {
       setIsSaving(false)
@@ -378,8 +388,8 @@ export function AttemptDrawer({ attemptId, onClose, onGraded }: Props) {
                     <p className="text-sm text-muted-foreground">{attempt.profiles.grade} класс</p>
                   )}
                 </div>
-                <Badge variant={needsGrading ? 'secondary' : 'outline'}>
-                  {STATUS_LABELS[attempt.status] ?? attempt.status}
+                <Badge variant={needsGrading || isAutoCheckedUnreviewed ? 'secondary' : 'outline'}>
+                  {isAutoCheckedUnreviewed ? 'Проверено автоматически' : (STATUS_LABELS[attempt.status] ?? attempt.status)}
                 </Badge>
               </div>
               <p className="text-sm text-muted-foreground">
@@ -622,14 +632,35 @@ export function AttemptDrawer({ attemptId, onClose, onGraded }: Props) {
             {!needsGrading && attempt.status === 'checked' && (
               <div className="border-t pt-4 space-y-3">
                 {!editingScores ? (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="w-full"
-                    onClick={() => setEditingScores(true)}
-                  >
-                    Изменить баллы
-                  </Button>
+                  <>
+                    {isAutoCheckedUnreviewed && (
+                      <div className="space-y-2">
+                        <p className="text-xs text-muted-foreground">
+                          Проверено автоматически по ключам ответов — учитель ещё не подтверждал баллы.
+                        </p>
+                        {saveError && <p className="text-xs text-destructive">{saveError}</p>}
+                        <Button
+                          size="sm"
+                          className="w-full"
+                          onClick={handleFinalize}
+                          disabled={isSaving}
+                        >
+                          {isSaving
+                            ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Подтверждение...</>
+                            : 'Подтвердить проверку'
+                          }
+                        </Button>
+                      </div>
+                    )}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="w-full"
+                      onClick={() => setEditingScores(true)}
+                    >
+                      Изменить баллы
+                    </Button>
+                  </>
                 ) : (
                   <>
                     {saveError && <p className="text-xs text-destructive">{saveError}</p>}
