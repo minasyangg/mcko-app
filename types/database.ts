@@ -1767,6 +1767,8 @@ export type Database = {
           moderation_status: string
           notifications_enabled: boolean
           organization_id: string | null
+          parent_telegram_chat_id: number | null
+          parent_telegram_username: string | null
           pd_consent_at: string | null
           phone: string | null
           role: string
@@ -1789,6 +1791,8 @@ export type Database = {
           moderation_status?: string
           notifications_enabled?: boolean
           organization_id?: string | null
+          parent_telegram_chat_id?: number | null
+          parent_telegram_username?: string | null
           pd_consent_at?: string | null
           phone?: string | null
           role: string
@@ -1811,6 +1815,8 @@ export type Database = {
           moderation_status?: string
           notifications_enabled?: boolean
           organization_id?: string | null
+          parent_telegram_chat_id?: number | null
+          parent_telegram_username?: string | null
           pd_consent_at?: string | null
           phone?: string | null
           role?: string

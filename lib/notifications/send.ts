@@ -69,6 +69,57 @@ export async function notifyUsers(opts: {
   }
 }
 
+// ── Уведомление родителю ученика ─────────────────────────────────────────────
+// Родитель не пользователь платформы (нет profiles-строки, нет входа) — это
+// второй Telegram-получатель, привязанный к профилю ученика (см. миграцию
+// 062, app/api/telegram/webhook). Тот же канал/событие/содержание, что и у
+// ученика, но текст обязан НАЗЫВАТЬ ученика по ФИ вместо «вам»/«вы»: у
+// родителя может быть несколько детей на платформе, и без явного имени
+// сообщение неотличимо от того, что уходит другому его ребёнку. Общий с
+// учеником notifications_enabled — отдельного переключателя для родителя
+// нет: выключил ученик у себя, платформа не пишет и его родителю.
+async function notifyParent(opts: {
+  admin: AdminClient
+  orgId: string | null
+  eventType: NotificationEventType
+  studentId: string
+  message: string
+}): Promise<void> {
+  const { admin, orgId, eventType, studentId, message } = opts
+  if (!telegramConfigured()) return
+
+  const { data: student } = await admin
+    .from('profiles')
+    .select('parent_telegram_chat_id, notifications_enabled')
+    .eq('id', studentId)
+    .single()
+  if (!student?.parent_telegram_chat_id) return
+  if (student.notifications_enabled === false) return
+
+  // Настройка события на уровне организации — та же, что для основного канала
+  if (orgId) {
+    const { data: setting } = await admin
+      .from('notification_settings')
+      .select('enabled')
+      .eq('organization_id', orgId)
+      .eq('event_type', eventType)
+      .eq('channel', 'telegram')
+      .maybeSingle()
+    if (setting && !setting.enabled) return
+  }
+
+  const err = await sendTelegramMessage(student.parent_telegram_chat_id, message)
+  await admin.from('notification_log').insert({
+    organization_id: orgId,
+    user_id: studentId,
+    channel: 'telegram',
+    event_type: eventType,
+    message,
+    status: err ? 'failed' : 'sent',
+    error: err,
+  })
+}
+
 const fmtDate = (iso: string | null | undefined) =>
   iso ? new Date(iso).toLocaleDateString('ru-RU') : null
 
@@ -197,15 +248,24 @@ export async function notifyAssignmentCreated(assignmentId: string): Promise<voi
     const ctx = await loadAssignmentContext(admin, assignmentId)
     if (!ctx) return
 
-    let userIds: string[] = []
+    // ФИ нужно не только для родительского текста ниже, но раз уж тянем
+    // профили — заодно получаем и сам список userIds одним запросом вместо
+    // двух (id-only + отдельно full_name).
+    let students: { id: string; full_name: string }[] = []
     if (ctx.studentId) {
-      userIds = [ctx.studentId]
+      const { data } = await admin.from('profiles').select('id, full_name').eq('id', ctx.studentId).single()
+      if (data) students = [data]
     } else if (ctx.groupId) {
       const { data: members } = await admin
-        .from('group_members').select('user_id').eq('group_id', ctx.groupId)
-      userIds = (members ?? []).map(m => m.user_id)
+        .from('group_members')
+        .select('profiles!user_id(id, full_name)')
+        .eq('group_id', ctx.groupId)
+      students = (members ?? [])
+        .map(m => m.profiles as unknown as { id: string; full_name: string } | null)
+        .filter((p): p is { id: string; full_name: string } => p != null)
     }
-    if (userIds.length === 0) return
+    if (students.length === 0) return
+    const userIds = students.map(s => s.id)
 
     const due = fmtDate(ctx.endsAt)
     // Источник (программа/группа) показываем и ученику — иначе при большом
@@ -223,6 +283,22 @@ export async function notifyAssignmentCreated(assignmentId: string): Promise<voi
     ])
 
     await notifyUsers({ admin, orgId: ctx.organizationId, eventType: 'assignment_created', userIds, message })
+
+    // Родителю — то же содержание, но «Вам назначен...» заменяется на явное
+    // указание ученика: без этого при нескольких детях на платформе сообщение
+    // не даёт понять, к какому именно ребёнку оно относится.
+    await Promise.all(students.map(s => notifyParent({
+      admin,
+      orgId: ctx.organizationId,
+      eventType: 'assignment_created',
+      studentId: s.id,
+      message: lines([
+        `📝 Ученику ${s.full_name} ${ctx.words.assigned} ${ctx.words.nominative}: «${ctx.title}»`,
+        ctx.subject ? `Предмет: ${ctx.subject}` : null,
+        sourceLine,
+        `Попыток: ${ctx.maxAttempts}${due ? ` · выполнить до ${due}` : ''}`,
+      ]),
+    })))
   } catch (e) {
     console.error('[notifications] assignmentCreated failed:', e)
   }
@@ -298,6 +374,22 @@ export async function notifyAttemptFinalized(
         userIds: [at.student_id],
         message: lines([
           `✅ Ваша работа по ${ctx.words.dative} «${ctx.title}» проверена: ${attemptScore} баллов.`,
+          ctx.subject ? `Предмет: ${ctx.subject}` : null,
+          attemptsLine,
+          totalLine,
+          closing,
+        ]),
+      })
+
+      // Родителю — тот же результат, но «Ваша работа» заменяется на явное имя
+      // ученика (см. notifyParent).
+      await notifyParent({
+        admin,
+        orgId: ctx.organizationId,
+        eventType: 'attempt_checked',
+        studentId: at.student_id,
+        message: lines([
+          `✅ Работа ученика ${student?.full_name ?? 'Ученик'} по ${ctx.words.dative} «${ctx.title}» проверена: ${attemptScore} баллов.`,
           ctx.subject ? `Предмет: ${ctx.subject}` : null,
           attemptsLine,
           totalLine,

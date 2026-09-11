@@ -33,6 +33,7 @@ export interface StudentRow {
   teacher_ids?: string[]  // прикреплённые учителя (M:N)
   email?: string
   telegram_username?: string | null
+  parent_telegram_username?: string | null
 }
 
 export interface TeacherOption {
@@ -54,7 +55,7 @@ export function StudentsClient({ students: initial, isAdmin = false, teachers = 
   // Массовый выбор для удаления (только у админа, см. панель ниже)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [editTarget, setEditTarget] = useState<StudentRow | null>(null)
-  const [editForm, setEditForm] = useState({ full_name: '', grade: '', email: '', password: '', telegram: '' })
+  const [editForm, setEditForm] = useState({ full_name: '', grade: '', email: '', password: '', telegram: '', parentTelegram: '' })
   const [showPwd, setShowPwd] = useState(false)
   const [saving, setSaving] = useState(false)
 
@@ -92,16 +93,27 @@ export function StudentsClient({ students: initial, isAdmin = false, teachers = 
 
   function openEdit(s: StudentRow) {
     setEditTarget(s)
-    setEditForm({ full_name: s.full_name, grade: s.grade ?? '', email: '', password: '', telegram: s.telegram_username ?? '' })
+    setEditForm({
+      full_name: s.full_name,
+      grade: s.grade ?? '',
+      email: '',
+      password: '',
+      telegram: s.telegram_username ?? '',
+      parentTelegram: s.parent_telegram_username ?? '',
+    })
     setShowPwd(false)
   }
 
   const editTelegram = editForm.telegram.trim().replace(/^@/, '')
   const editTelegramValid = editTelegram === '' || /^[A-Za-z0-9_]{5,32}$/.test(editTelegram)
+  // Ник родителя — необязательное поле (см. правило "опционально, не обязательно").
+  const editParentTelegram = editForm.parentTelegram.trim().replace(/^@/, '')
+  const editParentTelegramValid = editParentTelegram === '' || /^[A-Za-z0-9_]{5,32}$/.test(editParentTelegram)
 
   async function handleSave() {
     if (!editTarget) return
     if (!editTelegramValid) { toast.error('Ник Telegram: 5–32 символа, латиница/цифры/_'); return }
+    if (!editParentTelegramValid) { toast.error('Ник Telegram родителя: 5–32 символа, латиница/цифры/_'); return }
     setSaving(true)
     try {
       const body: Record<string, string | null> = {}
@@ -113,6 +125,8 @@ export function StudentsClient({ students: initial, isAdmin = false, teachers = 
       if (editForm.password.trim()) body.password = editForm.password.trim()
       if (editTelegram !== (editTarget.telegram_username ?? ''))
         body.telegram_username = editTelegram
+      if (editParentTelegram !== (editTarget.parent_telegram_username ?? ''))
+        body.parent_telegram_username = editParentTelegram
 
       if (Object.keys(body).length === 0) { setEditTarget(null); return }
 
@@ -131,6 +145,7 @@ export function StudentsClient({ students: initial, isAdmin = false, teachers = 
               full_name: body.full_name ?? s.full_name,
               grade: body.grade !== undefined ? body.grade : s.grade,
               telegram_username: body.telegram_username !== undefined ? body.telegram_username : s.telegram_username,
+              parent_telegram_username: body.parent_telegram_username !== undefined ? body.parent_telegram_username : s.parent_telegram_username,
             }
           : s
       ))
@@ -402,6 +417,26 @@ export function StudentsClient({ students: initial, isAdmin = false, teachers = 
                 </div>
                 {!editTelegramValid && <p className="text-xs text-destructive">5–32 символа: латиница, цифры, _</p>}
                 <p className="text-xs text-muted-foreground">Смена ника отвяжет старый чат — ученик заново нажмёт «Start».</p>
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="edit-tg-parent">
+                  Ник Telegram родителя <span className="text-muted-foreground text-xs">(необязательно)</span>
+                </Label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">@</span>
+                  <Input
+                    id="edit-tg-parent"
+                    value={editForm.parentTelegram}
+                    onChange={(e) => setEditForm((p) => ({ ...p, parentTelegram: e.target.value.replace(/^@/, '') }))}
+                    placeholder="username"
+                    className="pl-7"
+                  />
+                </div>
+                {!editParentTelegramValid && <p className="text-xs text-destructive">5–32 символа: латиница, цифры, _</p>}
+                <p className="text-xs text-muted-foreground">
+                  Родитель получает те же уведомления, что и ученик (о назначении и проверке работ),
+                  тем же ботом. Чтобы подключить — родитель нажимает «Start» у бота после того, как ник сохранён здесь.
+                </p>
               </div>
               {editTarget?.email && (
                 <div className="space-y-1">

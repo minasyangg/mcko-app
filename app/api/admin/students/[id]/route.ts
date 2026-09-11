@@ -15,6 +15,9 @@ const patchSchema = z.object({
   password: z.string().min(6).optional(),
   // '' = отвязать ник; иначе валидный ник Telegram
   telegram_username: z.string().regex(/^([A-Za-z0-9_]{5,32})?$/, 'Ник Telegram — 5–32 символа: латиница, цифры, _').optional(),
+  // Ник родителя — опционально (см. правило проекта): своего аккаунта на
+  // платформе у родителя нет, это просто второй Telegram-получатель.
+  parent_telegram_username: z.string().regex(/^([A-Za-z0-9_]{5,32})?$/, 'Ник Telegram родителя — 5–32 символа: латиница, цифры, _').optional(),
   // Полный набор прикреплённых учителей (M:N teacher_students). Если передан —
   // заменяет текущий набор для этого ученика (можно закрепить за несколькими).
   teacher_ids: z.array(zUuid()).optional(),
@@ -36,7 +39,7 @@ export async function PATCH(
   }
 
   const { data: student } = await admin
-    .from('profiles').select('id, organization_id, role, telegram_username').eq('id', id).single()
+    .from('profiles').select('id, organization_id, role, telegram_username, parent_telegram_username').eq('id', id).single()
 
   if (!student || student.organization_id !== orgId || student.role !== 'student') {
     return NextResponse.json({ error: 'Student not found' }, { status: 404 })
@@ -51,18 +54,29 @@ export async function PATCH(
     return NextResponse.json({ ok: true })
   }
 
-  const { full_name, grade, email, password, teacher_ids, telegram_username } = parsed.data
+  const { full_name, grade, email, password, teacher_ids, telegram_username, parent_telegram_username } = parsed.data
 
-  if (full_name !== undefined || grade !== undefined || telegram_username !== undefined) {
-    const update: { full_name?: string; grade?: string | null; telegram_username?: string | null; telegram_chat_id?: null } = {}
+  if (full_name !== undefined || grade !== undefined || telegram_username !== undefined || parent_telegram_username !== undefined) {
+    const update: {
+      full_name?: string; grade?: string | null
+      telegram_username?: string | null; telegram_chat_id?: null
+      parent_telegram_username?: string | null; parent_telegram_chat_id?: null
+    } = {}
     if (full_name !== undefined) update.full_name = full_name
     if (grade !== undefined) update.grade = grade
-    // смена ника админом сбрасывает привязку chat_id — новый ученик сам жмёт /start
+    // смена ника админом сбрасывает привязку chat_id — новый получатель сам жмёт /start
     if (telegram_username !== undefined) {
       const uname = telegram_username || null
       if (uname !== (student as { telegram_username?: string | null }).telegram_username) {
         update.telegram_username = uname
         update.telegram_chat_id = null
+      }
+    }
+    if (parent_telegram_username !== undefined) {
+      const uname = parent_telegram_username || null
+      if (uname !== (student as { parent_telegram_username?: string | null }).parent_telegram_username) {
+        update.parent_telegram_username = uname
+        update.parent_telegram_chat_id = null
       }
     }
     if (Object.keys(update).length > 0) {
