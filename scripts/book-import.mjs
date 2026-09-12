@@ -683,6 +683,37 @@ const inRepetition = (idx) =>
   scheme === 'composite' && repetitionSection?.pageStart != null &&
   idx >= repetitionSection.pageStart && idx <= (repetitionSection.pageEnd ?? -1)
 
+// Composite-книга может содержать и другие root-разделы со сквозной plain-
+// нумерацией помимо «Итогового повторения» — например, вводные «Задачи на
+// повторение» перед основным текстом (Мордкович 9кл ч.2, скан 4-11: «1.»,
+// «8.», «16.»… без параграфа). Раньше такой раздел просто не парсился вовсе
+// (COMPOSITE_RE не находит в нём совпадений, а plain-поток не заводился) —
+// задания целиком пропадали. Детектируем по содержимому: root-секция без
+// детей, где PLAIN_RE даёт заметно больше совпадений, чем COMPOSITE_RE —
+// заводим свой поток 'plain@{sectionId}', как для «Итогового повторения»,
+// но без подразделов (весь раздел — одна плоская нумерация 1..N).
+const isExcludedRootSection = (s) =>
+  s === repetitionSection || s === answersSection || s === advancedSection ||
+  /домашн[а-яё]*\s+контрольн|оглавлени|содержани|приложени|предисловие|предметный указатель|справочный материал/i.test(s.title)
+const standalonePlainSections = scheme === 'composite'
+  ? flatSections.filter(s => {
+      if (s.parent !== null || s.children.length > 0 || s.pageStart === null || isExcludedRootSection(s)) return false
+      let plainN = 0, compositeN = 0
+      for (let idx = s.pageStart; idx <= (s.pageEnd ?? s.pageStart); idx++) {
+        const p = pages[idx]
+        if (!p || p.contentBlocks.length > 0) continue
+        plainN += countMatches(PLAIN_RE, p.markdown)
+        compositeN += countMatches(COMPOSITE_RE, p.markdown)
+      }
+      return plainN >= 3 && plainN > compositeN * 2
+    })
+  : []
+standalonePlainSections.forEach((s, i) => { s.standaloneNo = i + 1 })
+const standalonePlainByPage = new Map()
+for (const s of standalonePlainSections) {
+  for (let idx = s.pageStart; idx <= (s.pageEnd ?? s.pageStart); idx++) standalonePlainByPage.set(idx, s)
+}
+
 // «Домашние контрольные работы»: задания извлекаются как отдельные атомы
 // с уникальным номером «к<ДКР>.<вариант>.<номер>» (в тексте книги — «3.»,
 // нумерация в каждом варианте начинается заново)
@@ -874,7 +905,8 @@ for (const p of pages) {
   }
 
   const entry = { p, md, accepted: [], plain: [] }
-  const usePlain = scheme === 'plain' || scheme === 'bare' || inRepetition(p.index)
+  const standaloneSection = standalonePlainByPage.get(p.index) ?? null
+  const usePlain = scheme === 'plain' || scheme === 'bare' || inRepetition(p.index) || standaloneSection !== null
   // composite-книга вне повторения: plain-номера («П.1» в приложении) —
   // не задания основной нумерации
   const re = usePlain ? SEQ_RE : COMPOSITE_RE
@@ -888,8 +920,10 @@ for (const p of pages) {
       // «Итоговое повторение» с тематическими подразделами: у каждого своя
       // сквозная нумерация 1..N — отдельный LIS-поток 'rep{номер подраздела}'
       const subsection = rep && hasRepetitionSubsections ? repetitionSubsectionAt(p.index, m.index) : null
-      const stream = subsection ? `rep${subsection.no}` : (rep ? 'rep' : null)
-      entry.plain.push({ glyph: m[1] ?? null, num: parseInt(m[2]), star: m[3] || null, at: m.index, rep, stream, subsection })
+      // изолированный root-раздел со своей плоской нумерацией (см. выше) —
+      // отдельный поток по номеру секции, не мешается со сквозной нумерацией книги
+      const stream = subsection ? `rep${subsection.no}` : (rep ? 'rep' : (standaloneSection ? `st${standaloneSection.standaloneNo}` : null))
+      entry.plain.push({ glyph: m[1] ?? null, num: parseInt(m[2]), star: m[3] || null, at: m.index, rep, stream, subsection, standaloneSection })
       continue
     }
     const s = { glyph: m[1] ?? null, para: parseInt(m[2]), num: parseInt(m[3]), at: m.index }
@@ -970,6 +1004,11 @@ for (const [key, stream] of streams) {
       const n = parseInt(key.slice(3))
       x.c.taskNumber = `п${n}.${x.c.num}`
       x.c.sort = 3_000_000 + n * 100_000 + x.c.num
+    } else if (key.startsWith('st')) {
+      // изолированный root-раздел со своей плоской нумерацией (см. standalonePlainSections)
+      const n = parseInt(key.slice(2))
+      x.c.taskNumber = `нр${n}.${x.c.num}`
+      x.c.sort = 4_000_000 + n * 100_000 + x.c.num
     } else {
       x.c.taskNumber = String(x.c.num)
       x.c.sort = key === 'rep' ? 1_000_000 + x.c.num : x.c.num
@@ -1021,7 +1060,7 @@ for (const e of pageEntries) {
       mdEnd: end,
       promptMd: prompt,
       hasImages: /<img\s/.test(prompt),
-      forcedSection: s.subsection?.section ?? null,
+      forcedSection: s.subsection?.section ?? s.standaloneSection ?? null,
       difficulty:
         // ∞/⑤ — общий маркер; С/C — «задачи на смекалку» (Петерсон)
         (s.glyph && /[∞⑤СC]/.test(s.glyph)) || s.star ||
@@ -1030,6 +1069,43 @@ for (const e of pageEntries) {
           ? 'advanced' : 'standard',
     })
   }
+}
+
+// Книга группирует задания под общей инструкцией («Решите неравенство:»,
+// «Разложите на множители:», «Найдите область определения выражения $f(x)$:»
+// — короткая формула-переменная внутри тоже встречается, поэтому "$" внутри
+// строки не запрещаем) — обычно инструкция открывает страницу/группу отдельной
+// строкой ПЕРЕД номером следующего задания, но иногда OCR (или сама вёрстка)
+// кладёт её строкой ПОСЛЕ предыдущего задания на той же странице — тогда она
+// попадает в конец prompt_md чужого атома, а начало следующего лишается
+// контекста. Переносим такую «висячую» инструкцию в начало следующего задания
+// (проверено на 44 случаях по всей книге): последняя строка атома — начинается
+// с русской заглавной буквы (реальная инструкция — короткая императивная
+// фраза-заголовок, не продолжение условия и не подпункт) и оканчивается на «:».
+const TRAILING_INSTRUCTION_RE = /\n\n([А-ЯЁ][^\n]{3,150}:)\s*$/
+// Заголовок параграфа (### §N. НАЗВАНИЕ) иногда попадает МЕЖДУ последним
+// заданием параграфа и висячей инструкцией следующего — сам заголовок уже
+// отражён в book_sections (см. TOC), поэтому в тексте задания это чистый
+// шум; снимаем его, чтобы TRAILING_INSTRUCTION_RE увидел инструкцию как
+// действительно последнюю строку и перенос сработал (пример: 1.26 → 2.1).
+const TRAILING_PARA_HEADING_RE = /\n\n#{1,6}[ \t]+§[^\n]*\s*$/
+for (let i = 0; i < problems.length - 1; i++) {
+  // перенос только внутри одной страницы — иначе соседство в массиве problems
+  // может быть случайным артефактом порядка LIS-потоков, а не реальным
+  // соседством в тексте книги
+  if (problems[i].pageIndex !== problems[i + 1].pageIndex) continue
+  const m = problems[i].promptMd.match(TRAILING_INSTRUCTION_RE)
+  if (m) {
+    const line = m[1].trim()
+    if (!/^[а-еa-z6ΓB]\)|^\d/.test(line)) { // подпункт/начало другого задания — не инструкция
+      problems[i].promptMd = problems[i].promptMd.slice(0, -m[0].length).trimEnd()
+      problems[i + 1].promptMd = `${line}\n\n${problems[i + 1].promptMd}`
+      problems[i].hasImages = /<img\s/.test(problems[i].promptMd) // могло измениться, если картинка была после инструкции
+    }
+  }
+  // заголовок параграфа мог остаться последней строкой уже после переноса
+  // инструкции выше (порядок в тексте: …задание §N. \n #### §N+1 \n инструкция)
+  problems[i].promptMd = problems[i].promptMd.replace(TRAILING_PARA_HEADING_RE, '').trimEnd()
 }
 
 // дубликаты номеров (unique constraint) — оставляем первое вхождение
@@ -1522,7 +1598,13 @@ if (!args.includes('--skip-images')) {
           clearTimeout(timer)
         }
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
-        const buf = Buffer.from(await res.arrayBuffer())
+        // signal аборта fetch гарантирует прерывание только до получения
+        // заголовков, не во время самого чтения тела — зависание наблюдалось
+        // именно на этом шаге, поэтому отдельный таймаут нужен и здесь
+        const buf = Buffer.from(await Promise.race([
+          res.arrayBuffer(),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('body read timeout')), 12_000)),
+        ]))
         const pathPart = new URL(externalUrl).pathname
         const ext = (path.extname(pathPart) || '.jpg').toLowerCase()
         const contentType = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp', '.svg': 'image/svg+xml' }[ext] ?? 'image/jpeg'
