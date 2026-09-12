@@ -139,20 +139,41 @@ export async function POST(
     })
   }
 
-  // Медиа — переносим ссылки на storage_path (файлы уже в library-media bucket)
+  // Медиа: физически копируем файл из library-media в task-media (server-side
+  // copy, без скачивания через наш бэкенд) — enrichTaskMediaWithUrls
+  // (lib/media/signed-urls.ts) всегда строит публичный URL для бакета
+  // task-media, независимо от того, откуда пришло задание. Раньше сюда просто
+  // переносился storage_path как есть («файлы уже в library-media bucket») —
+  // из-за чего getPublicUrl('task-media', ...) указывал на несуществующий в
+  // этом бакете файл, и картинка не грузилась вообще ни при каком количестве
+  // повторов (см. живой случай: Мех|Кинематика|4, задания 4/5/6/8).
   const media = (problem.library_problem_media as any[]) ?? []
   const taskMedia = media.filter(m => m.placement !== 'solution')
   if (taskMedia.length > 0) {
-    await admin.from('task_media').insert(
-      taskMedia.map((m, i) => ({
-        task_id:      taskId,
-        storage_path: m.storage_path,
-        media_type:   'image',
-        placement:    m.placement ?? 'above_text',
-        sort_order:   i,
-        alt_text:     m.alt_text,
-      }))
-    )
+    const copied: { storage_path: string; placement: string | null; alt_text: string | null }[] = []
+    for (const m of taskMedia) {
+      const destPath = `library-import/${taskId}/${m.storage_path.split('/').pop()}`
+      const { error: copyErr } = await admin.storage
+        .from('library-media')
+        .copy(m.storage_path, destPath, { destinationBucket: 'task-media' })
+      if (copyErr) {
+        console.error(`[add-to-test] Не удалось скопировать медиа ${m.storage_path}:`, copyErr.message)
+        continue
+      }
+      copied.push({ storage_path: destPath, placement: m.placement, alt_text: m.alt_text })
+    }
+    if (copied.length > 0) {
+      await admin.from('task_media').insert(
+        copied.map((m, i) => ({
+          task_id:      taskId,
+          storage_path: m.storage_path,
+          media_type:   'image',
+          placement:    m.placement ?? 'above_text',
+          sort_order:   i,
+          alt_text:     m.alt_text,
+        }))
+      )
+    }
   }
 
   // Инкрементируем счётчик использований

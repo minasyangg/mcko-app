@@ -50,6 +50,24 @@ export async function proxy(request: NextRequest) {
   // Заявка с публичной регистрации (миграция 054) до подтверждения админом
   // не даёт доступа никуда: аккаунт в auth уже существует и человек может
   // войти по паролю, поэтому отсечка обязана быть здесь, а не только в UI.
+  //
+  // rejected — терминальное состояние (в отличие от pending, ждать больше
+  // нечего), поэтому попытка уйти на /login обязана срабатывать: раньше
+  // редирект на /register/pending был безусловным для обеих статусов, и
+  // клик по «Вернуться ко входу» тут же отменялся тем же middleware — сессия
+  // жила вечно, а ссылка выглядела нерабочей. Сессию рвём сами (signOut),
+  // не полагаясь на клиентский код страницы логина её разглядеть.
+  if (profile?.moderation_status === 'rejected' && pathname.startsWith('/login')) {
+    await supabase.auth.signOut()
+    // signOut() шлёт затирающие сессию cookie через тот же setAll-колбэк, что
+    // и выше — то есть в `response`. Обычный `NextResponse.redirect(...)`
+    // создаёт НОВЫЙ объект и этих cookie не унаследует: браузер получил бы
+    // редирект, но остался бы залогинен. Переносим Set-Cookie на редирект
+    // явно, вместо того чтобы полагаться на общий response.
+    const redirectResponse = NextResponse.redirect(new URL('/login', request.url))
+    response.cookies.getAll().forEach((cookie) => redirectResponse.cookies.set(cookie))
+    return redirectResponse
+  }
   if (profile?.moderation_status === 'pending' || profile?.moderation_status === 'rejected') {
     if (pathname.startsWith('/register/pending')) return response
     return NextResponse.redirect(new URL('/register/pending', request.url))
