@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input'
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
+import { SearchableSelect } from '@/components/shared/SearchableSelect'
 import { AttemptDrawer } from '@/components/teacher/AttemptDrawer'
 import { TrendingUp, ChevronDown, ChevronRight, Search, Route } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -112,26 +113,15 @@ export function ResultsClient({ rows, tests, groups, programs }: Props) {
           />
         </div>
         {tests.length > 0 && (
-          <Select value={filterTest} onValueChange={setFilterTest}>
-            <SelectTrigger className="h-8 text-sm w-44">
-              <SelectValue placeholder="Все тесты" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Все тесты</SelectItem>
-              {tests.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}
-            </SelectContent>
-          </Select>
-        )}
-        {groups.length > 0 && (
-          <Select value={filterGroup} onValueChange={setFilterGroup}>
-            <SelectTrigger className="h-8 text-sm w-36">
-              <SelectValue placeholder="Все группы" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Все группы</SelectItem>
-              {groups.map((g) => <SelectItem key={g} value={g}>{g}</SelectItem>)}
-            </SelectContent>
-          </Select>
+          <div className="w-44">
+            <SearchableSelect
+              options={tests.map((t) => ({ value: t, label: t }))}
+              value={filterTest === 'all' ? '' : filterTest}
+              onChange={(v) => setFilterTest(v || 'all')}
+              placeholder="Все тесты"
+              recentCount={0}
+            />
+          </div>
         )}
         <Select value={filterKind} onValueChange={setFilterKind}>
           <SelectTrigger className="h-8 text-sm w-44">
@@ -153,17 +143,6 @@ export function ResultsClient({ rows, tests, groups, programs }: Props) {
             <SelectItem value="checked">Завершён</SelectItem>
           </SelectContent>
         </Select>
-        {programs.length > 0 && (
-          <Select value={filterProgram} onValueChange={setFilterProgram}>
-            <SelectTrigger className="h-8 text-sm w-48">
-              <SelectValue placeholder="Все программы" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Все программы</SelectItem>
-              {programs.map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}
-            </SelectContent>
-          </Select>
-        )}
         {(search || filterTest !== 'all' || filterGroup !== 'all' || filterStatus !== 'all' || filterKind !== 'all' || filterProgram !== 'all') && (
           <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => {
             setSearch(''); setFilterTest('all'); setFilterGroup('all'); setFilterStatus('all'); setFilterKind('all'); setFilterProgram('all')
@@ -172,6 +151,46 @@ export function ResultsClient({ rows, tests, groups, programs }: Props) {
           </Button>
         )}
       </div>
+
+      {/* Быстрые теги групп и программ — клик переключает фильтр напрямую,
+          без открытия выпадающего списка (обоих обычно немного, в отличие
+          от тестов/учеников — там нужен SearchableSelect с поиском). Повторный
+          клик по активному тегу снимает фильтр. */}
+      {(groups.length > 0 || programs.length > 0) && (
+        <div className="flex flex-wrap gap-1.5">
+          {groups.map((g) => (
+            <button
+              key={`g-${g}`}
+              type="button"
+              onClick={() => setFilterGroup((prev) => (prev === g ? 'all' : g))}
+              className={cn(
+                'inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs transition-colors',
+                filterGroup === g
+                  ? 'border-primary bg-primary text-primary-foreground'
+                  : 'border-input hover:bg-muted'
+              )}
+            >
+              {g}
+            </button>
+          ))}
+          {programs.map((p) => (
+            <button
+              key={`p-${p}`}
+              type="button"
+              onClick={() => setFilterProgram((prev) => (prev === p ? 'all' : p))}
+              className={cn(
+                'inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs transition-colors',
+                filterProgram === p
+                  ? 'border-primary bg-primary text-primary-foreground'
+                  : 'border-input hover:bg-muted'
+              )}
+            >
+              <Route className="h-3 w-3" />
+              {p}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Table */}
       {filtered.length === 0 ? (

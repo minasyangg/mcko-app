@@ -10,6 +10,7 @@ import { Badge } from '@/components/ui/badge'
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
+import { SearchableSelect } from '@/components/shared/SearchableSelect'
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog'
@@ -190,14 +191,13 @@ export function ModerationTab({
                 </div>
                 <div className="space-y-1">
                   <Label>Закрепить за учителем</Label>
-                  <Select value={teacherId} onValueChange={setTeacherId}>
-                    <SelectTrigger><SelectValue placeholder="Не выбран" /></SelectTrigger>
-                    <SelectContent>
-                      {teachers.map(t => (
-                        <SelectItem key={t.id} value={t.id}>{t.full_name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <SearchableSelect
+                    options={teachers.map(t => ({ value: t.id, label: t.full_name }))}
+                    value={teacherId}
+                    onChange={setTeacherId}
+                    placeholder="Не выбран"
+                    recentCount={0}
+                  />
                 </div>
               </div>
             )}

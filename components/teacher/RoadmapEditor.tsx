@@ -18,6 +18,7 @@ import {
 import { ConfirmDeleteAction } from '@/components/shared/ConfirmDeleteAction'
 import { EditRoadmapDialog } from '@/components/teacher/EditRoadmapDialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { SearchableSelect } from '@/components/shared/SearchableSelect'
 import {
   ArrowLeft, Plus, Trash2, ChevronUp, ChevronDown, Users, Loader2, X, GripVertical, AlertTriangle,
 } from 'lucide-react'
@@ -508,14 +509,14 @@ export function RoadmapEditor({ roadmap, topics, tests, students, memberIds, gro
           <div className="space-y-3 py-2">
             <div className="space-y-1">
               <Label>Тест</Label>
-              <Select value={itemForm.test_id || undefined} onValueChange={(v) => setItemForm(p => ({ ...p, test_id: v }))}>
-                <SelectTrigger><SelectValue placeholder="Выберите свой опубликованный тест" /></SelectTrigger>
-                <SelectContent>
-                  {tests.length === 0
-                    ? <SelectItem value="_none" disabled>Нет опубликованных тестов</SelectItem>
-                    : tests.map(t => <SelectItem key={t.id} value={t.id}>{t.title}</SelectItem>)}
-                </SelectContent>
-              </Select>
+              <SearchableSelect
+                options={tests.map(t => ({ value: t.id, label: t.title }))}
+                value={itemForm.test_id}
+                onChange={(v) => setItemForm(p => ({ ...p, test_id: v }))}
+                placeholder="Выберите свой опубликованный тест"
+                recentLabel="Недавно созданные"
+                emptyText="Нет опубликованных тестов"
+              />
             </div>
             <div className="space-y-1">
               <Label>Тип</Label>
