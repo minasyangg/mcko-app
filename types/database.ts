@@ -1491,9 +1491,11 @@ export type Database = {
           created_at: string
           error: string | null
           event_type: string
+          group_id: string | null
           id: string
           message: string | null
           organization_id: string | null
+          recipient: string
           status: string
           user_id: string | null
         }
@@ -1502,9 +1504,11 @@ export type Database = {
           created_at?: string
           error?: string | null
           event_type: string
+          group_id?: string | null
           id?: string
           message?: string | null
           organization_id?: string | null
+          recipient?: string
           status?: string
           user_id?: string | null
         }
@@ -1513,9 +1517,11 @@ export type Database = {
           created_at?: string
           error?: string | null
           event_type?: string
+          group_id?: string | null
           id?: string
           message?: string | null
           organization_id?: string | null
+          recipient?: string
           status?: string
           user_id?: string | null
         }

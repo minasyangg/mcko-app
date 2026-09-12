@@ -14,9 +14,11 @@ export async function notifyUsers(opts: {
   eventType: NotificationEventType
   userIds: string[]
   message: string
+  /** group_id для журнала per-получатель (склейка со строкой notifyParent того же человека) — по умолчанию не проставляется. */
+  groupIdByUser?: Map<string, string>
 }): Promise<void> {
   try {
-    const { orgId, eventType, userIds, message } = opts
+    const { orgId, eventType, userIds, message, groupIdByUser } = opts
     if (userIds.length === 0 || !message) return
     const admin = opts.admin ?? createAdminClient()
 
@@ -48,6 +50,8 @@ export async function notifyUsers(opts: {
       message: string
       status: string
       error: string | null
+      recipient: 'self'
+      group_id: string | null
     }[] = []
 
     for (const p of profiles ?? []) {
@@ -61,6 +65,8 @@ export async function notifyUsers(opts: {
         message,
         status: err ? 'failed' : 'sent',
         error: err,
+        recipient: 'self',
+        group_id: groupIdByUser?.get(p.id) ?? null,
       })
     }
     if (rows.length > 0) await admin.from('notification_log').insert(rows)
@@ -84,8 +90,9 @@ async function notifyParent(opts: {
   eventType: NotificationEventType
   studentId: string
   message: string
+  groupId?: string
 }): Promise<void> {
-  const { admin, orgId, eventType, studentId, message } = opts
+  const { admin, orgId, eventType, studentId, message, groupId } = opts
   if (!telegramConfigured()) return
 
   const { data: student } = await admin
@@ -117,6 +124,8 @@ async function notifyParent(opts: {
     message,
     status: err ? 'failed' : 'sent',
     error: err,
+    recipient: 'parent',
+    group_id: groupId ?? null,
   })
 }
 
@@ -282,7 +291,16 @@ export async function notifyAssignmentCreated(assignmentId: string): Promise<voi
       `Попыток: ${ctx.maxAttempts}${due ? ` · выполнить до ${due}` : ''}`,
     ])
 
-    await notifyUsers({ admin, orgId: ctx.organizationId, eventType: 'assignment_created', userIds, message })
+    // groupId — один на каждого (ученик, родитель): журнал уведомлений
+    // склеивает по нему обе строки в одну запись с одной парой иконок
+    // «кому реально ушло» — при групповом назначении у каждого ученика
+    // своя пара, не общая на всю группу.
+    const groupIdByStudent = new Map(students.map(s => [s.id, crypto.randomUUID()]))
+
+    await notifyUsers({
+      admin, orgId: ctx.organizationId, eventType: 'assignment_created', userIds, message,
+      groupIdByUser: groupIdByStudent,
+    })
 
     // Родителю — то же содержание, но «Вам назначен...» заменяется на явное
     // указание ученика: без этого при нескольких детях на платформе сообщение
@@ -292,6 +310,7 @@ export async function notifyAssignmentCreated(assignmentId: string): Promise<voi
       orgId: ctx.organizationId,
       eventType: 'assignment_created',
       studentId: s.id,
+      groupId: groupIdByStudent.get(s.id),
       message: lines([
         `📝 Ученику ${s.full_name} ${ctx.words.assigned} ${ctx.words.nominative}: «${ctx.title}»`,
         ctx.subject ? `Предмет: ${ctx.subject}` : null,
@@ -367,11 +386,16 @@ export async function notifyAttemptFinalized(
     const closing = completionLine(fin?.closed_reason, ctx)
 
     if (at.status === 'checked') {
+      // Один groupId на пару (ученик, родитель) — журнал склеивает обе
+      // строки в одну запись с иконками обоих реальных получателей.
+      const groupId = crypto.randomUUID()
+
       await notifyUsers({
         admin,
         orgId: ctx.organizationId,
         eventType: 'attempt_checked',
         userIds: [at.student_id],
+        groupIdByUser: new Map([[at.student_id, groupId]]),
         message: lines([
           `✅ Ваша работа по ${ctx.words.dative} «${ctx.title}» проверена: ${attemptScore} баллов.`,
           ctx.subject ? `Предмет: ${ctx.subject}` : null,
@@ -388,6 +412,7 @@ export async function notifyAttemptFinalized(
         orgId: ctx.organizationId,
         eventType: 'attempt_checked',
         studentId: at.student_id,
+        groupId,
         message: lines([
           `✅ Работа ученика ${student?.full_name ?? 'Ученик'} по ${ctx.words.dative} «${ctx.title}» проверена: ${attemptScore} баллов.`,
           ctx.subject ? `Предмет: ${ctx.subject}` : null,
