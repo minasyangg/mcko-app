@@ -10,12 +10,21 @@
 //   --title "..." --authors "..." --subject Математика --grade 7
 //   --level углублённый --type textbook --publisher "..." --year 2024
 //
+// Исходный PDF книги (опционально, только для прямой записи в БД):
+//   --pdf <file.pdf>        # сжимается через scripts/compress-pdf.mjs и заливается
+//                           # в приватный bucket book-documents, путь пишется в
+//                           # books.pdf_storage_path — см. project_books_module
+//   --pdf-no-compress       # залить как есть, без прогона через Ghostscript
+//
 // Для прямой записи нужны env (или .env.import.local / .env.local):
 //   SUPABASE_URL (или NEXT_PUBLIC_SUPABASE_URL), SUPABASE_SERVICE_ROLE_KEY
 
 import fs from 'node:fs'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
+import { fileURLToPath } from 'node:url'
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 // ── CLI args ─────────────────────────────────────────────────────────────────
 
@@ -31,6 +40,16 @@ function flag(name) {
 }
 const dryRun = args.includes('--dry-run')
 const emitSqlDir = args.includes('--emit-sql') ? (flag('emit-sql') ?? 'book-import-sql') : null
+const pdfFile = flag('pdf') ?? null
+const pdfNoCompress = args.includes('--pdf-no-compress')
+if (pdfFile && !fs.existsSync(pdfFile)) {
+  console.error(`--pdf: файл не найден: ${pdfFile}`)
+  process.exit(1)
+}
+if (pdfFile && emitSqlDir) {
+  console.error('--pdf несовместим с --emit-sql: заливка бинарного файла в Storage возможна только при прямой записи в БД.')
+  process.exit(1)
+}
 
 // ── Load pages ───────────────────────────────────────────────────────────────
 
@@ -1251,6 +1270,53 @@ if (args.includes('--replace')) {
   const { error } = await db.from('books').insert(bookRow)
   if (error) { console.error('books:', error.message); process.exit(1) }
 }
+
+// ── Заливка исходного PDF (опционально, --pdf) ──────────────────────────────
+// Сжимаем через Ghostscript (scripts/compress-pdf.mjs) перед заливкой — скан-
+// учебники обычно уменьшаются в 3-6x без потери читаемости текста, что важно
+// на Free-плане Supabase Storage (лимит 1 ГБ, см. project_books_module).
+if (pdfFile) {
+  const originalSize = fs.statSync(pdfFile).size
+  let uploadPath = pdfFile
+  let compressedSize = originalSize
+
+  if (!pdfNoCompress) {
+    const { execFileSync } = await import('node:child_process')
+    const tmpOut = path.join(path.dirname(pdfFile), `${path.basename(pdfFile, '.pdf')}.compressed.pdf`)
+    console.log(`\nСжатие PDF (${(originalSize / 1024 / 1024).toFixed(1)} МБ)...`)
+    try {
+      execFileSync('node', [path.join(__dirname, 'compress-pdf.mjs'), pdfFile, tmpOut], { stdio: 'inherit' })
+      if (fs.existsSync(tmpOut) && fs.statSync(tmpOut).size > 0 && fs.statSync(tmpOut).size < originalSize) {
+        uploadPath = tmpOut
+        compressedSize = fs.statSync(tmpOut).size
+      } else {
+        console.warn('Сжатие не дало выигрыша — заливаю оригинал.')
+      }
+    } catch (e) {
+      console.error('Сжатие PDF не удалось (Ghostscript не найден?), заливаю оригинал без сжатия:', e.message)
+    }
+  }
+
+  const storagePath = `${bookId}/original.pdf`
+  const pdfBuffer = fs.readFileSync(uploadPath)
+  console.log(`Загрузка PDF в book-documents/${storagePath} (${(compressedSize / 1024 / 1024).toFixed(1)} МБ)...`)
+  const { error: pdfErr } = await db.storage
+    .from('book-documents')
+    .upload(storagePath, pdfBuffer, { contentType: 'application/pdf', upsert: true })
+  if (pdfErr) {
+    console.error('book-documents upload:', pdfErr.message, '— книга сохранена без PDF, догрузите вручную.')
+  } else {
+    const { error: updErr } = await db.from('books').update({
+      pdf_storage_path: storagePath,
+      pdf_size_bytes: compressedSize,
+      pdf_original_size_bytes: originalSize,
+    }).eq('id', bookId)
+    if (updErr) console.error('books update (pdf path):', updErr.message)
+    else console.log('PDF привязан к книге.')
+  }
+  if (uploadPath !== pdfFile) fs.unlinkSync(uploadPath) // временный сжатый файл больше не нужен
+}
+
 {
   const { error } = await db.from('book_sections').insert(sectionRows)
   if (error) { console.error('book_sections:', error.message); process.exit(1) }
