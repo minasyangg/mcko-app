@@ -1,7 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { NotificationsAdminClient } from '@/components/teacher/NotificationsAdminClient'
-import { User, Baby } from 'lucide-react'
+import { User, Baby, GraduationCap } from 'lucide-react'
 
 // Админ-панель уведомлений: статус telegram-бота, тумблеры событий,
 // последние отправки (журнал).
@@ -79,10 +79,19 @@ export default async function NotificationsPage() {
               </thead>
               <tbody className="divide-y">
                 {logRows.map(({ key, rows }) => {
-                  const self = rows.find(r => r.recipient === 'self')
+                  const student = rows.find(r => r.recipient === 'student')
                   const parent = rows.find(r => r.recipient === 'parent')
-                  const main = self ?? parent ?? rows[0]
+                  const teacher = rows.find(r => r.recipient === 'teacher')
+                  const main = student ?? parent ?? teacher ?? rows[0]
                   const p = main.profiles as unknown as { full_name?: string } | null
+
+                  const titleText = teacher
+                    ? 'Ушло учителю'
+                    : student && parent
+                      ? 'Ушло ученику и родителю'
+                      : parent
+                        ? 'Ушло только родителю'
+                        : 'Ушло ученику'
 
                   return (
                     <tr key={key}>
@@ -92,14 +101,12 @@ export default async function NotificationsPage() {
                       <td className="px-3 py-2 text-xs">
                         <div className="flex items-center gap-2">
                           <span>{p?.full_name ?? '—'}</span>
-                          {/* Ребёнок — ученику реально ушло (self); взрослый —
-                              родителю (parent). Обе иконки, если ушло обоим. */}
-                          <span className="flex items-center gap-0.5 text-muted-foreground" title={
-                            self && parent ? 'Ушло ученику и родителю'
-                              : parent ? 'Ушло только родителю'
-                              : 'Ушло ученику'
-                          }>
-                            {self && <Baby className="h-3.5 w-3.5" />}
+                          {/* Ребёнок — ученику (student); взрослый — родителю
+                              (parent), обе иконки если ушло обоим; шапочка —
+                              учителю (teacher, у него нет пары с родителем). */}
+                          <span className="flex items-center gap-0.5 text-muted-foreground" title={titleText}>
+                            {teacher && <GraduationCap className="h-3.5 w-3.5" />}
+                            {student && <Baby className="h-3.5 w-3.5" />}
                             {parent && <User className="h-3.5 w-3.5" />}
                           </span>
                         </div>

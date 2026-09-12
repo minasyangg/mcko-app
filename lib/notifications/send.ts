@@ -16,9 +16,11 @@ export async function notifyUsers(opts: {
   message: string
   /** group_id для журнала per-получатель (склейка со строкой notifyParent того же человека) — по умолчанию не проставляется. */
   groupIdByUser?: Map<string, string>
+  /** Роль получателя в журнале /teacher/notifications (своя иконка на каждую) — по умолчанию 'student', т.к. большинство вызовов шлют самому ученику. */
+  recipient?: 'student' | 'teacher'
 }): Promise<void> {
   try {
-    const { orgId, eventType, userIds, message, groupIdByUser } = opts
+    const { orgId, eventType, userIds, message, groupIdByUser, recipient = 'student' } = opts
     if (userIds.length === 0 || !message) return
     const admin = opts.admin ?? createAdminClient()
 
@@ -50,7 +52,7 @@ export async function notifyUsers(opts: {
       message: string
       status: string
       error: string | null
-      recipient: 'self'
+      recipient: 'student' | 'teacher'
       group_id: string | null
     }[] = []
 
@@ -65,7 +67,7 @@ export async function notifyUsers(opts: {
         message,
         status: err ? 'failed' : 'sent',
         error: err,
-        recipient: 'self',
+        recipient,
         group_id: groupIdByUser?.get(p.id) ?? null,
       })
     }
@@ -443,6 +445,7 @@ export async function notifyAttemptFinalized(
       orgId: ctx.organizationId,
       eventType: teacherEvent,
       userIds: [ctx.createdBy],
+      recipient: 'teacher',
       message: lines([
         header,
         `${student?.full_name ?? 'Ученик'} — «${ctx.title}»`,
