@@ -1,9 +1,15 @@
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { MEDIA_CACHE_CONTROL, SOLUTION_PHOTO_URL_TTL } from '@/lib/media/signed-urls'
 import { NextRequest } from 'next/server'
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const sharp = require('sharp')
+
+// Сжатие фото с телефона (до 20 МБ, 12+ мегапикселей) занимает секунды —
+// дефолтных 10с Vercel хватает не всегда, а обрыв на полпути ученик увидит
+// как «фото не прикрепилось» посреди контрольной.
+export const maxDuration = 60
 
 const BUCKET = 'student-solution-media'
 const MAX_PHOTOS_PER_TASK = 2
@@ -111,7 +117,14 @@ export async function POST(
   const storagePath = `${attemptId}/${taskId}/${slot}-${Date.now()}.webp`
   const { error: uploadError } = await admin.storage
     .from(BUCKET)
-    .upload(storagePath, webpBuffer, { contentType: 'image/webp', upsert: false })
+    .upload(storagePath, webpBuffer, {
+      contentType: 'image/webp',
+      upsert: false,
+      // Путь уникален (timestamp) и никогда не перезаписывается — можно
+      // кешировать надолго, чтобы браузер не выкачивал фото заново на
+      // каждом возврате к заданию (важно на школьной сети).
+      cacheControl: MEDIA_CACHE_CONTROL,
+    })
   if (uploadError) return Response.json({ error: uploadError.message }, { status: 500 })
 
   const { data: mediaRecord, error: mediaError } = await admin
@@ -140,7 +153,7 @@ export async function POST(
     )
   }
 
-  const { data: signed } = await admin.storage.from(BUCKET).createSignedUrl(storagePath, 3600)
+  const { data: signed } = await admin.storage.from(BUCKET).createSignedUrl(storagePath, SOLUTION_PHOTO_URL_TTL)
 
   await supabase.from('attempts').update({ last_activity_at: new Date().toISOString() }).eq('id', attemptId)
 

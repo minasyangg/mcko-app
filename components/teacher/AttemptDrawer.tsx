@@ -13,6 +13,7 @@ import { MathText } from '@/components/shared/MathText'
 import MarkdownContent from '@/components/shared/MarkdownContent'
 import { cn } from '@/lib/utils'
 import { formatAnswerJson } from '@/lib/grading/format-answer-display'
+import { ImageGallery } from '@/components/shared/ImageGallery'
 import type { Json } from '@/types/database'
 
 interface AttemptDetail {
@@ -595,15 +596,23 @@ export function AttemptDrawer({ attemptId, onClose, onGraded }: Props) {
 
                       {/* Фото письменного решения ученика (черновик на бумаге) —
                           отдельно от "ответа студента" выше: это ход решения,
-                          а не проверяемое значение. */}
+                          а не проверяемое значение. Через общий ImageGallery, а
+                          не локальный ImageThumb: у листов А4 с почерком важно
+                          листание стрелками и счётчик «1/2», иначе проверяющий
+                          открывает каждый лист отдельным кликом. */}
                       {(solutionPhotosByTask[ans.task_id ?? ''] ?? []).length > 0 && (
                         <div>
                           <p className="text-xs text-muted-foreground mb-1">Фото решения ученика</p>
-                          <div className="flex flex-wrap gap-2">
-                            {solutionPhotosByTask[ans.task_id ?? ''].map((m) => m.signedUrl && (
-                              <ImageThumb key={m.id} src={m.signedUrl} alt="Фото решения" />
-                            ))}
-                          </div>
+                          <ImageGallery
+                            images={solutionPhotosByTask[ans.task_id ?? '']
+                              .filter((m) => m.signedUrl)
+                              .map((m, i) => ({
+                                id: m.id,
+                                signedUrl: m.signedUrl!,
+                                alt: `Фото решения ${i + 1}`,
+                                sort_order: m.sort_order ?? i,
+                              }))}
+                          />
                         </div>
                       )}
 

@@ -12,7 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from '@/components/ui/dialog'
-import { Plus, Route, Users, ListChecks, GripVertical } from 'lucide-react'
+import { Plus, Route, Users, ListChecks, GripVertical, ChevronLeft, ChevronRight } from 'lucide-react'
 import { EditRoadmapDialog } from '@/components/teacher/EditRoadmapDialog'
 import { AdminAuthorNotice } from '@/components/shared/AdminAuthorNotice'
 
@@ -83,20 +83,16 @@ export function RoadmapClient({ roadmaps: initialRoadmaps }: { roadmaps: Roadmap
     return trimmed ? trimmed.toLowerCase() : NO_SUBJECT_LABEL
   }
 
-  function handleDrop(dedupeKey: string, targetId: string) {
-    const draggedId = dragId
-    setDragId(null)
-    setOverId(null)
-    if (!draggedId || draggedId === targetId) return
-
+  // Общее ядро перестановки: из позиции from в позицию to внутри группы
+  // предмета. Используется и drag-and-drop'ом, и кнопками-стрелками.
+  function reorderWithin(dedupeKey: string, from: number, to: number) {
     setRoadmaps(prev => {
       const groupIds = prev
         .filter(r => dedupeKeyOf(r) === dedupeKey)
         .sort((a, b) => a.sort_order - b.sort_order)
         .map(r => r.id)
-      const from = groupIds.indexOf(draggedId)
-      const to = groupIds.indexOf(targetId)
-      if (from === -1 || to === -1) return prev
+      if (from === -1 || to === -1 || from === to) return prev
+      if (to < 0 || to >= groupIds.length) return prev
       const reordered = [...groupIds]
       const [moved] = reordered.splice(from, 1)
       reordered.splice(to, 0, moved)
@@ -106,6 +102,21 @@ export function RoadmapClient({ roadmaps: initialRoadmaps }: { roadmaps: Roadmap
       persistOrder(reordered)
       return next
     })
+  }
+
+  function indexWithin(dedupeKey: string, id: string): number {
+    return roadmaps
+      .filter(r => dedupeKeyOf(r) === dedupeKey)
+      .sort((a, b) => a.sort_order - b.sort_order)
+      .findIndex(r => r.id === id)
+  }
+
+  function handleDrop(dedupeKey: string, targetId: string) {
+    const draggedId = dragId
+    setDragId(null)
+    setOverId(null)
+    if (!draggedId || draggedId === targetId) return
+    reorderWithin(dedupeKey, indexWithin(dedupeKey, draggedId), indexWithin(dedupeKey, targetId))
   }
 
   async function handleCreate() {
@@ -156,7 +167,7 @@ export function RoadmapClient({ roadmaps: initialRoadmaps }: { roadmaps: Roadmap
                 {label}
               </h2>
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {rows.map(r => (
+                {rows.map((r, idx) => (
                   <div
                     key={r.id}
                     className="relative"
@@ -174,19 +185,46 @@ export function RoadmapClient({ roadmaps: initialRoadmaps }: { roadmaps: Roadmap
                       />
                     </div>
                     {rows.length > 1 && (
-                      <span
-                        draggable
-                        onDragStart={(e) => {
-                          e.dataTransfer.effectAllowed = 'move'
-                          e.dataTransfer.setData('text/plain', r.id)
-                          setDragId(r.id)
-                        }}
-                        onDragEnd={() => { setDragId(null); setOverId(null) }}
-                        className="absolute left-2 top-2 z-10 cursor-grab active:cursor-grabbing text-muted-foreground/40 hover:text-muted-foreground"
-                        title="Перетащите, чтобы изменить порядок"
-                      >
-                        <GripVertical className="h-4 w-4" />
-                      </span>
+                      // Ручка перетаскивания + стрелки. Стрелки не дубль, а
+                      // единственный рабочий способ на телефоне/планшете:
+                      // нативный HTML5 drag тач-события не эмулирует, а
+                      // учительский раздел адаптирован под мобильные
+                      // (см. TeacherNav). Заодно это доступ с клавиатуры.
+                      <div className="absolute left-1.5 top-1.5 z-10 flex items-center gap-0.5">
+                        <span
+                          draggable
+                          onDragStart={(e) => {
+                            e.dataTransfer.effectAllowed = 'move'
+                            e.dataTransfer.setData('text/plain', r.id)
+                            setDragId(r.id)
+                          }}
+                          onDragEnd={() => { setDragId(null); setOverId(null) }}
+                          className="hidden sm:block cursor-grab active:cursor-grabbing text-muted-foreground/40 hover:text-muted-foreground"
+                          title="Перетащите, чтобы изменить порядок"
+                        >
+                          <GripVertical className="h-4 w-4" />
+                        </span>
+                        <button
+                          type="button"
+                          disabled={idx === 0}
+                          onClick={() => reorderWithin(dedupeKey, idx, idx - 1)}
+                          className="rounded p-1 text-muted-foreground/50 hover:bg-muted hover:text-foreground disabled:opacity-25 disabled:hover:bg-transparent"
+                          aria-label={`Переместить «${r.title}» раньше`}
+                          title="Переместить раньше"
+                        >
+                          <ChevronLeft className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          disabled={idx === rows.length - 1}
+                          onClick={() => reorderWithin(dedupeKey, idx, idx + 1)}
+                          className="rounded p-1 text-muted-foreground/50 hover:bg-muted hover:text-foreground disabled:opacity-25 disabled:hover:bg-transparent"
+                          aria-label={`Переместить «${r.title}» позже`}
+                          title="Переместить позже"
+                        >
+                          <ChevronRight className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
                     )}
                     <Link href={`/teacher/roadmaps/${r.id}`}>
                     <Card
@@ -197,14 +235,20 @@ export function RoadmapClient({ roadmaps: initialRoadmaps }: { roadmaps: Roadmap
                       )}
                     >
                       <CardHeader className="pb-2">
-                        <div className="flex items-start justify-between gap-2 pl-5 pr-9">
+                        {/* Верхняя строка уступает место кнопкам порядка слева
+                            (ручка + 2 стрелки) и кнопке «изменить» справа;
+                            на узких экранах ручка скрыта, поэтому отступ меньше */}
+                        <div className={cn(
+                          'flex items-start justify-between gap-2 pr-9',
+                          rows.length > 1 ? 'pl-12 sm:pl-18' : '',
+                        )}>
                           <CardTitle className="text-base leading-snug">{r.title}</CardTitle>
                         </div>
                         {r.description && (
-                          <p className="text-sm text-muted-foreground line-clamp-2 pl-5">{r.description}</p>
+                          <p className="text-sm text-muted-foreground line-clamp-2">{r.description}</p>
                         )}
                       </CardHeader>
-                      <CardContent className="flex items-center gap-4 text-xs text-muted-foreground pt-2 pl-5">
+                      <CardContent className="flex items-center gap-4 text-xs text-muted-foreground pt-2">
                         <span className="flex items-center gap-1"><ListChecks className="h-3.5 w-3.5" />{r.topic_count} тем</span>
                         <span className="flex items-center gap-1"><Users className="h-3.5 w-3.5" />{r.student_count} учеников</span>
                       </CardContent>
