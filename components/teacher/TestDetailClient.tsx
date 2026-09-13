@@ -556,17 +556,20 @@ function TaskCard({
           }
         </div>
 
-        {/* Task images */}
+        {/* Картинки задания в режиме ПРОСМОТРА. Раньше тут был сырой <img>
+            без заглушки и без лайтбокса, хотя в режиме редактирования (см.
+            EditTaskForm ниже) те же картинки уже показывались через
+            ImageGallery — просмотр и редактирование вели себя по-разному. */}
         {task.images && task.images.length > 0 && expanded && (
-          <div className="mt-2 flex flex-wrap gap-2">
-            {task.images.map((img) => (
-              <img
-                key={img.id}
-                src={img.signedUrl}
-                alt={img.alt_text ?? `Изображение к заданию ${task.task_number}`}
-                className="max-h-48 rounded border object-contain bg-muted"
-              />
-            ))}
+          <div className="mt-2">
+            <ImageGallery
+              images={task.images.map((img, i) => ({
+                id: img.id,
+                signedUrl: img.signedUrl,
+                alt: img.alt_text ?? `Изображение к заданию ${task.task_number}`,
+                sort_order: i,
+              }))}
+            />
           </div>
         )}
 

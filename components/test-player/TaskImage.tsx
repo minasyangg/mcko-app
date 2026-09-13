@@ -45,6 +45,23 @@ export function TaskImage({ src, alt, width, height, priority = false }: TaskIma
     }
   }, [src])
 
+  // Escape закрывает лайтбокс, скролл под оверлеем блокируется — без этого
+  // единственный выход был мышью по крестику, а колесо прокручивало тест за
+  // картинкой (ученик после закрытия оказывался на другом месте страницы).
+  useEffect(() => {
+    if (!lightboxOpen) return
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') setLightboxOpen(false)
+    }
+    document.addEventListener('keydown', onKey)
+    const prevOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.removeEventListener('keydown', onKey)
+      document.body.style.overflow = prevOverflow
+    }
+  }, [lightboxOpen])
+
   // Повторы с нарастающей паузой. Раньше была одна попытка через 1.5с: при
   // обычном сетевом сбое её не хватало, а полторы секунды ожидания посреди
   // контрольной уже заметны. Ссылки на task-media постоянные (бакет публичный),
@@ -116,7 +133,11 @@ export function TaskImage({ src, alt, width, height, priority = false }: TaskIma
           <button
             type="button"
             onClick={() => setLightboxOpen(true)}
-            className="absolute top-1.5 right-1.5 rounded bg-black/40 p-1 text-white opacity-0 hover:opacity-100 focus:opacity-100 transition-opacity"
+            // На тач-устройстве hover не наступает — иконка зума там была
+            // невидима, и подсказки, что картинку можно открыть, не было
+            // вовсе (правило проекта: «на мобиле lightbox по нажатию»).
+            // Показываем постоянно, где нет мыши; при мыши — по наведению.
+            className="absolute top-1.5 right-1.5 rounded bg-black/40 p-1.5 text-white transition-opacity [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:hover:opacity-100 [@media(hover:hover)]:focus:opacity-100"
             aria-label="Открыть изображение"
           >
             <ZoomIn className="h-3.5 w-3.5" />

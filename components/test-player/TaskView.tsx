@@ -223,7 +223,10 @@ export function TaskView({
   }
 
   return (
-    <div className="space-y-5">
+    // Интервалы плотнее на телефоне: ученик проходит тест и с него тоже
+    // (TestPlayer прячет навигатор в гамбургер именно ради этого), а на
+    // экране 360px каждая лишняя вертикаль отодвигает поле ответа за сгиб.
+    <div className="space-y-4 sm:space-y-5">
       <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
         Задача {task.task_number}
         {task.title ? ` — ${task.title}` : ''}
@@ -233,6 +236,9 @@ export function TaskView({
         <TaskImageGallery images={images} placement="above_text" />
       )}
 
+      {/* Размер текста условия НЕ уменьшаем на узких экранах: условие —
+          главное, что читает ученик, мельче 16px на телефоне читается плохо
+          и провоцирует зум, который ломает раскладку формул KaTeX. */}
       {task.prompt_html
         ? <MarkdownContent content={task.prompt_html} />
         : <div className="text-base leading-relaxed whitespace-pre-wrap">{task.prompt_text}</div>
@@ -249,7 +255,7 @@ export function TaskView({
       )}
 
       {isLocked ? (
-        <div className="rounded-md border border-green-300 bg-green-50 dark:bg-green-950/30 px-4 py-3 space-y-2">
+        <div className="rounded-md border border-green-300 bg-green-50 dark:bg-green-950/30 px-3 py-2.5 sm:px-4 sm:py-3 space-y-2">
           <div className="flex items-center gap-2.5">
             <CheckCircle2 className="h-5 w-5 text-green-600 shrink-0" />
             <div>
@@ -281,7 +287,7 @@ export function TaskView({
           {/* Итог прошлой попытки по этому заданию: без него ученик видит
               разблокированное задание и не понимает, что в нём не так. */}
           {priorFeedback && (
-            <div className="rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-900 px-4 py-3 space-y-1.5">
+            <div className="rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-900 px-3 py-2.5 sm:px-4 sm:py-3 space-y-1.5">
               <div className="flex items-start gap-2.5">
                 <AlertCircle className="h-5 w-5 text-amber-600 dark:text-amber-500 shrink-0 mt-0.5" />
                 <div className="space-y-0.5">

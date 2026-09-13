@@ -112,9 +112,13 @@ export function SolutionPhotoUpload({ attemptId, taskId, photos, onChange, disab
 
   return (
     <div className="space-y-2">
-      <div className="flex flex-wrap items-start gap-3">
+      {/* Правило адаптивности проекта (docs: «Адаптивность», 375px–2560px):
+          на мобиле изображения full-width с lightbox по нажатию, на планшете
+          и шире — 2 колонки. Фото листа А4 с почерком иначе нечитаемо:
+          миниатюра в 128px на телефоне не даёт понять, что снято. */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {photos.map((photo, idx) => (
-          <div key={photo.id} className="relative w-32 shrink-0">
+          <div key={photo.id} className="relative">
             <TaskImage
               src={photo.url}
               alt={`Фото решения ${idx + 1}`}
@@ -126,13 +130,16 @@ export function SolutionPhotoUpload({ attemptId, taskId, photos, onChange, disab
             {!disabled && (
               <AlertDialog>
                 <AlertDialogTrigger asChild>
+                  {/* Всегда видима (не hover-only): на тач-устройстве
+                      hover-аффордансы недостижимы. Размер — 44px на телефоне
+                      по минимуму тач-таргета, компактнее с планшета. */}
                   <button
                     type="button"
-                    className="absolute right-1 top-1 z-10 rounded-full bg-background/90 p-1 shadow-sm hover:bg-destructive hover:text-destructive-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                    className="absolute right-1.5 top-1.5 z-10 flex h-11 w-11 sm:h-8 sm:w-8 items-center justify-center rounded-full bg-background/90 shadow-sm hover:bg-destructive hover:text-destructive-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                     aria-label={`Удалить фото решения ${idx + 1}`}
                     title="Удалить фото"
                   >
-                    <X className="h-3.5 w-3.5" />
+                    <X className="h-4 w-4" />
                   </button>
                 </AlertDialogTrigger>
                 <AlertDialogContent>
@@ -163,24 +170,26 @@ export function SolutionPhotoUpload({ attemptId, taskId, photos, onChange, disab
             )}
           </div>
         ))}
-
-        {!disabled && canAddMore && (
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            disabled={uploading}
-            onClick={() => fileInputRef.current?.click()}
-          >
-            {uploading
-              ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-              : <Camera className="mr-1.5 h-3.5 w-3.5" />}
-            {uploading
-              ? 'Загрузка...'
-              : photos.length === 0 ? 'Прикрепить фото решения' : 'Добавить ещё фото'}
-          </Button>
-        )}
       </div>
+
+      {!disabled && canAddMore && (
+        <Button
+          type="button"
+          variant="outline"
+          // На телефоне кнопка на всю ширину — попасть проще, и она не
+          // теряется рядом с фото; с планшета ужимается по содержимому
+          className="w-full sm:w-auto min-h-11 sm:min-h-9"
+          disabled={uploading}
+          onClick={() => fileInputRef.current?.click()}
+        >
+          {uploading
+            ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+            : <Camera className="mr-1.5 h-4 w-4" />}
+          {uploading
+            ? 'Загрузка...'
+            : photos.length === 0 ? 'Прикрепить фото решения' : 'Добавить ещё фото'}
+        </Button>
+      )}
 
       {!disabled && (
         <>

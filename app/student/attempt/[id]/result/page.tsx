@@ -12,6 +12,7 @@ import { SolutionRequestButton } from '@/components/student/SolutionRequestButto
 import { SolutionView } from '@/components/test-player/SolutionView'
 import { MathText } from '@/components/shared/MathText'
 import MarkdownContent from '@/components/shared/MarkdownContent'
+import { ImageGallery } from '@/components/shared/ImageGallery'
 import type { TaskMedia } from '@/types/domain'
 import { formatAnswerJson } from '@/lib/grading/format-answer-display'
 import { closedReasonLabel } from '@/lib/assignments/completion'
@@ -392,15 +393,21 @@ export default async function ResultPage({ params }: PageProps) {
                               </span>
                             )}
                           </div>
-                          {/* Task images */}
+                          {/* Картинки задания. Через ImageGallery, а не сырой
+                              <img>: правило проекта требует заглушку вместо
+                              сломанного тега, а ученику при разборе ошибок
+                              нужен лайтбокс — на 192px чертёж не разглядеть. */}
                           {(() => {
                             const imgs = taskMediaByTaskId.get(task.id) ?? []
                             return imgs.length > 0 ? (
-                              <div className="flex flex-wrap gap-2">
-                                {imgs.map((img, i) => (
-                                  <img key={i} src={img.url} alt={img.alt ?? ''} className="max-h-48 rounded border object-contain bg-muted" />
-                                ))}
-                              </div>
+                              <ImageGallery
+                                images={imgs.map((img, i) => ({
+                                  id: `${task.id}-${i}`,
+                                  signedUrl: img.url,
+                                  alt: img.alt,
+                                  sort_order: i,
+                                }))}
+                              />
                             ) : null
                           })()}
                           {/* Task text with formulas */}

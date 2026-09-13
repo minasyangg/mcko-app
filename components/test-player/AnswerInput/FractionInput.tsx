@@ -61,7 +61,9 @@ export function FractionInput({ value, onChange, disabled }: FractionInputProps)
     push(whole, num, den, nextMode)
   }
 
-  const cellClass = 'h-8 w-16 text-center px-1'
+  // h-11 (44px) на телефоне — поля числителя/знаменателя мелкие и стоят
+  // вплотную, промах по соседнему полю посреди ответа особенно обиден
+  const cellClass = 'h-11 w-16 sm:h-8 text-center px-1'
 
   return (
     <div className="space-y-2">
@@ -71,7 +73,10 @@ export function FractionInput({ value, onChange, disabled }: FractionInputProps)
           onClick={() => handleModeChange('simple')}
           disabled={disabled}
           className={cn(
-            'rounded px-2 py-1 font-medium transition-colors',
+            // min-h-11 (44px) — минимальный тач-таргет по Apple HIG/Material:
+            // на телефоне по кнопке 26px попадают мимо, а тут переключается
+            // формат ответа посреди контрольной
+            'rounded px-3 py-2 min-h-11 sm:min-h-0 sm:px-2 sm:py-1 font-medium transition-colors',
             mode === 'simple' ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:text-foreground'
           )}
         >
@@ -82,7 +87,10 @@ export function FractionInput({ value, onChange, disabled }: FractionInputProps)
           onClick={() => handleModeChange('mixed')}
           disabled={disabled}
           className={cn(
-            'rounded px-2 py-1 font-medium transition-colors',
+            // min-h-11 (44px) — минимальный тач-таргет по Apple HIG/Material:
+            // на телефоне по кнопке 26px попадают мимо, а тут переключается
+            // формат ответа посреди контрольной
+            'rounded px-3 py-2 min-h-11 sm:min-h-0 sm:px-2 sm:py-1 font-medium transition-colors',
             mode === 'mixed' ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:text-foreground'
           )}
         >

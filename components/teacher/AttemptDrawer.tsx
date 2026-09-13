@@ -612,6 +612,10 @@ export function AttemptDrawer({ attemptId, onClose, onGraded }: Props) {
                                 alt: `Фото решения ${i + 1}`,
                                 sort_order: m.sort_order ?? i,
                               }))}
+                            // Дровер — Radix Sheet со своим высоким z-index;
+                            // при дефолтных z-50 лайтбокс открывался бы ПОД
+                            // панелью и выглядел как «ничего не произошло»
+                            lightboxZIndex={100}
                           />
                         </div>
                       )}
