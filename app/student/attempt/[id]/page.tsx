@@ -2,9 +2,10 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { redirect } from 'next/navigation'
 import { TestPlayer } from '@/components/test-player/TestPlayer'
-import { enrichTaskMediaWithUrls } from '@/lib/media/signed-urls'
+import { enrichTaskMediaWithUrls, generateSignedUrls } from '@/lib/media/signed-urls'
 import type { Json } from '@/types/database'
 import type { TestTask, TaskMediaWithUrl } from '@/types/domain'
+import type { SolutionPhoto } from '@/components/test-player/SolutionPhotoUpload'
 
 interface PageProps {
   params: Promise<{ id: string }>
@@ -219,8 +220,9 @@ export default async function AttemptPage({ params }: PageProps) {
 
   const taskIds = tasks.map((t) => t.id)
 
-  // Load saved answers (with lock status) and task media in parallel
-  const [{ data: savedAnswers }, { data: rawMedia }] = await Promise.all([
+  // Load saved answers (with lock status), task media, and previously
+  // attached solution photos in parallel
+  const [{ data: savedAnswers }, { data: rawMedia }, { data: rawSolutionMedia }] = await Promise.all([
     supabase
       .from('attempt_task_answers')
       .select('task_id, answer_json, is_locked, awarded_score')
@@ -229,6 +231,11 @@ export default async function AttemptPage({ params }: PageProps) {
       .from('task_media')
       .select('*')
       .in('task_id', taskIds)
+      .order('sort_order', { ascending: true }),
+    supabase
+      .from('attempt_answer_media')
+      .select('id, task_id, storage_path, sort_order')
+      .eq('attempt_id', attempt.id)
       .order('sort_order', { ascending: true }),
   ])
 
@@ -280,6 +287,24 @@ export default async function AttemptPage({ params }: PageProps) {
     taskMediaMap[m.task_id].push(m)
   }
 
+  // Фото решения (photo, не screenshot доски — см. attempt_answer_media)
+  // прикреплённые в предыдущих сессиях/до перезагрузки страницы — приватный
+  // бакет, нужны подписанные ссылки.
+  const solutionMediaUrls = await generateSignedUrls(
+    supabase,
+    (rawSolutionMedia ?? []).map((m) => ({ storage_path: m.storage_path, bucket: 'student-solution-media' as const }))
+  )
+  const solutionPhotosMap: Record<string, SolutionPhoto[]> = {}
+  for (const m of rawSolutionMedia ?? []) {
+    if (!m.task_id) continue
+    if (!solutionPhotosMap[m.task_id]) solutionPhotosMap[m.task_id] = []
+    solutionPhotosMap[m.task_id].push({
+      id: m.id,
+      sort_order: m.sort_order,
+      url: solutionMediaUrls[m.storage_path] ?? '',
+    })
+  }
+
   return (
     <TestPlayer
       assignmentId={assignmentId}
@@ -290,6 +315,7 @@ export default async function AttemptPage({ params }: PageProps) {
       lockedTaskIds={lockedTaskIds}
       priorFeedback={priorFeedback}
       taskMediaMap={taskMediaMap}
+      solutionPhotosMap={solutionPhotosMap}
       timeLimitSec={timeLimitSec}
       testTitle={test?.title ?? 'Тест'}
       subject={test?.subject ?? null}

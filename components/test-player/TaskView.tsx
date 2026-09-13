@@ -8,9 +8,17 @@ import { ShortText } from './AnswerInput/ShortText'
 import { Numeric } from './AnswerInput/Numeric'
 import { Composite } from './AnswerInput/Composite'
 import { TaskImageGallery } from './TaskImageGallery'
+import { SolutionPhotoUpload, type SolutionPhoto } from './SolutionPhotoUpload'
 import MarkdownContent from '@/components/shared/MarkdownContent'
 import { MathText } from '@/components/shared/MathText'
 import { CheckCircle2, AlertCircle } from 'lucide-react'
+
+// Типы заданий с развёрнутым (текстовым) ответом — там, где есть смысл
+// показать ход письменного решения на бумаге. single/multiple_choice и
+// numeric сюда не входят — там ответ уже однозначен без черновика.
+const SOLUTION_PHOTO_TASK_TYPES = new Set([
+  'manual_review', 'composite', 'short_text', 'free_response', 'matching',
+])
 
 export interface TaskPriorFeedback {
   awardedScore: number
@@ -25,6 +33,9 @@ interface TaskViewProps {
   disabled?: boolean
   isLocked?: boolean
   priorFeedback?: TaskPriorFeedback
+  attemptId: string
+  solutionPhotos?: SolutionPhoto[]
+  onSolutionPhotosChange?: (photos: SolutionPhoto[]) => void
 }
 
 interface TaskOption {
@@ -59,7 +70,10 @@ function toParts(raw: Json): AnswerPart[] {
   }).filter((p) => p.label)
 }
 
-export function TaskView({ task, answer, onChange, images = [], disabled, isLocked, priorFeedback }: TaskViewProps) {
+export function TaskView({
+  task, answer, onChange, images = [], disabled, isLocked, priorFeedback,
+  attemptId, solutionPhotos = [], onSolutionPhotosChange,
+}: TaskViewProps) {
   const answerObj =
     answer !== null && answer !== undefined && typeof answer === 'object' && !Array.isArray(answer)
       ? (answer as Record<string, Json | undefined>)
@@ -250,6 +264,17 @@ export function TaskView({ task, answer, onChange, images = [], disabled, isLock
               <MathText text={priorFeedback.teacherComment} className="text-green-900 dark:text-green-100" />
             </div>
           )}
+          {/* Зачтённое задание фото не прячет — своё же приложенное решение
+              полезно видеть и после блокировки, просто без права удалить. */}
+          {SOLUTION_PHOTO_TASK_TYPES.has(task.task_type) && solutionPhotos.length > 0 && onSolutionPhotosChange && (
+            <SolutionPhotoUpload
+              attemptId={attemptId}
+              taskId={task.id}
+              photos={solutionPhotos}
+              onChange={onSolutionPhotosChange}
+              disabled
+            />
+          )}
         </div>
       ) : (
         <>
@@ -283,6 +308,16 @@ export function TaskView({ task, answer, onChange, images = [], disabled, isLock
             </div>
           )}
           <div>{renderInput()}</div>
+
+          {SOLUTION_PHOTO_TASK_TYPES.has(task.task_type) && onSolutionPhotosChange && (
+            <SolutionPhotoUpload
+              attemptId={attemptId}
+              taskId={task.id}
+              photos={solutionPhotos}
+              onChange={onSolutionPhotosChange}
+              disabled={disabled}
+            />
+          )}
         </>
       )}
     </div>

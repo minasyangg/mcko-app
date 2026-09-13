@@ -121,6 +121,60 @@ export type Database = {
           },
         ]
       }
+      attempt_answer_media: {
+        Row: {
+          attempt_id: string
+          created_at: string
+          file_size_bytes: number | null
+          format: string
+          height_px: number | null
+          id: string
+          sort_order: number
+          storage_path: string
+          task_id: string
+          width_px: number | null
+        }
+        Insert: {
+          attempt_id: string
+          created_at?: string
+          file_size_bytes?: number | null
+          format?: string
+          height_px?: number | null
+          id?: string
+          sort_order?: number
+          storage_path: string
+          task_id: string
+          width_px?: number | null
+        }
+        Update: {
+          attempt_id?: string
+          created_at?: string
+          file_size_bytes?: number | null
+          format?: string
+          height_px?: number | null
+          id?: string
+          sort_order?: number
+          storage_path?: string
+          task_id?: string
+          width_px?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "attempt_answer_media_attempt_id_fkey"
+            columns: ["attempt_id"]
+            isOneToOne: false
+            referencedRelation: "attempts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attempt_answer_media_task_id_fkey"
+            columns: ["task_id"]
+            isOneToOne: false
+            referencedRelation: "test_tasks"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       attempt_task_answers: {
         Row: {
           answer_json: Json | null

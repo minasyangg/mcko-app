@@ -12,6 +12,7 @@ import { ChevronLeft, ChevronRight, Send, Menu, X, CheckCheck, Loader2, ArrowLef
 
 import { TaskNavigator } from './TaskNavigator'
 import { TaskView, type TaskPriorFeedback } from './TaskView'
+import type { SolutionPhoto } from './SolutionPhotoUpload'
 import { Timer } from './Timer'
 import { SaveStatus } from './SaveStatus'
 import { SubmitDialog } from './SubmitDialog'
@@ -26,6 +27,7 @@ interface TestPlayerProps {
   /** Итог прошлой попытки по задаче (task_id → балл + комментарий учителя) */
   priorFeedback?: Record<string, TaskPriorFeedback>
   taskMediaMap: Record<string, TaskMediaWithUrl[]>
+  solutionPhotosMap?: Record<string, SolutionPhoto[]>
   timeLimitSec: number | null
   testTitle: string
   subject: string | null
@@ -53,6 +55,7 @@ export function TestPlayer({
   lockedTaskIds = [],
   priorFeedback = {},
   taskMediaMap,
+  solutionPhotosMap = {},
   timeLimitSec,
   testTitle,
   subject,
@@ -66,6 +69,7 @@ export function TestPlayer({
 
   const [currentIdx, setCurrentIdx] = useState(0)
   const [answers, setAnswers] = useState<Record<string, Json>>(initialAnswers)
+  const [solutionPhotos, setSolutionPhotos] = useState<Record<string, SolutionPhoto[]>>(solutionPhotosMap)
   const mediaMap = taskMediaMap
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [showSubmitDialog, setShowSubmitDialog] = useState(false)
@@ -355,6 +359,11 @@ export function TestPlayer({
                 disabled={isSubmitting || lockedSet.has(currentTask.id)}
                 isLocked={lockedSet.has(currentTask.id)}
                 priorFeedback={priorFeedback[currentTask.id]}
+                attemptId={attemptId}
+                solutionPhotos={solutionPhotos[currentTask.id] ?? []}
+                onSolutionPhotosChange={(photos) =>
+                  setSolutionPhotos((prev) => ({ ...prev, [currentTask.id]: photos }))
+                }
               />
             )}
 

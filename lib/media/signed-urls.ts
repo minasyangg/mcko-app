@@ -13,7 +13,7 @@ const SIGNED_URL_TTL = 14400 // 4 hours, used for private buckets only
 // другим изображением, поэтому кешируем надолго и помечаем immutable.
 export const MEDIA_CACHE_CONTROL = '31536000' // секунды, 1 год
 
-type Bucket = 'task-media' | 'solution-media' | 'test-documents'
+type Bucket = 'task-media' | 'solution-media' | 'test-documents' | 'student-solution-media'
 
 export async function generateSignedUrls(
   supabase: SupabaseClient<Database>,
