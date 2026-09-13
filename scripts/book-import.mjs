@@ -75,16 +75,49 @@ const pages = raw.map((p, idx) => {
     images: p.markdown?.images ?? {},
     titles: blocks.filter(b => b.block_label === 'paragraph_title').map(b => b.block_content),
     contentBlocks: blocks.filter(b => b.block_label === 'content').map(b => b.block_content),
-    // PaddleOCR иногда рендерит заголовок тематического подраздела как служебный
-    // "header" (колонтитул) вместо "paragraph_title" — такой блок не попадает в
-    // markdown страницы вовсе. Сохраняем координату (y0 bbox) на будущее: если
-    // внутри "Итогового повторения" markdown-заголовков подраздела меньше, чем
-    // в оглавлении/ответах, недостающие достаём отсюда (см. использование ниже).
+    // PaddleOCR иногда рендерит заголовок тематического подраздела/варианта/
+    // работы как служебный "header" (колонтитул) вместо "paragraph_title" —
+    // такой блок не попадает в markdown страницы вовсе. Сохраняем координату
+    // (y0 bbox) на будущее, а также позицию каждого "text"-блока (для вставки
+    // header'а в markdown перед правильным по счёту параграфом — см.
+    // insertHeaderBlocksAt ниже и её использование).
     headerBlocks: blocks
       .filter(b => b.block_label === 'header' && Array.isArray(b.block_bbox))
       .map(b => ({ text: (b.block_content ?? '').trim(), y: b.block_bbox[1] })),
+    textBlockYs: blocks
+      .filter(b => b.block_label === 'text' && Array.isArray(b.block_bbox))
+      .map(b => b.block_bbox[1]),
   }
 })
+
+// Вставляет "потерянные" header-блоки страницы в markdown перед тем текстовым
+// параграфом (разделённым "\n\n"), который в исходной вёрстке идёт следом за
+// header'ом по вертикальной координате — иначе можно только добавить в самое
+// начало страницы, что неверно, если на странице несколько header-блоков
+// в разных местах (варианты/работы дидактических сборников, где заголовок
+// печатается перед каждым вариантом, не только в начале страницы).
+function insertHeaderBlocksAt(page, predicate) {
+  const toInsert = page.headerBlocks.filter(predicate)
+  if (toInsert.length === 0) return
+  const paragraphs = page.markdown.split('\n\n')
+  let inserted = 0
+  for (const h of toInsert) {
+    if (!h.text) continue
+    // индекс текстового блока, идущего сразу после этого header по y-координате
+    // (+inserted — компенсирует сдвиг индексов от уже вставленных ранее header'ов
+    // этой же страницы, иначе второй и последующие встают на устаревшую позицию)
+    const paraIdx = page.textBlockYs.filter(y => y < h.y).length + inserted
+    const at = Math.min(paraIdx, paragraphs.length)
+    // «уже есть» проверяем ЛОКАЛЬНО (соседний параграф), не по всей странице —
+    // дидактические сборники повторяют один и тот же заголовок ("K-2 (§ 3, 4)")
+    // несколько раз на странице (перед каждым вариантом), и глобальная проверка
+    // ложно посчитала бы второе вхождение уже вставленным из-за первого
+    if (paragraphs[at]?.includes(h.text) || paragraphs[at - 1]?.includes(h.text)) continue
+    paragraphs.splice(at, 0, `##### ${h.text}`)
+    inserted++
+  }
+  page.markdown = paragraphs.join('\n\n')
+}
 
 // ── Normalization ────────────────────────────────────────────────────────────
 
@@ -424,7 +457,31 @@ const WORK_RE = /^#{0,6}[ \t]*((?:Вводн[а-яё]+[ \t]+|Итогов[а-я�
 // «K-1 (Виленкин, п. 7)» — заголовок КР; бывает и обычной строкой без «#»,
 // поэтому требуем строку целиком: номер + необязательная скобочная пометка
 const KR_HEAD_RE = /^#{0,6}[ \t]*[KК][ \t]*[-–—][ \t]*(\d+)[ \t]*(\([^\n)]{0,80}\))?[ \t]*$/gm
+// Короткая форма «С-N. Тема» / «К-N (§...). Тема» на одной строке с темой
+// (Макарычев «Дидактические материалы», не требует слова «работа» вовсе).
+// Перед шифром печатается номер варианта римской цифрой — OCR искажает его
+// как что угодно (1, I, П, T, 7, И…) — съедаем произвольный короткий префикс
+// (не С/К/C, чтобы случайно не проглотить сам шифр работы); сам номер
+// варианта отсюда не берём (его даёт TOC-секция «Вариант N» или рестарт
+// нумерации 1.. внутри работы, см. didState.variant++).
+const SHORT_WORK_HEAD_RE = /^#{0,6}[ \t]*(?:[^\sСКCск\n]{1,3}[ \t]+)?([СКCск])[ \t]*[-–—.][ \t]*(\d+)[.)][ \t]*([^\n]{2,120})$/gm
 const KIND_BY_WORD = { 'самостоятельн': 'с', 'контрольн': 'р', 'проверочн': 'п' }
+const KIND_BY_LETTER = { с: 'с', к: 'р' } // сравнение по нижнему регистру (С/К/C и их OCR-варианты в верхнем/нижнем)
+
+// Дидактические сборники (Макарычев «Дидактические материалы» и, вероятно,
+// не только) печатают заголовок каждого варианта/работы ("Вариант 3"/"K-2
+// (§ 3, 4)") на КАЖДОЙ странице — но PaddleOCR распознаёт их как служебный
+// "header" (колонтитул), который в markdown.text не попадает вовсе (та же
+// природа, что у "Итогового повторения", см. repetitionSection выше, но
+// заголовков на странице несколько и они не все в начале — поэтому нужна
+// позиционная вставка insertHeaderBlocksAt, а не "в начало страницы").
+// Без этого фикса варианты 3-4 каждой работы теряют заголовки полностью,
+// а варианты 2-4 остаются с ЛОЖНЫМИ номерами прямо в markdown-тексте (см.
+// project_books_module: "Вариант 2"/"Вариант 4" печатались там как позиция
+// внутри пары страниц, а не абсолютный номер варианта).
+if (isDidactic) {
+  for (const p of pages) insertHeaderBlocksAt(p, () => true)
+}
 
 const didacticWorks = [] // {page, at, title, kind, printedNo, no, globalIdx}
 if (isDidactic) {
@@ -447,14 +504,58 @@ if (isDidactic) {
         kind: 'р', printedNo: parseInt(m[1]),
       })
     }
+    SHORT_WORK_HEAD_RE.lastIndex = 0
+    while ((m = SHORT_WORK_HEAD_RE.exec(p.markdown)) !== null) {
+      const kind = KIND_BY_LETTER[m[1].toLowerCase()] ?? 'с'
+      // латиница "C" и кириллица "С" визуально идентичны, но разные символы —
+      // нормализуем к кириллице, иначе заголовки той же работы на разных
+      // страницах ("C-1" vs "С-1") не схлопнутся по title ниже
+      const letter = kind === 'с' ? 'С' : 'К'
+      didacticWorks.push({
+        page: p.index, at: m.index,
+        title: `${letter}-${m[2]}. ${m[3].trim()}`,
+        kind, printedNo: parseInt(m[2]),
+      })
+    }
+  }
+  // Заголовок раздела без С-N/К-N-структуры, но с «Вариант N» внутри
+  // («Итоговый тест» — тестовые вопросы с выбором ответа, 2 варианта,
+  // рестарт нумерации — та же структура, что у контрольных работ, просто
+  // без обёртки К-N) — добавляем как ОДНУ синтетическую работу на диапазон
+  // до следующего "#"-заголовка того же или большего уровня, иначе variant/
+  // рестарт-логика не подхватывает её (didState.work === null). flatSections
+  // (TOC) здесь ещё не готов (вычисляется позже) — ищем прямо по markdown.
+  const TOP_HEADING_RE = /^#{1,3}[ \t]+([^\n]{2,80})$/gm
+  const hasVariantHeaderRe = /^#{0,6}\s*[БВB][а-яёa-z]{4,9}\s+\d\s*\.?\s*$/gim
+  const SYNTHETIC_WORK_EXCLUDE_RE = /домашн[а-яё]*\s+контрольн|оглавлени|содержани|приложени|предисловие|предметный указатель|справочный материал|ответ|повышенной трудности|итогов[а-яё]*\s+повторени|самостоятельн|контрольн/i
+  for (const p of pages) {
+    TOP_HEADING_RE.lastIndex = 0
+    let hm
+    while ((hm = TOP_HEADING_RE.exec(p.markdown)) !== null) {
+      const title = hm[1].trim()
+      if (SYNTHETIC_WORK_EXCLUDE_RE.test(title)) continue
+      if (didacticWorks.some(w => w.page === p.index)) continue // страница уже начата известной работой
+      // диапазон секции — от этого заголовка до конца страницы, куда доходит
+      // рестарт-логика сама (следующий "work"-заголовок её остановит) —
+      // достаточно просто застолбить страницу как начало синтетической работы
+      hasVariantHeaderRe.lastIndex = 0
+      if (!hasVariantHeaderRe.test(p.markdown.slice(hm.index))) continue
+      didacticWorks.push({ page: p.index, at: hm.index, title, kind: 'т', printedNo: null })
+      break // одна синтетическая работа на страницу достаточно
+    }
   }
   didacticWorks.sort((a, b) => a.page - b.page || a.at - b.at)
 
   // Одна работа печатает заголовок над каждым вариантом («K-1 …» ×4) —
-  // повторы с тем же названием в пределах 6 страниц схлопываются в одну
+  // повторы в пределах 6 страниц схлопываются в одну. Ключ — kind+printedNo
+  // (номер работы), не полный текст заголовка: скобочный комментарий у одной
+  // и той же работы иногда распознаётся OCR по-разному на разных страницах
+  // («К-9 (итогов ван)» vs «К-9 (итогов вя)» — оба искажения «ИТОГОВАЯ»),
+  // а сам номер работы обычно стабилен. Без printedNo (совсем не распознан
+  // номер) откатываемся на текст заголовка — как раньше.
   const byTitle = new Map()
   for (const w of didacticWorks) {
-    const keyT = w.title.toLowerCase().replace(/\s+/g, ' ')
+    const keyT = w.printedNo != null ? `${w.kind}${w.printedNo}` : w.title.toLowerCase().replace(/\s+/g, ' ')
     const prev = byTitle.get(keyT)
     if (prev && w.page - prev.lastPage <= 6) {
       prev.lastPage = w.page
@@ -695,9 +796,21 @@ const inRepetition = (idx) =>
 const isExcludedRootSection = (s) =>
   s === repetitionSection || s === answersSection || s === advancedSection ||
   /домашн[а-яё]*\s+контрольн|оглавлени|содержани|приложени|предисловие|предметный указатель|справочный материал/i.test(s.title)
-const standalonePlainSections = scheme === 'composite'
+// Дидактические сборники тоже могут содержать разделы со сквозной plain-
+// нумерацией ВНЕ work-структуры (Макарычев «Дидактические материалы»:
+// «Итоговый тест», «Итоговое повторение по темам» — 5 тематических leaf-
+// секций внутри, «Задания для школьных олимпиад» — 2 leaf-секции) — их
+// work/variant-конечный автомат не обрабатывает вовсе (там нет С-N/К-N),
+// поэтому нужен тот же механизм, что и для «Задачи на повторение» у
+// Мордковича, только без ограничения на composite-схему и на "без детей":
+// здесь допускаем leaf-секции С РОДИТЕЛЕМ (сам родитель тогда не берём,
+// его дети возьмут его страницы на себя).
+const standalonePlainSections = (scheme === 'composite' || isDidactic)
   ? flatSections.filter(s => {
-      if (s.parent !== null || s.children.length > 0 || s.pageStart === null || isExcludedRootSection(s)) return false
+      if (s.children.length > 0 || s.pageStart === null || isExcludedRootSection(s)) return false
+      if (answersStart !== null && s.pageStart >= answersStart) return false // раздел ответов и всё после него — не задания
+      // содержит С-N/К-N — уже обработано конечным автоматом work/variant
+      if (isDidactic && didacticWorks.some(w => w.page >= s.pageStart && w.page <= (s.pageEnd ?? s.pageStart))) return false
       let plainN = 0, compositeN = 0
       for (let idx = s.pageStart; idx <= (s.pageEnd ?? s.pageStart); idx++) {
         const p = pages[idx]
@@ -709,6 +822,7 @@ const standalonePlainSections = scheme === 'composite'
     })
   : []
 standalonePlainSections.forEach((s, i) => { s.standaloneNo = i + 1 })
+if (process.env.DEBUG_STANDALONE) console.error('standalone:', standalonePlainSections.map(s => `${s.title} [${s.pageStart}-${s.pageEnd}]`))
 const standalonePlainByPage = new Map()
 for (const s of standalonePlainSections) {
   for (let idx = s.pageStart; idx <= (s.pageEnd ?? s.pageStart); idx++) standalonePlainByPage.set(idx, s)
@@ -730,8 +844,9 @@ for (const s of dkrSections) {
   for (let i = s.pageStart; i <= (s.pageEnd ?? s.pageStart); i++) dkrByPage.set(i, s)
 }
 const DKR_HEAD_RE = /ДОМ[А-ЯЁ]+\s+КОНТРОЛЬН[А-ЯЁ]*\s+РАБОТ/i
-// «Вариант 1» и его OCR-искажения: Бармант, Вармонят, Бермант, Варимят…
-const VARIANT_RE = /^#{0,6}\s*[БВ][а-яёa-z]{4,9}\s+(\d)\s*\.?\s*$/gim
+// «Вариант 1» и его OCR-искажения: Бармант, Вармонят, Бермант, Варимят,
+// Bapuanm, Bapuann, Bapuuanm (латинская "B" вместо кириллической «В»)…
+const VARIANT_RE = /^#{0,6}\s*[БВB][а-яёa-z]{4,9}\s+(\d)\s*\.?\s*$/gim
 
 // Дидактика: «Вариант N» из печатного оглавления с диапазоном страниц —
 // зона со своей сквозной нумерацией (Чесноков: каждый вариант = полный
@@ -839,6 +954,8 @@ for (const p of pages) {
     const entry = { p, md, accepted: [], plain: [] }
     const contVariant = variantZoneByPage.get(p.index) ?? null
     if (contVariant !== null) didState.work = null // вариантные зоны — вне работ
+    const standaloneSection = standalonePlainByPage.get(p.index) ?? null
+    if (standaloneSection) didState.work = null // «Итоговый тест»/повторение/олимпиады — вне работ
 
     let m
     const events = []
@@ -853,19 +970,36 @@ for (const p of pages) {
 
     for (const ev of events) {
       if (ev.type === 'work') {
-        // повторный заголовок той же работы (над каждым вариантом) не сбрасывает
-        // счётчики; возврат к работе после чередования — сбрасывает номер
-        if (!ev.w.entered) { ev.w.entered = true; didState.variant = 1; didState.lastNum = 0 }
-        else if (didState.work !== ev.w) didState.lastNum = 0
+        // Смена работы (первый вход или переход от другой работы) — сброс на
+        // «вариант 1» безусловный. Само число в идущем впритык 'variant'-событии
+        // (если есть) обрабатывается СЛЕДУЮЩЕЙ итерацией цикла и скорректирует
+        // это значение, если оно достоверно (см. ветку 'variant' ниже) —
+        // насколько достоверно, зависит от того, что было раньше по at, а не
+        // здесь; поэтому здесь всегда «1», без исключений.
+        const isNewEntry = didState.work !== ev.w
+        if (isNewEntry) { didState.variant = 1; didState.lastNum = 0 }
+        ev.w.entered = true
         didState.work = ev.w
         didState.styleLock = null
       } else if (ev.type === 'variant') {
+        // Число в заголовке «Вариант N» изначально бывает недостоверным (в
+        // markdown.text печатается позиция внутри пары страниц, не абсолютный
+        // номер) — но insertHeaderBlocksAt (см. выше, вызывается для всех
+        // дидактических книг) восстанавливает СКРЫТЫЕ заголовки из PaddleOCR
+        // header-блоков с ПРАВИЛЬНЫМИ номерами на КАЖДОЙ странице, поэтому
+        // к моменту этой обработки в markdown уже есть верный номер — доверяем
+        // ему прямо.
         didState.variant = ev.v
         didState.lastNum = 0
         didState.styleLock = null
       } else if (didState.work === null && contVariant !== null) {
         // сквозная нумерация внутри вариантной зоны → LIS-поток «в{N}»
         if (ev.style === '.') entry.plain.push({ glyph: ev.glyph, num: ev.num, at: ev.at, stream: `в${contVariant}` })
+      } else if (didState.work === null && standaloneSection !== null) {
+        // «Итоговый тест»/«Итоговое повторение по темам»/«Олимпиады» — root
+        // или leaf-секция без work-структуры, своя сквозная нумерация 1..N
+        // (см. standalonePlainSections выше), отдельный LIS-поток на секцию
+        if (ev.style === '.') entry.plain.push({ glyph: ev.glyph, num: ev.num, at: ev.at, stream: `st${standaloneSection.standaloneNo}`, standaloneSection })
       } else if (didState.work) {
         const st = didState
         // стиль нумерации («1.» или «1)») фиксируется первым заданием варианта:
