@@ -17,6 +17,7 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
+import { SearchableSelect } from '@/components/shared/SearchableSelect'
 import { Plus, PenLine, Link2, Trash2 } from 'lucide-react'
 import { DOSKA_SUBJECTS } from '@/lib/doska/subjects'
 
@@ -140,16 +141,13 @@ export function DoskaBoardsClient({ boards, students, groups }: Props) {
               {mode === 'student' ? (
                 <div className="space-y-2">
                   <Label htmlFor="board-student">Ученик</Label>
-                  <Select value={studentId} onValueChange={setStudentId}>
-                    <SelectTrigger id="board-student">
-                      <SelectValue placeholder="Выберите ученика..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {students.map((s) => (
-                        <SelectItem key={s.id} value={s.id}>{s.full_name ?? 'Без имени'}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <SearchableSelect
+                    options={students.map((s) => ({ value: s.id, label: s.full_name ?? 'Без имени' }))}
+                    value={studentId}
+                    onChange={setStudentId}
+                    placeholder="Выберите ученика..."
+                    recentCount={0}
+                  />
                 </div>
               ) : (
                 <div className="space-y-2">

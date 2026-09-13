@@ -5,13 +5,7 @@ import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
+import { SearchableSelect } from '@/components/shared/SearchableSelect'
 import { Trash2, UserPlus } from 'lucide-react'
 
 interface Member {
@@ -184,22 +178,19 @@ export function GroupMembersEditor({ groupId, initialMembers, availableStudents 
           <p className="text-sm text-muted-foreground">Все ученики организации уже в группе</p>
         ) : (
           <div className="flex items-center gap-2">
-            <Select
-              value={selectedStudentId}
-              onValueChange={setSelectedStudentId}
-            >
-              <SelectTrigger className="w-72">
-                <SelectValue placeholder="Выберите ученика..." />
-              </SelectTrigger>
-              <SelectContent>
-                {students.map((s) => (
-                  <SelectItem key={s.id} value={s.id}>
-                    {s.full_name}
-                    {s.grade ? ` (${s.grade} кл.)` : ''}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <div className="w-72">
+              <SearchableSelect
+                options={students.map((s) => ({
+                  value: s.id,
+                  label: s.full_name,
+                  badge: s.grade ? `${s.grade} кл.` : null,
+                }))}
+                value={selectedStudentId}
+                onChange={setSelectedStudentId}
+                placeholder="Выберите ученика..."
+                recentCount={0}
+              />
+            </div>
             <Button
               onClick={handleAdd}
               disabled={!selectedStudentId || addingLoading}

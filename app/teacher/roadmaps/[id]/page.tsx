@@ -23,7 +23,7 @@ export default async function RoadmapEditPage({ params }: { params: Promise<{ id
       .eq('group_id', roadmap.group_id || '').not('roadmap_topic_id', 'is', null),
     supabase.from('tests').select('id, title')
       .eq('created_by', user.id).eq('status', 'published').eq('is_active', true)
-      .not('current_published_version_id', 'is', null).order('title'),
+      .not('current_published_version_id', 'is', null).order('created_at', { ascending: false }),
     supabase.from('teacher_students').select('student_id').eq('teacher_id', user.id),
     roadmap.group_id
       ? supabase.from('group_members').select('user_id').eq('group_id', roadmap.group_id)

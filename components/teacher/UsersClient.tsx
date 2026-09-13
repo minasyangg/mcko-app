@@ -14,6 +14,7 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
+import { SearchableSelect } from '@/components/shared/SearchableSelect'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Plus, Eye, EyeOff, UserPlus, UsersRound } from 'lucide-react'
 import { StudentsClient, type StudentRow, type TeacherOption } from '@/components/teacher/StudentsClient'
@@ -190,17 +191,14 @@ export function UsersClient({
             {role === 'student' && (
               <div className="space-y-1">
                 <Label>Ответственный учитель</Label>
-                <Select value={form.teacher_id} onValueChange={(v) => setForm(p => ({ ...p, teacher_id: v }))}>
-                  <SelectTrigger><SelectValue placeholder="Выберите учителя" /></SelectTrigger>
-                  <SelectContent>
-                    {teacherOptions.length === 0 && (
-                      <div className="px-2 py-1.5 text-xs text-muted-foreground">Сначала создайте учителя</div>
-                    )}
-                    {teacherOptions.map(t => (
-                      <SelectItem key={t.id} value={t.id}>{t.full_name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <SearchableSelect
+                  options={teacherOptions.map(t => ({ value: t.id, label: t.full_name }))}
+                  value={form.teacher_id}
+                  onChange={(v) => setForm(p => ({ ...p, teacher_id: v }))}
+                  placeholder="Выберите учителя"
+                  recentCount={0}
+                  emptyText="Сначала создайте учителя"
+                />
               </div>
             )}
 

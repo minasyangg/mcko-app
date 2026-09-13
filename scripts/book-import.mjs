@@ -10,12 +10,30 @@
 //   --title "..." --authors "..." --subject Математика --grade 7
 //   --level углублённый --type textbook --publisher "..." --year 2024
 //
+// Исходный PDF книги (опционально, только для прямой записи в БД):
+//   --pdf <file.pdf>        # сжимается через scripts/compress-pdf.mjs и заливается
+//                           # в приватный bucket book-documents, путь пишется в
+//                           # books.pdf_storage_path — см. project_books_module
+//   --pdf-no-compress       # залить как есть, без прогона через Ghostscript
+//
+// Картинки задач (только для прямой записи в БД, идёт ПОСЛЕ вставки заданий,
+// не блокирует их доступность — см. project_books_module):
+//   --skip-images            # не перезаливать картинки в book-media вовсе
+//                             # (оставить исходные bcebos-ссылки — они истекают)
+//   --images-concurrency N   # параллельных загрузок, по умолчанию 1
+//                             # (на машинах с TLS-перехватывающим прокси несколько
+//                             # параллельных HTTPS-соединений к одному внешнему
+//                             # хосту замечены зависающими навечно)
+//
 // Для прямой записи нужны env (или .env.import.local / .env.local):
 //   SUPABASE_URL (или NEXT_PUBLIC_SUPABASE_URL), SUPABASE_SERVICE_ROLE_KEY
 
 import fs from 'node:fs'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
+import { fileURLToPath } from 'node:url'
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 // ── CLI args ─────────────────────────────────────────────────────────────────
 
@@ -31,6 +49,16 @@ function flag(name) {
 }
 const dryRun = args.includes('--dry-run')
 const emitSqlDir = args.includes('--emit-sql') ? (flag('emit-sql') ?? 'book-import-sql') : null
+const pdfFile = flag('pdf') ?? null
+const pdfNoCompress = args.includes('--pdf-no-compress')
+if (pdfFile && !fs.existsSync(pdfFile)) {
+  console.error(`--pdf: файл не найден: ${pdfFile}`)
+  process.exit(1)
+}
+if (pdfFile && emitSqlDir) {
+  console.error('--pdf несовместим с --emit-sql: заливка бинарного файла в Storage возможна только при прямой записи в БД.')
+  process.exit(1)
+}
 
 // ── Load pages ───────────────────────────────────────────────────────────────
 
@@ -47,8 +75,49 @@ const pages = raw.map((p, idx) => {
     images: p.markdown?.images ?? {},
     titles: blocks.filter(b => b.block_label === 'paragraph_title').map(b => b.block_content),
     contentBlocks: blocks.filter(b => b.block_label === 'content').map(b => b.block_content),
+    // PaddleOCR иногда рендерит заголовок тематического подраздела/варианта/
+    // работы как служебный "header" (колонтитул) вместо "paragraph_title" —
+    // такой блок не попадает в markdown страницы вовсе. Сохраняем координату
+    // (y0 bbox) на будущее, а также позицию каждого "text"-блока (для вставки
+    // header'а в markdown перед правильным по счёту параграфом — см.
+    // insertHeaderBlocksAt ниже и её использование).
+    headerBlocks: blocks
+      .filter(b => b.block_label === 'header' && Array.isArray(b.block_bbox))
+      .map(b => ({ text: (b.block_content ?? '').trim(), y: b.block_bbox[1] })),
+    textBlockYs: blocks
+      .filter(b => b.block_label === 'text' && Array.isArray(b.block_bbox))
+      .map(b => b.block_bbox[1]),
   }
 })
+
+// Вставляет "потерянные" header-блоки страницы в markdown перед тем текстовым
+// параграфом (разделённым "\n\n"), который в исходной вёрстке идёт следом за
+// header'ом по вертикальной координате — иначе можно только добавить в самое
+// начало страницы, что неверно, если на странице несколько header-блоков
+// в разных местах (варианты/работы дидактических сборников, где заголовок
+// печатается перед каждым вариантом, не только в начале страницы).
+function insertHeaderBlocksAt(page, predicate) {
+  const toInsert = page.headerBlocks.filter(predicate)
+  if (toInsert.length === 0) return
+  const paragraphs = page.markdown.split('\n\n')
+  let inserted = 0
+  for (const h of toInsert) {
+    if (!h.text) continue
+    // индекс текстового блока, идущего сразу после этого header по y-координате
+    // (+inserted — компенсирует сдвиг индексов от уже вставленных ранее header'ов
+    // этой же страницы, иначе второй и последующие встают на устаревшую позицию)
+    const paraIdx = page.textBlockYs.filter(y => y < h.y).length + inserted
+    const at = Math.min(paraIdx, paragraphs.length)
+    // «уже есть» проверяем ЛОКАЛЬНО (соседний параграф), не по всей странице —
+    // дидактические сборники повторяют один и тот же заголовок ("K-2 (§ 3, 4)")
+    // несколько раз на странице (перед каждым вариантом), и глобальная проверка
+    // ложно посчитала бы второе вхождение уже вставленным из-за первого
+    if (paragraphs[at]?.includes(h.text) || paragraphs[at - 1]?.includes(h.text)) continue
+    paragraphs.splice(at, 0, `##### ${h.text}`)
+    inserted++
+  }
+  page.markdown = paragraphs.join('\n\n')
+}
 
 // ── Normalization ────────────────────────────────────────────────────────────
 
@@ -388,7 +457,31 @@ const WORK_RE = /^#{0,6}[ \t]*((?:Вводн[а-яё]+[ \t]+|Итогов[а-я�
 // «K-1 (Виленкин, п. 7)» — заголовок КР; бывает и обычной строкой без «#»,
 // поэтому требуем строку целиком: номер + необязательная скобочная пометка
 const KR_HEAD_RE = /^#{0,6}[ \t]*[KК][ \t]*[-–—][ \t]*(\d+)[ \t]*(\([^\n)]{0,80}\))?[ \t]*$/gm
+// Короткая форма «С-N. Тема» / «К-N (§...). Тема» на одной строке с темой
+// (Макарычев «Дидактические материалы», не требует слова «работа» вовсе).
+// Перед шифром печатается номер варианта римской цифрой — OCR искажает его
+// как что угодно (1, I, П, T, 7, И…) — съедаем произвольный короткий префикс
+// (не С/К/C, чтобы случайно не проглотить сам шифр работы); сам номер
+// варианта отсюда не берём (его даёт TOC-секция «Вариант N» или рестарт
+// нумерации 1.. внутри работы, см. didState.variant++).
+const SHORT_WORK_HEAD_RE = /^#{0,6}[ \t]*(?:[^\sСКCск\n]{1,3}[ \t]+)?([СКCск])[ \t]*[-–—.][ \t]*(\d+)[.)][ \t]*([^\n]{2,120})$/gm
 const KIND_BY_WORD = { 'самостоятельн': 'с', 'контрольн': 'р', 'проверочн': 'п' }
+const KIND_BY_LETTER = { с: 'с', к: 'р' } // сравнение по нижнему регистру (С/К/C и их OCR-варианты в верхнем/нижнем)
+
+// Дидактические сборники (Макарычев «Дидактические материалы» и, вероятно,
+// не только) печатают заголовок каждого варианта/работы ("Вариант 3"/"K-2
+// (§ 3, 4)") на КАЖДОЙ странице — но PaddleOCR распознаёт их как служебный
+// "header" (колонтитул), который в markdown.text не попадает вовсе (та же
+// природа, что у "Итогового повторения", см. repetitionSection выше, но
+// заголовков на странице несколько и они не все в начале — поэтому нужна
+// позиционная вставка insertHeaderBlocksAt, а не "в начало страницы").
+// Без этого фикса варианты 3-4 каждой работы теряют заголовки полностью,
+// а варианты 2-4 остаются с ЛОЖНЫМИ номерами прямо в markdown-тексте (см.
+// project_books_module: "Вариант 2"/"Вариант 4" печатались там как позиция
+// внутри пары страниц, а не абсолютный номер варианта).
+if (isDidactic) {
+  for (const p of pages) insertHeaderBlocksAt(p, () => true)
+}
 
 const didacticWorks = [] // {page, at, title, kind, printedNo, no, globalIdx}
 if (isDidactic) {
@@ -411,14 +504,58 @@ if (isDidactic) {
         kind: 'р', printedNo: parseInt(m[1]),
       })
     }
+    SHORT_WORK_HEAD_RE.lastIndex = 0
+    while ((m = SHORT_WORK_HEAD_RE.exec(p.markdown)) !== null) {
+      const kind = KIND_BY_LETTER[m[1].toLowerCase()] ?? 'с'
+      // латиница "C" и кириллица "С" визуально идентичны, но разные символы —
+      // нормализуем к кириллице, иначе заголовки той же работы на разных
+      // страницах ("C-1" vs "С-1") не схлопнутся по title ниже
+      const letter = kind === 'с' ? 'С' : 'К'
+      didacticWorks.push({
+        page: p.index, at: m.index,
+        title: `${letter}-${m[2]}. ${m[3].trim()}`,
+        kind, printedNo: parseInt(m[2]),
+      })
+    }
+  }
+  // Заголовок раздела без С-N/К-N-структуры, но с «Вариант N» внутри
+  // («Итоговый тест» — тестовые вопросы с выбором ответа, 2 варианта,
+  // рестарт нумерации — та же структура, что у контрольных работ, просто
+  // без обёртки К-N) — добавляем как ОДНУ синтетическую работу на диапазон
+  // до следующего "#"-заголовка того же или большего уровня, иначе variant/
+  // рестарт-логика не подхватывает её (didState.work === null). flatSections
+  // (TOC) здесь ещё не готов (вычисляется позже) — ищем прямо по markdown.
+  const TOP_HEADING_RE = /^#{1,3}[ \t]+([^\n]{2,80})$/gm
+  const hasVariantHeaderRe = /^#{0,6}\s*[БВB][а-яёa-z]{4,9}\s+\d\s*\.?\s*$/gim
+  const SYNTHETIC_WORK_EXCLUDE_RE = /домашн[а-яё]*\s+контрольн|оглавлени|содержани|приложени|предисловие|предметный указатель|справочный материал|ответ|повышенной трудности|итогов[а-яё]*\s+повторени|самостоятельн|контрольн/i
+  for (const p of pages) {
+    TOP_HEADING_RE.lastIndex = 0
+    let hm
+    while ((hm = TOP_HEADING_RE.exec(p.markdown)) !== null) {
+      const title = hm[1].trim()
+      if (SYNTHETIC_WORK_EXCLUDE_RE.test(title)) continue
+      if (didacticWorks.some(w => w.page === p.index)) continue // страница уже начата известной работой
+      // диапазон секции — от этого заголовка до конца страницы, куда доходит
+      // рестарт-логика сама (следующий "work"-заголовок её остановит) —
+      // достаточно просто застолбить страницу как начало синтетической работы
+      hasVariantHeaderRe.lastIndex = 0
+      if (!hasVariantHeaderRe.test(p.markdown.slice(hm.index))) continue
+      didacticWorks.push({ page: p.index, at: hm.index, title, kind: 'т', printedNo: null })
+      break // одна синтетическая работа на страницу достаточно
+    }
   }
   didacticWorks.sort((a, b) => a.page - b.page || a.at - b.at)
 
   // Одна работа печатает заголовок над каждым вариантом («K-1 …» ×4) —
-  // повторы с тем же названием в пределах 6 страниц схлопываются в одну
+  // повторы в пределах 6 страниц схлопываются в одну. Ключ — kind+printedNo
+  // (номер работы), не полный текст заголовка: скобочный комментарий у одной
+  // и той же работы иногда распознаётся OCR по-разному на разных страницах
+  // («К-9 (итогов ван)» vs «К-9 (итогов вя)» — оба искажения «ИТОГОВАЯ»),
+  // а сам номер работы обычно стабилен. Без printedNo (совсем не распознан
+  // номер) откатываемся на текст заголовка — как раньше.
   const byTitle = new Map()
   for (const w of didacticWorks) {
-    const keyT = w.title.toLowerCase().replace(/\s+/g, ' ')
+    const keyT = w.printedNo != null ? `${w.kind}${w.printedNo}` : w.title.toLowerCase().replace(/\s+/g, ' ')
     const prev = byTitle.get(keyT)
     if (prev && w.page - prev.lastPage <= 6) {
       prev.lastPage = w.page
@@ -541,6 +678,71 @@ const advancedSection = flatSections.find(s => /повышенной трудн�
 // «Итоговое повторение» (Мордкович): глава с собственной сквозной нумерацией 1..N
 const repetitionSection = flatSections.find(s => /итогов[а-яё]*\s+повторени/i.test(s.title))
 
+// «Итоговое повторение» местами делится на тематические подразделы со своей
+// нумерацией 1..N каждый (см. project_books_module / чек-лист после импорта).
+// PaddleOCR обычно размечает заголовок такого подраздела как paragraph_title
+// (попадает в markdown как "#####"), но изредка — как служебный "header"
+// (колонтитул), и тогда блок вообще не попадает в markdown.text. Достаём его
+// оттуда и вставляем перед первым текстовым блоком той же страницы (по y0
+// bbox), иначе граница подраздела не видна вовсе и нумерация "рвётся".
+// Инструкции вида "Решите неравенство:" тоже иногда размечены как "header" —
+// отличаем их по заголовку самой секции (не трогаем) и по признаку заголовка
+// раздела (короткая строка без ":" в конце — инструкции всегда кончаются на ":").
+// Границы тематических подразделов «Итогового повторения» (если они есть):
+// {pageIndex, at, title} по порядку документа. rewriteRepetitionStream()
+// ниже сопоставляет им сквозной номер подраздела (1, 2, 3…), нужный, чтобы
+// у каждого была своя LIS-последовательность номеров и своя секция в БД.
+const repetitionSubsections = []
+if (repetitionSection?.pageStart != null) {
+  const sameAsSectionTitle = (t) => t.trim().toLowerCase() === repetitionSection.title.trim().toLowerCase()
+  for (let idx = repetitionSection.pageStart; idx <= (repetitionSection.pageEnd ?? repetitionSection.pageStart); idx++) {
+    const p = pages[idx]
+    if (!p) continue
+    for (const h of p.headerBlocks) {
+      if (!h.text || sameAsSectionTitle(h.text) || /:\s*$/.test(h.text) || /\n/.test(h.text)) continue
+      if (p.markdown.includes(h.text)) continue // уже есть в тексте (paragraph_title и т.п.)
+      p.markdown = `##### ${h.text}\n\n${p.markdown}`
+    }
+  }
+  for (let idx = repetitionSection.pageStart; idx <= (repetitionSection.pageEnd ?? repetitionSection.pageStart); idx++) {
+    const p = pages[idx]
+    if (!p) continue
+    for (const m of p.markdown.matchAll(/^#{1,6}[ \t]+([^\n]{2,80})$/gm)) {
+      const title = m[1].trim()
+      if (sameAsSectionTitle(title)) continue // сам заголовок «Итоговое повторение»
+      repetitionSubsections.push({ pageIndex: idx, at: m.index, title })
+    }
+  }
+}
+// Найден ровно 1 подраздел (или 0) — делить незачем, ведём единый поток 'rep' как раньше
+const hasRepetitionSubsections = repetitionSubsections.length >= 2
+if (hasRepetitionSubsections) {
+  repetitionSubsections.forEach((s, i) => { s.no = i + 1 })
+  for (let i = 0; i < repetitionSubsections.length; i++) {
+    const cur = repetitionSubsections[i]
+    const next = repetitionSubsections[i + 1]
+    cur.pageEnd = next ? next.pageIndex : repetitionSection.pageEnd
+    const node = {
+      kind: 'exercises', number: null, title: cur.title, printedPage: null,
+      scanStart: cur.pageIndex, pageStart: cur.pageIndex, pageEnd: cur.pageEnd,
+      parent: repetitionSection, children: [], id: undefined,
+    }
+    cur.section = node
+    repetitionSection.children.push(node)
+    flatSections.push(node)
+  }
+}
+// подраздел «Итогового повторения», которому принадлежит позиция at на странице pageIndex
+function repetitionSubsectionAt(pageIndex, at) {
+  let best = null
+  for (const s of repetitionSubsections) {
+    if (s.pageIndex < pageIndex || (s.pageIndex === pageIndex && s.at <= at)) {
+      if (!best || s.pageIndex > best.pageIndex || (s.pageIndex === best.pageIndex && s.at > best.at)) best = s
+    }
+  }
+  return best
+}
+
 // Две схемы нумерации (автодетект):
 //  plain     — сквозная «735.» (Макарычев)
 //  composite — по параграфам «5.30.» (Мордкович); внутри такой книги раздел
@@ -582,6 +784,50 @@ const inRepetition = (idx) =>
   scheme === 'composite' && repetitionSection?.pageStart != null &&
   idx >= repetitionSection.pageStart && idx <= (repetitionSection.pageEnd ?? -1)
 
+// Composite-книга может содержать и другие root-разделы со сквозной plain-
+// нумерацией помимо «Итогового повторения» — например, вводные «Задачи на
+// повторение» перед основным текстом (Мордкович 9кл ч.2, скан 4-11: «1.»,
+// «8.», «16.»… без параграфа). Раньше такой раздел просто не парсился вовсе
+// (COMPOSITE_RE не находит в нём совпадений, а plain-поток не заводился) —
+// задания целиком пропадали. Детектируем по содержимому: root-секция без
+// детей, где PLAIN_RE даёт заметно больше совпадений, чем COMPOSITE_RE —
+// заводим свой поток 'plain@{sectionId}', как для «Итогового повторения»,
+// но без подразделов (весь раздел — одна плоская нумерация 1..N).
+const isExcludedRootSection = (s) =>
+  s === repetitionSection || s === answersSection || s === advancedSection ||
+  /домашн[а-яё]*\s+контрольн|оглавлени|содержани|приложени|предисловие|предметный указатель|справочный материал/i.test(s.title)
+// Дидактические сборники тоже могут содержать разделы со сквозной plain-
+// нумерацией ВНЕ work-структуры (Макарычев «Дидактические материалы»:
+// «Итоговый тест», «Итоговое повторение по темам» — 5 тематических leaf-
+// секций внутри, «Задания для школьных олимпиад» — 2 leaf-секции) — их
+// work/variant-конечный автомат не обрабатывает вовсе (там нет С-N/К-N),
+// поэтому нужен тот же механизм, что и для «Задачи на повторение» у
+// Мордковича, только без ограничения на composite-схему и на "без детей":
+// здесь допускаем leaf-секции С РОДИТЕЛЕМ (сам родитель тогда не берём,
+// его дети возьмут его страницы на себя).
+const standalonePlainSections = (scheme === 'composite' || isDidactic)
+  ? flatSections.filter(s => {
+      if (s.children.length > 0 || s.pageStart === null || isExcludedRootSection(s)) return false
+      if (answersStart !== null && s.pageStart >= answersStart) return false // раздел ответов и всё после него — не задания
+      // содержит С-N/К-N — уже обработано конечным автоматом work/variant
+      if (isDidactic && didacticWorks.some(w => w.page >= s.pageStart && w.page <= (s.pageEnd ?? s.pageStart))) return false
+      let plainN = 0, compositeN = 0
+      for (let idx = s.pageStart; idx <= (s.pageEnd ?? s.pageStart); idx++) {
+        const p = pages[idx]
+        if (!p || p.contentBlocks.length > 0) continue
+        plainN += countMatches(PLAIN_RE, p.markdown)
+        compositeN += countMatches(COMPOSITE_RE, p.markdown)
+      }
+      return plainN >= 3 && plainN > compositeN * 2
+    })
+  : []
+standalonePlainSections.forEach((s, i) => { s.standaloneNo = i + 1 })
+if (process.env.DEBUG_STANDALONE) console.error('standalone:', standalonePlainSections.map(s => `${s.title} [${s.pageStart}-${s.pageEnd}]`))
+const standalonePlainByPage = new Map()
+for (const s of standalonePlainSections) {
+  for (let idx = s.pageStart; idx <= (s.pageEnd ?? s.pageStart); idx++) standalonePlainByPage.set(idx, s)
+}
+
 // «Домашние контрольные работы»: задания извлекаются как отдельные атомы
 // с уникальным номером «к<ДКР>.<вариант>.<номер>» (в тексте книги — «3.»,
 // нумерация в каждом варианте начинается заново)
@@ -598,8 +844,9 @@ for (const s of dkrSections) {
   for (let i = s.pageStart; i <= (s.pageEnd ?? s.pageStart); i++) dkrByPage.set(i, s)
 }
 const DKR_HEAD_RE = /ДОМ[А-ЯЁ]+\s+КОНТРОЛЬН[А-ЯЁ]*\s+РАБОТ/i
-// «Вариант 1» и его OCR-искажения: Бармант, Вармонят, Бермант, Варимят…
-const VARIANT_RE = /^#{0,6}\s*[БВ][а-яёa-z]{4,9}\s+(\d)\s*\.?\s*$/gim
+// «Вариант 1» и его OCR-искажения: Бармант, Вармонят, Бермант, Варимят,
+// Bapuanm, Bapuann, Bapuuanm (латинская "B" вместо кириллической «В»)…
+const VARIANT_RE = /^#{0,6}\s*[БВB][а-яёa-z]{4,9}\s+(\d)\s*\.?\s*$/gim
 
 // Дидактика: «Вариант N» из печатного оглавления с диапазоном страниц —
 // зона со своей сквозной нумерацией (Чесноков: каждый вариант = полный
@@ -707,6 +954,8 @@ for (const p of pages) {
     const entry = { p, md, accepted: [], plain: [] }
     const contVariant = variantZoneByPage.get(p.index) ?? null
     if (contVariant !== null) didState.work = null // вариантные зоны — вне работ
+    const standaloneSection = standalonePlainByPage.get(p.index) ?? null
+    if (standaloneSection) didState.work = null // «Итоговый тест»/повторение/олимпиады — вне работ
 
     let m
     const events = []
@@ -721,19 +970,36 @@ for (const p of pages) {
 
     for (const ev of events) {
       if (ev.type === 'work') {
-        // повторный заголовок той же работы (над каждым вариантом) не сбрасывает
-        // счётчики; возврат к работе после чередования — сбрасывает номер
-        if (!ev.w.entered) { ev.w.entered = true; didState.variant = 1; didState.lastNum = 0 }
-        else if (didState.work !== ev.w) didState.lastNum = 0
+        // Смена работы (первый вход или переход от другой работы) — сброс на
+        // «вариант 1» безусловный. Само число в идущем впритык 'variant'-событии
+        // (если есть) обрабатывается СЛЕДУЮЩЕЙ итерацией цикла и скорректирует
+        // это значение, если оно достоверно (см. ветку 'variant' ниже) —
+        // насколько достоверно, зависит от того, что было раньше по at, а не
+        // здесь; поэтому здесь всегда «1», без исключений.
+        const isNewEntry = didState.work !== ev.w
+        if (isNewEntry) { didState.variant = 1; didState.lastNum = 0 }
+        ev.w.entered = true
         didState.work = ev.w
         didState.styleLock = null
       } else if (ev.type === 'variant') {
+        // Число в заголовке «Вариант N» изначально бывает недостоверным (в
+        // markdown.text печатается позиция внутри пары страниц, не абсолютный
+        // номер) — но insertHeaderBlocksAt (см. выше, вызывается для всех
+        // дидактических книг) восстанавливает СКРЫТЫЕ заголовки из PaddleOCR
+        // header-блоков с ПРАВИЛЬНЫМИ номерами на КАЖДОЙ странице, поэтому
+        // к моменту этой обработки в markdown уже есть верный номер — доверяем
+        // ему прямо.
         didState.variant = ev.v
         didState.lastNum = 0
         didState.styleLock = null
       } else if (didState.work === null && contVariant !== null) {
         // сквозная нумерация внутри вариантной зоны → LIS-поток «в{N}»
         if (ev.style === '.') entry.plain.push({ glyph: ev.glyph, num: ev.num, at: ev.at, stream: `в${contVariant}` })
+      } else if (didState.work === null && standaloneSection !== null) {
+        // «Итоговый тест»/«Итоговое повторение по темам»/«Олимпиады» — root
+        // или leaf-секция без work-структуры, своя сквозная нумерация 1..N
+        // (см. standalonePlainSections выше), отдельный LIS-поток на секцию
+        if (ev.style === '.') entry.plain.push({ glyph: ev.glyph, num: ev.num, at: ev.at, stream: `st${standaloneSection.standaloneNo}`, standaloneSection })
       } else if (didState.work) {
         const st = didState
         // стиль нумерации («1.» или «1)») фиксируется первым заданием варианта:
@@ -773,7 +1039,8 @@ for (const p of pages) {
   }
 
   const entry = { p, md, accepted: [], plain: [] }
-  const usePlain = scheme === 'plain' || scheme === 'bare' || inRepetition(p.index)
+  const standaloneSection = standalonePlainByPage.get(p.index) ?? null
+  const usePlain = scheme === 'plain' || scheme === 'bare' || inRepetition(p.index) || standaloneSection !== null
   // composite-книга вне повторения: plain-номера («П.1» в приложении) —
   // не задания основной нумерации
   const re = usePlain ? SEQ_RE : COMPOSITE_RE
@@ -783,7 +1050,14 @@ for (const p of pages) {
   while ((m = re.exec(md)) !== null) {
     if (dkrFrom !== null && m.index >= dkrFrom) continue // ДКР-зона — ниже отдельно
     if (usePlain) {
-      entry.plain.push({ glyph: m[1] ?? null, num: parseInt(m[2]), star: m[3] || null, at: m.index, rep: inRepetition(p.index) })
+      const rep = inRepetition(p.index)
+      // «Итоговое повторение» с тематическими подразделами: у каждого своя
+      // сквозная нумерация 1..N — отдельный LIS-поток 'rep{номер подраздела}'
+      const subsection = rep && hasRepetitionSubsections ? repetitionSubsectionAt(p.index, m.index) : null
+      // изолированный root-раздел со своей плоской нумерацией (см. выше) —
+      // отдельный поток по номеру секции, не мешается со сквозной нумерацией книги
+      const stream = subsection ? `rep${subsection.no}` : (rep ? 'rep' : (standaloneSection ? `st${standaloneSection.standaloneNo}` : null))
+      entry.plain.push({ glyph: m[1] ?? null, num: parseInt(m[2]), star: m[3] || null, at: m.index, rep, stream, subsection, standaloneSection })
       continue
     }
     const s = { glyph: m[1] ?? null, para: parseInt(m[2]), num: parseInt(m[3]), at: m.index }
@@ -858,6 +1132,17 @@ for (const [key, stream] of streams) {
       const v = parseInt(key.slice(1))
       x.c.taskNumber = `в${v}.${x.c.num}`
       x.c.sort = 10_000_000 + v * 100_000 + x.c.num
+    } else if (key.startsWith('rep') && key !== 'rep') {
+      // тематический подраздел «Итогового повторения» — своя нумерация 1..N,
+      // уникальность номера по книге обеспечивает префикс «п{номер подраздела}.»
+      const n = parseInt(key.slice(3))
+      x.c.taskNumber = `п${n}.${x.c.num}`
+      x.c.sort = 3_000_000 + n * 100_000 + x.c.num
+    } else if (key.startsWith('st')) {
+      // изолированный root-раздел со своей плоской нумерацией (см. standalonePlainSections)
+      const n = parseInt(key.slice(2))
+      x.c.taskNumber = `нр${n}.${x.c.num}`
+      x.c.sort = 4_000_000 + n * 100_000 + x.c.num
     } else {
       x.c.taskNumber = String(x.c.num)
       x.c.sort = key === 'rep' ? 1_000_000 + x.c.num : x.c.num
@@ -909,6 +1194,7 @@ for (const e of pageEntries) {
       mdEnd: end,
       promptMd: prompt,
       hasImages: /<img\s/.test(prompt),
+      forcedSection: s.subsection?.section ?? s.standaloneSection ?? null,
       difficulty:
         // ∞/⑤ — общий маркер; С/C — «задачи на смекалку» (Петерсон)
         (s.glyph && /[∞⑤СC]/.test(s.glyph)) || s.star ||
@@ -917,6 +1203,43 @@ for (const e of pageEntries) {
           ? 'advanced' : 'standard',
     })
   }
+}
+
+// Книга группирует задания под общей инструкцией («Решите неравенство:»,
+// «Разложите на множители:», «Найдите область определения выражения $f(x)$:»
+// — короткая формула-переменная внутри тоже встречается, поэтому "$" внутри
+// строки не запрещаем) — обычно инструкция открывает страницу/группу отдельной
+// строкой ПЕРЕД номером следующего задания, но иногда OCR (или сама вёрстка)
+// кладёт её строкой ПОСЛЕ предыдущего задания на той же странице — тогда она
+// попадает в конец prompt_md чужого атома, а начало следующего лишается
+// контекста. Переносим такую «висячую» инструкцию в начало следующего задания
+// (проверено на 44 случаях по всей книге): последняя строка атома — начинается
+// с русской заглавной буквы (реальная инструкция — короткая императивная
+// фраза-заголовок, не продолжение условия и не подпункт) и оканчивается на «:».
+const TRAILING_INSTRUCTION_RE = /\n\n([А-ЯЁ][^\n]{3,150}:)\s*$/
+// Заголовок параграфа (### §N. НАЗВАНИЕ) иногда попадает МЕЖДУ последним
+// заданием параграфа и висячей инструкцией следующего — сам заголовок уже
+// отражён в book_sections (см. TOC), поэтому в тексте задания это чистый
+// шум; снимаем его, чтобы TRAILING_INSTRUCTION_RE увидел инструкцию как
+// действительно последнюю строку и перенос сработал (пример: 1.26 → 2.1).
+const TRAILING_PARA_HEADING_RE = /\n\n#{1,6}[ \t]+§[^\n]*\s*$/
+for (let i = 0; i < problems.length - 1; i++) {
+  // перенос только внутри одной страницы — иначе соседство в массиве problems
+  // может быть случайным артефактом порядка LIS-потоков, а не реальным
+  // соседством в тексте книги
+  if (problems[i].pageIndex !== problems[i + 1].pageIndex) continue
+  const m = problems[i].promptMd.match(TRAILING_INSTRUCTION_RE)
+  if (m) {
+    const line = m[1].trim()
+    if (!/^[а-еa-z6ΓB]\)|^\d/.test(line)) { // подпункт/начало другого задания — не инструкция
+      problems[i].promptMd = problems[i].promptMd.slice(0, -m[0].length).trimEnd()
+      problems[i + 1].promptMd = `${line}\n\n${problems[i + 1].promptMd}`
+      problems[i].hasImages = /<img\s/.test(problems[i].promptMd) // могло измениться, если картинка была после инструкции
+    }
+  }
+  // заголовок параграфа мог остаться последней строкой уже после переноса
+  // инструкции выше (порядок в тексте: …задание §N. \n #### §N+1 \n инструкция)
+  problems[i].promptMd = problems[i].promptMd.replace(TRAILING_PARA_HEADING_RE, '').trimEnd()
 }
 
 // дубликаты номеров (unique constraint) — оставляем первое вхождение
@@ -941,7 +1264,10 @@ function sectionFor(pageIndex) {
   return best
 }
 for (const pr of uniqueProblems) {
-  pr.section = sectionFor(pr.pageIndex)
+  // тематический подраздел «Итогового повторения» известен точно по LIS-потоку —
+  // не переопределяем его общей эвристикой по диапазону страниц (подразделы
+  // могут делить страницу, и sectionFor() взял бы «самый поздний по pageStart»)
+  pr.section = pr.forcedSection ?? sectionFor(pr.pageIndex)
   if (!pr.section) warnings.push(`задание ${pr.taskNumber} (стр.${pr.pageIndex}) не попало ни в один раздел`)
 }
 
@@ -1001,8 +1327,10 @@ function assignAnswer(taskNumber, rawAnswer) {
 }
 
 // Парсинг блока ответов: candidates → LIS (номера в книге строго возрастают,
-// ложные позиции из чисел внутри самих ответов отсеиваются) → назначение
-function parseAnswersBlock(text, mode) {
+// ложные позиции из чисел внутри самих ответов отсеиваются) → назначение.
+// taskNumberPrefix — для тематических подразделов «Итогового повторения»
+// («п{N}.»), где у книги своя нумерация нескольких заданий «1.», «2.»…
+function parseAnswersBlock(text, mode, taskNumberPrefix = '') {
   const rawPositions = []
   let am
   if (mode === 'composite') {
@@ -1021,7 +1349,7 @@ function parseAnswersBlock(text, mode) {
     const numRe = /(?<=^|[\s;])(\d{1,4})\.(?=\s|\d)/g
     while ((am = numRe.exec(text)) !== null) {
       rawPositions.push({
-        num: parseInt(am[1]), taskNumber: am[1],
+        num: parseInt(am[1]), taskNumber: taskNumberPrefix + am[1],
         at: am.index, contentAt: am.index + am[0].length,
       })
     }
@@ -1040,7 +1368,13 @@ if (answersStart !== null) {
   // и приложения — у них собственная сквозная нумерация
   let repetitionText = null
   if (scheme === 'composite' && repetitionSection) {
-    const repHeader = new RegExp(`^#{1,6}\\s*ГЛАВА\\s*${repetitionSection.number ?? ''}\\s*$`, 'mi')
+    // Заголовок раздела ответов на повторение — либо «ГЛАВА <номер повторения>»
+    // (когда повторение оформлено как отдельная глава), либо совпадает с
+    // заголовком самого repetitionSection («ИТОГОВОЕ ПОВТОРЕНИЕ» и т.п.)
+    const repHeader = new RegExp(
+      `^#{1,6}\\s*(?:ГЛАВА\\s*${repetitionSection.number ?? ''}|${repetitionSection.title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})\\s*$`,
+      'mi',
+    )
     const appHeader = /^#{1,6}\s*ПРИЛОЖЕНИЕ\s*$/mi
     const repAt = text.search(repHeader)
     const appAt = text.search(appHeader)
@@ -1058,7 +1392,26 @@ if (answersStart !== null) {
     .replace(/[КK]\s+(параграфу|дополнительным упражнениям|главе)[^.]*\./gi, ' ')
 
   parseAnswersBlock(clean(text), scheme)
-  if (repetitionText) parseAnswersBlock(clean(repetitionText), 'plain')
+  if (repetitionText && hasRepetitionSubsections) {
+    // Ответы на «Итоговое повторение» с тематическими подразделами размечены
+    // теми же заголовками, что и сами задания (см. repetitionSubsections) —
+    // делим текст ответов по этим заголовкам и парсим каждый кусок отдельно
+    // со своим префиксом «п{N}.», иначе одинаковые номера "1.", "2."… из разных
+    // подразделов задания схлопнутся в один LIS-поток и потеряют бОльшую часть.
+    const cuts = []
+    for (const sub of repetitionSubsections) {
+      const re = new RegExp(`^#{1,6}[ \\t]+${sub.title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[ \\t]*$`, 'mi')
+      const at = repetitionText.search(re)
+      if (at >= 0) cuts.push({ no: sub.no, at })
+    }
+    cuts.sort((a, b) => a.at - b.at)
+    for (let i = 0; i < cuts.length; i++) {
+      const chunk = repetitionText.slice(cuts[i].at, i + 1 < cuts.length ? cuts[i + 1].at : undefined)
+      parseAnswersBlock(clean(chunk), 'plain', `п${cuts[i].no}.`)
+    }
+  } else if (repetitionText) {
+    parseAnswersBlock(clean(repetitionText), 'plain')
+  }
 }
 
 // ── Мета ─────────────────────────────────────────────────────────────────────
@@ -1108,6 +1461,10 @@ console.log(`  без раздела:         ${uniqueProblems.filter(p => !p.se
 console.log(`Предупреждений: ${warnings.length}`)
 for (const w of warnings.slice(0, 25)) console.log(`  ⚠ ${w}`)
 if (warnings.length > 25) console.log(`  ... и ещё ${warnings.length - 25}`)
+if (uniqueProblems.some(p => p.hasImages)) {
+  console.log('\n⚠ Картинки задач указывают на временный bcebos URL (PaddleOCR) — он истекает.')
+  console.log('  Перезаливка в Storage (bucket book-media) происходит только при прямой записи в БД (без --dry-run/--emit-sql).')
+}
 
 if (dryRun) process.exit(0)
 
@@ -1227,6 +1584,28 @@ if (!url || !key) {
   process.exit(1)
 }
 
+// На этой машине сетевые запросы (Supabase и внешние URL) иногда падают
+// транзиентно ("fetch failed", похоже на TLS-перехватывающий прокси —
+// см. project_local_env_limits) — 1-2 повтора с паузой обычно достаточно,
+// в отличие от зависаний без ответа, которые нужно ловить таймаутом отдельно.
+// supabase-js не бросает исключение на сетевой сбой — он ловит его сам и
+// возвращает {error}, поэтому ретраим по result.error, а не по try/catch.
+async function withRetry(fn, label, attempts = 3) {
+  let result
+  for (let i = 1; i <= attempts; i++) {
+    try {
+      result = await fn()
+    } catch (e) {
+      result = { error: e }
+    }
+    if (!result?.error) return result
+    if (i === attempts) return result
+    console.warn(`  ${label}: попытка ${i} не удалась (${result.error.message}), повтор через ${i}с...`)
+    await new Promise(r => setTimeout(r, i * 1000))
+  }
+  return result
+}
+
 const { createClient } = await import('@supabase/supabase-js')
 const db = createClient(url, key)
 
@@ -1248,19 +1627,160 @@ if (args.includes('--replace')) {
 }
 
 {
-  const { error } = await db.from('books').insert(bookRow)
+  const { error } = await withRetry(() => db.from('books').insert(bookRow), 'books')
   if (error) { console.error('books:', error.message); process.exit(1) }
 }
+
+// ── Заливка исходного PDF (опционально, --pdf) ──────────────────────────────
+// Сжимаем через Ghostscript (scripts/compress-pdf.mjs) перед заливкой — скан-
+// учебники обычно уменьшаются в 3-6x без потери читаемости текста, что важно
+// на Free-плане Supabase Storage (лимит 1 ГБ, см. project_books_module).
+if (pdfFile) {
+  const originalSize = fs.statSync(pdfFile).size
+  let uploadPath = pdfFile
+  let compressedSize = originalSize
+
+  if (!pdfNoCompress) {
+    const { execFileSync } = await import('node:child_process')
+    const tmpOut = path.join(path.dirname(pdfFile), `${path.basename(pdfFile, '.pdf')}.compressed.pdf`)
+    console.log(`\nСжатие PDF (${(originalSize / 1024 / 1024).toFixed(1)} МБ)...`)
+    try {
+      execFileSync('node', [path.join(__dirname, 'compress-pdf.mjs'), pdfFile, tmpOut], { stdio: 'inherit' })
+      if (fs.existsSync(tmpOut) && fs.statSync(tmpOut).size > 0 && fs.statSync(tmpOut).size < originalSize) {
+        uploadPath = tmpOut
+        compressedSize = fs.statSync(tmpOut).size
+      } else {
+        console.warn('Сжатие не дало выигрыша — заливаю оригинал.')
+      }
+    } catch (e) {
+      console.error('Сжатие PDF не удалось (Ghostscript не найден?), заливаю оригинал без сжатия:', e.message)
+    }
+  }
+
+  const storagePath = `${bookId}/original.pdf`
+  const pdfBuffer = fs.readFileSync(uploadPath)
+  console.log(`Загрузка PDF в book-documents/${storagePath} (${(compressedSize / 1024 / 1024).toFixed(1)} МБ)...`)
+  const { error: pdfErr } = await db.storage
+    .from('book-documents')
+    .upload(storagePath, pdfBuffer, { contentType: 'application/pdf', upsert: true })
+  if (pdfErr) {
+    console.error('book-documents upload:', pdfErr.message, '— книга сохранена без PDF, догрузите вручную.')
+  } else {
+    const { error: updErr } = await db.from('books').update({
+      pdf_storage_path: storagePath,
+      pdf_size_bytes: compressedSize,
+      pdf_original_size_bytes: originalSize,
+    }).eq('id', bookId)
+    if (updErr) console.error('books update (pdf path):', updErr.message)
+    else console.log('PDF привязан к книге.')
+  }
+  if (uploadPath !== pdfFile) fs.unlinkSync(uploadPath) // временный сжатый файл больше не нужен
+}
+
+// Задания заливаются ДО перезаливки картинок (см. ниже): картинки — best-effort
+// шаг по медленной/нестабильной внешней сети, задания не должны от него зависеть.
 {
-  const { error } = await db.from('book_sections').insert(sectionRows)
+  const { error } = await withRetry(() => db.from('book_sections').insert(sectionRows), 'book_sections')
   if (error) { console.error('book_sections:', error.message); process.exit(1) }
 }
-for (let i = 0; i < pageRows.length; i += 100) {
-  const { error } = await db.from('book_pages').insert(pageRows.slice(i, i + 100))
+// Батчи по 20/40 (не 100/200, как раньше) — на этой машине большие payload'ы
+// к Supabase систематически рвутся ("fetch failed", TLS-перехват), пока
+// поменьше проходят надёжно (см. project_local_env_limits).
+for (let i = 0; i < pageRows.length; i += 20) {
+  const { error } = await withRetry(() => db.from('book_pages').insert(pageRows.slice(i, i + 20)), `book_pages@${i}`)
   if (error) { console.error(`book_pages@${i}:`, error.message); process.exit(1) }
 }
-for (let i = 0; i < problemRows.length; i += 200) {
-  const { error } = await db.from('book_problems').insert(problemRows.slice(i, i + 200))
+for (let i = 0; i < problemRows.length; i += 40) {
+  const { error } = await withRetry(() => db.from('book_problems').insert(problemRows.slice(i, i + 40)), `book_problems@${i}`)
   if (error) { console.error(`book_problems@${i}:`, error.message); process.exit(1) }
 }
 console.log(`Готово. book_id = ${bookId}`)
+
+// ── Перезаливка картинок задач в Storage ─────────────────────────────────────
+// PaddleOCR отдаёт картинки задач ссылками на bcebos — подписанный URL с
+// собственным API, который истекает (см. project_books_module: этот же
+// техдолг тянется с первой книги). Скачиваем каждую уникальную картинку и
+// заливаем в публичный bucket book-media, затем UPDATE'ом переписываем src
+// в уже вставленных book_pages/book_problems (задания к этому моменту уже
+// в БД и доступны — картинки не блокируют их появление).
+//
+// --images-concurrency N (по умолчанию 1): на машинах с TLS-перехватывающим
+// прокси несколько параллельных HTTPS-соединений к одному внешнему хосту
+// замечены зависающими навечно (даже с AbortController) — последовательная
+// загрузка медленнее, но надёжна. Поднимайте только если сеть это позволяет.
+if (!args.includes('--skip-images')) {
+  const IMAGES_CONCURRENCY = Math.max(1, parseInt(flag('images-concurrency') ?? '1') || 1)
+  const urlToStorage = new Map() // externalUrl → storageUrl
+  const uniqueUrls = new Set()
+  for (const p of pages) for (const u of Object.values(p.images)) uniqueUrls.add(u)
+
+  console.log(`\nПеренос картинок в Storage (${uniqueUrls.size} уникальных, параллельно: ${IMAGES_CONCURRENCY})...`)
+  let uploaded = 0, failed = 0
+  const queue = [...uniqueUrls]
+  async function worker() {
+    while (queue.length > 0) {
+      const externalUrl = queue.shift()
+      try {
+        // без таймаута зависший запрос вешает весь Promise.all навечно
+        // (наблюдалось на практике — процесс висел без ошибки и без прогресса)
+        const controller = new AbortController()
+        const timer = setTimeout(() => controller.abort(), 12_000)
+        let res
+        try {
+          res = await fetch(externalUrl, { signal: controller.signal })
+        } finally {
+          clearTimeout(timer)
+        }
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        // signal аборта fetch гарантирует прерывание только до получения
+        // заголовков, не во время самого чтения тела — зависание наблюдалось
+        // именно на этом шаге, поэтому отдельный таймаут нужен и здесь
+        const buf = Buffer.from(await Promise.race([
+          res.arrayBuffer(),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('body read timeout')), 12_000)),
+        ]))
+        const pathPart = new URL(externalUrl).pathname
+        const ext = (path.extname(pathPart) || '.jpg').toLowerCase()
+        const contentType = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp', '.svg': 'image/svg+xml' }[ext] ?? 'image/jpeg'
+        const filename = path.basename(pathPart).replace(/[^a-zA-Z0-9._-]/g, '_') || `img_${uploaded + failed}${ext}`
+        const storagePath = `${bookId}/${filename}`
+        const uploadPromise = db.storage.from('book-media').upload(storagePath, buf, { contentType, upsert: true })
+        const { error: upErr } = await Promise.race([
+          uploadPromise,
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Storage upload timeout')), 20_000)),
+        ])
+        if (upErr) throw new Error(upErr.message)
+        const { data: pub } = db.storage.from('book-media').getPublicUrl(storagePath)
+        urlToStorage.set(externalUrl, pub.publicUrl)
+        uploaded++
+      } catch (e) {
+        warnings.push(`картинка не перезалита (${e.message}), оставлен исходный bcebos URL: ${externalUrl.slice(0, 100)}…`)
+        failed++
+      }
+      if ((uploaded + failed) % 10 === 0) console.log(`  ...${uploaded + failed}/${uniqueUrls.size}`)
+    }
+  }
+  await Promise.all(Array.from({ length: IMAGES_CONCURRENCY }, worker))
+  console.log(`Картинок перезалито: ${uploaded}, не удалось: ${failed}`)
+
+  if (urlToStorage.size > 0) {
+    console.log('Обновление ссылок в уже записанных страницах/заданиях...')
+    for (const row of pageRows) {
+      let md = row.markdown
+      for (const [externalUrl, storageUrl] of urlToStorage) md = md.replaceAll(externalUrl, storageUrl)
+      if (md !== row.markdown) {
+        const { error } = await db.from('book_pages').update({ markdown: md }).eq('book_id', bookId).eq('page_index', row.page_index)
+        if (error) console.error(`book_pages update@${row.page_index}:`, error.message)
+      }
+    }
+    for (const row of problemRows) {
+      let prompt = row.prompt_md
+      for (const [externalUrl, storageUrl] of urlToStorage) prompt = prompt.replaceAll(externalUrl, storageUrl)
+      if (prompt !== row.prompt_md) {
+        const { error } = await db.from('book_problems').update({ prompt_md: prompt }).eq('book_id', bookId).eq('task_number', row.task_number)
+        if (error) console.error(`book_problems update@${row.task_number}:`, error.message)
+      }
+    }
+    console.log('Ссылки на картинки обновлены.')
+  }
+}

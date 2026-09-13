@@ -5,9 +5,7 @@ import Link from 'next/link'
 import { BulkDeleteTestsBar } from '@/components/teacher/BulkDeleteTestsBar'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from '@/components/ui/select'
+import { SearchableSelect } from '@/components/shared/SearchableSelect'
 import { Plus, BookOpen, PencilLine } from 'lucide-react'
 import { DeleteTestButton } from '@/components/teacher/DeleteTestButton'
 import { cn } from '@/lib/utils'
@@ -210,17 +208,15 @@ export function TestsListClient({
         </p>
         {/* Фильтр по учителю — только админу (видит все тесты организации) */}
         {isAdmin && teachers.length > 1 && (
-          <Select value={filterTeacher} onValueChange={setFilterTeacher}>
-            <SelectTrigger className="h-8 text-sm w-56 shrink-0">
-              <SelectValue placeholder="Все учителя" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Все учителя</SelectItem>
-              {teachers.map(t => (
-                <SelectItem key={t.id} value={t.id}>{t.full_name}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <div className="w-56 shrink-0">
+            <SearchableSelect
+              options={teachers.map(t => ({ value: t.id, label: t.full_name }))}
+              value={filterTeacher === 'all' ? '' : filterTeacher}
+              onChange={(v) => setFilterTeacher(v || 'all')}
+              placeholder="Все учителя"
+              recentCount={0}
+            />
+          </div>
         )}
       </div>
 

@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { SearchableSelect } from '@/components/shared/SearchableSelect'
 import { ArrowLeft, Eye, EyeOff, Loader2, ShieldAlert } from 'lucide-react'
 import Link from 'next/link'
 
@@ -166,19 +166,14 @@ export default function NewStudentPage() {
             <div className="space-y-1">
               <Label>Учитель *</Label>
               <Controller name="teacher_id" control={control} render={({ field }) => (
-                <Select
-                  value={field.value || undefined}
-                  onValueChange={(v) => field.onChange(v)}
-                >
-                  <SelectTrigger className={errors.teacher_id ? 'border-destructive' : ''}>
-                    <SelectValue placeholder="За кем закрепить ученика" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {teachers.length === 0
-                      ? <SelectItem value="_none" disabled>Нет учителей в организации</SelectItem>
-                      : teachers.map(t => <SelectItem key={t.id} value={t.id}>{t.full_name}</SelectItem>)}
-                  </SelectContent>
-                </Select>
+                <SearchableSelect
+                  options={teachers.map(t => ({ value: t.id, label: t.full_name }))}
+                  value={field.value ?? ''}
+                  onChange={field.onChange}
+                  placeholder="За кем закрепить ученика"
+                  recentCount={0}
+                  emptyText="Нет учителей в организации"
+                />
               )} />
               {errors.teacher_id && <p className="text-sm text-destructive">{errors.teacher_id.message}</p>}
             </div>
