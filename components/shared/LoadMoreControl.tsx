@@ -1,6 +1,5 @@
 'use client'
 
-import { useScrollTrigger } from '@/lib/hooks/usePagination'
 import { Button } from '@/components/ui/button'
 
 interface Props {
@@ -17,14 +16,16 @@ interface Props {
   totalLabel?: string
 }
 
-// Единая пара «докрутить колесом» + «нажать кнопку» для любого клиентски
-// пагинируемого списка (usePagination). Раньше JSX этого блока был скопирован
-// в ResultsClient — теперь один компонент на все списки, которые внедряет
-// эта задача (Мониторинг, Тесты/ДЗ, Ученики, Группы и т.д.), чтобы кнопка
-// и авто-подгрузка колесом мыши выглядели и вели себя одинаково везде.
+// Кнопка «Показать ещё N» для любого клиентски пагинируемого списка
+// (usePagination). Раньше JSX этого блока был скопирован в ResultsClient —
+// теперь один компонент на все списки (Мониторинг, Тесты/ДЗ, Ученики, Группы
+// и т.д.), чтобы подгрузка выглядела и вела себя одинаково везде.
+//
+// Автоподгрузка по скроллу отсюда убрана намеренно: сентинел под таблицей
+// попадал в зону IntersectionObserver сразу на первом рендере (короткому
+// списку из 15 строк некуда уходить за сгиб), список долистывался до конца
+// сам и пагинация выглядела нерабочей. Подробнее — в lib/hooks/usePagination.
 export function LoadMoreControl({ hasMore, loadMore, remaining, step, totalLabel }: Props) {
-  const scrollRef = useScrollTrigger(loadMore, hasMore)
-
   if (!hasMore) {
     return totalLabel
       ? <p className="text-center text-xs text-muted-foreground pt-2">{totalLabel}</p>
@@ -35,10 +36,6 @@ export function LoadMoreControl({ hasMore, loadMore, remaining, step, totalLabel
 
   return (
     <div className="flex flex-col items-center gap-3 pt-2">
-      {/* Сентинел для автоподгрузки на десктопе (колесо/скролл) */}
-      <div ref={scrollRef} />
-      {/* Кнопка — основной способ на тач-устройствах, где авто-подгрузка
-          скроллом менее заметна, и явный запасной вариант везде */}
       <Button
         variant="outline"
         size="sm"
