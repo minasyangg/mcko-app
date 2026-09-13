@@ -26,7 +26,7 @@ import {
   Save,
 } from 'lucide-react'
 import MarkdownContent from '@/components/shared/MarkdownContent'
-import { ImageGallery } from '@/components/shared/ImageGallery'
+import { ImageGallery, GalleryThumb } from '@/components/shared/ImageGallery'
 
 export interface TaskWithReview {
   id: string
@@ -501,6 +501,23 @@ function UnmatchedImagesPanel({
   const [attachingId, setAttachingId] = useState<string | null>(null)
   const [selectedTask, setSelectedTask] = useState<Record<string, string>>({})
   const [attached, setAttached] = useState<Set<string>>(new Set())
+  const [previewImage, setPreviewImage] = useState<{ url: string; page: number | null } | null>(null)
+
+  // Escape закрывает просмотр, скролл под оверлеем блокируется — то же
+  // поведение, что у лайтбокса ImageGallery
+  useEffect(() => {
+    if (!previewImage) return
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') setPreviewImage(null)
+    }
+    document.addEventListener('keydown', onKey)
+    const prevOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.removeEventListener('keydown', onKey)
+      document.body.style.overflow = prevOverflow
+    }
+  }, [previewImage])
 
   const handleAttach = async (imageId: string) => {
     const taskId = selectedTask[imageId]
@@ -538,8 +555,19 @@ function UnmatchedImagesPanel({
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
         {visibleImages.map((img) => (
           <div key={img.id} className="space-y-2">
-            <div className="relative">
-              <img
+            {/* Раскладка своя (сетка 2/3/4 + контролы привязки под каждой
+                картинкой), поэтому не ImageGallery целиком, а только его
+                миниатюра — ради заглушки вместо сломанного тега и lazy.
+                Клик открывает полный размер: по вырезке 160px учитель не
+                определит, к какому заданию она относится. */}
+            <button
+              type="button"
+              className="relative block w-full cursor-zoom-in"
+              onClick={() => setPreviewImage({ url: img.signedUrl, page: img.source_page })}
+              aria-label={`Открыть изображение со страницы ${img.source_page}`}
+              title="Нажмите для увеличения"
+            >
+              <GalleryThumb
                 src={img.signedUrl}
                 alt={`Страница ${img.source_page}`}
                 className="w-full h-40 object-contain rounded border bg-white"
@@ -547,7 +575,7 @@ function UnmatchedImagesPanel({
               <span className="absolute top-1 right-1 text-xs bg-black/60 text-white rounded px-1">
                 стр. {img.source_page}
               </span>
-            </div>
+            </button>
             <div className="flex gap-1">
               <Select
                 value={selectedTask[img.id] ?? ''}
@@ -579,6 +607,32 @@ function UnmatchedImagesPanel({
           </div>
         ))}
       </div>
+
+      {previewImage && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
+          onClick={() => setPreviewImage(null)}
+        >
+          <button
+            type="button"
+            onClick={() => setPreviewImage(null)}
+            className="absolute top-4 right-4 rounded-full bg-white/10 p-2 text-white hover:bg-white/20"
+            aria-label="Закрыть"
+          >
+            <X className="h-5 w-5" />
+          </button>
+          <GalleryThumb
+            src={previewImage.url}
+            alt={previewImage.page != null ? `Страница ${previewImage.page}` : 'Изображение'}
+            className="max-w-full max-h-[90vh] object-contain rounded shadow-2xl bg-white"
+          />
+          {previewImage.page != null && (
+            <p className="absolute bottom-4 left-1/2 -translate-x-1/2 text-sm text-white/70">
+              стр. {previewImage.page}
+            </p>
+          )}
+        </div>
+      )}
     </div>
   )
 }

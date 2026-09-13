@@ -13,6 +13,7 @@ import { MathText } from '@/components/shared/MathText'
 import MarkdownContent from '@/components/shared/MarkdownContent'
 import { cn } from '@/lib/utils'
 import { formatAnswerJson } from '@/lib/grading/format-answer-display'
+import { ImageGallery } from '@/components/shared/ImageGallery'
 import type { Json } from '@/types/database'
 
 interface AttemptDetail {
@@ -145,6 +146,7 @@ export function AttemptDrawer({ attemptId, onClose, onGraded }: Props) {
   const [attempt, setAttempt] = useState<AttemptDetail | null>(null)
   const [answers, setAnswers] = useState<AnswerRow[]>([])
   const [mediaByTask, setMediaByTask] = useState<Record<string, MediaRow[]>>({})
+  const [solutionPhotosByTask, setSolutionPhotosByTask] = useState<Record<string, MediaRow[]>>({})
   const [correctAnswerMap, setCorrectAnswerMap] = useState<Record<string, string>>({})
   const [changedTaskIds, setChangedTaskIds] = useState<Set<string>>(new Set())
   const [expandedTaskIds, setExpandedTaskIds] = useState<Set<string>>(new Set())
@@ -159,7 +161,7 @@ export function AttemptDrawer({ attemptId, onClose, onGraded }: Props) {
 
   useEffect(() => {
     setEditingScores(false)
-    if (!attemptId) { setAttempt(null); setAnswers([]); setMediaByTask({}); setGrades({}); setCorrectAnswerMap({}); setChangedTaskIds(new Set()); return }
+    if (!attemptId) { setAttempt(null); setAnswers([]); setMediaByTask({}); setSolutionPhotosByTask({}); setGrades({}); setCorrectAnswerMap({}); setChangedTaskIds(new Set()); return }
     let cancelled = false
     setLoading(true); setSaveError(null)
 
@@ -275,6 +277,31 @@ export function AttemptDrawer({ attemptId, onClose, onGraded }: Props) {
               byTask[m.task_id].push({ ...m, signedUrl: urlMap[m.storage_path] ?? '' })
             }
             setMediaByTask(byTask)
+          }
+
+          // Фото письменного решения ученика (attempt_answer_media) — тот же
+          // паттерн подписи ссылок, что и task_media, но приватный бакет
+          // student-solution-media и своя таблица (см. миграцию 077).
+          const { data: rawSolutionMedia } = await supabase
+            .from('attempt_answer_media')
+            .select('id, task_id, storage_path, width_px, height_px, sort_order')
+            .eq('attempt_id', attemptId!)
+            .order('sort_order', { ascending: true })
+
+          if (rawSolutionMedia && rawSolutionMedia.length > 0 && !cancelled) {
+            const paths = rawSolutionMedia.map((m) => m.storage_path)
+            const { data: signed } = await supabase.storage
+              .from('student-solution-media')
+              .createSignedUrls(paths, 3600)
+
+            const urlMap = Object.fromEntries((signed ?? []).map((s) => [s.path, s.signedUrl]))
+            const byTask: Record<string, MediaRow[]> = {}
+            for (const m of rawSolutionMedia) {
+              if (!m.task_id) continue
+              if (!byTask[m.task_id]) byTask[m.task_id] = []
+              byTask[m.task_id].push({ ...m, alt_text: null, signedUrl: urlMap[m.storage_path] ?? '' })
+            }
+            setSolutionPhotosByTask(byTask)
           }
         }
       }
@@ -566,6 +593,32 @@ export function AttemptDrawer({ attemptId, onClose, onGraded }: Props) {
                           </div>
                         )}
                       </div>
+
+                      {/* Фото письменного решения ученика (черновик на бумаге) —
+                          отдельно от "ответа студента" выше: это ход решения,
+                          а не проверяемое значение. Через общий ImageGallery, а
+                          не локальный ImageThumb: у листов А4 с почерком важно
+                          листание стрелками и счётчик «1/2», иначе проверяющий
+                          открывает каждый лист отдельным кликом. */}
+                      {(solutionPhotosByTask[ans.task_id ?? ''] ?? []).length > 0 && (
+                        <div>
+                          <p className="text-xs text-muted-foreground mb-1">Фото решения ученика</p>
+                          <ImageGallery
+                            images={solutionPhotosByTask[ans.task_id ?? '']
+                              .filter((m) => m.signedUrl)
+                              .map((m, i) => ({
+                                id: m.id,
+                                signedUrl: m.signedUrl!,
+                                alt: `Фото решения ${i + 1}`,
+                                sort_order: m.sort_order ?? i,
+                              }))}
+                            // Дровер — Radix Sheet со своим высоким z-index;
+                            // при дефолтных z-50 лайтбокс открывался бы ПОД
+                            // панелью и выглядел как «ничего не произошло»
+                            lightboxZIndex={100}
+                          />
+                        </div>
+                      )}
 
                       {/* Existing teacher comment (read-only when checked) */}
                       {!needsGrading && ans.teacher_comment && (

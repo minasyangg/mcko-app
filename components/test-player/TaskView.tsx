@@ -8,9 +8,17 @@ import { ShortText } from './AnswerInput/ShortText'
 import { Numeric } from './AnswerInput/Numeric'
 import { Composite } from './AnswerInput/Composite'
 import { TaskImageGallery } from './TaskImageGallery'
+import { SolutionPhotoUpload, type SolutionPhoto } from './SolutionPhotoUpload'
 import MarkdownContent from '@/components/shared/MarkdownContent'
 import { MathText } from '@/components/shared/MathText'
 import { CheckCircle2, AlertCircle } from 'lucide-react'
+
+// Типы заданий с развёрнутым (текстовым) ответом — там, где есть смысл
+// показать ход письменного решения на бумаге. single/multiple_choice и
+// numeric сюда не входят — там ответ уже однозначен без черновика.
+const SOLUTION_PHOTO_TASK_TYPES = new Set([
+  'manual_review', 'composite', 'short_text', 'free_response', 'matching',
+])
 
 export interface TaskPriorFeedback {
   awardedScore: number
@@ -25,6 +33,9 @@ interface TaskViewProps {
   disabled?: boolean
   isLocked?: boolean
   priorFeedback?: TaskPriorFeedback
+  attemptId: string
+  solutionPhotos?: SolutionPhoto[]
+  onSolutionPhotosChange?: (photos: SolutionPhoto[]) => void
 }
 
 interface TaskOption {
@@ -59,7 +70,10 @@ function toParts(raw: Json): AnswerPart[] {
   }).filter((p) => p.label)
 }
 
-export function TaskView({ task, answer, onChange, images = [], disabled, isLocked, priorFeedback }: TaskViewProps) {
+export function TaskView({
+  task, answer, onChange, images = [], disabled, isLocked, priorFeedback,
+  attemptId, solutionPhotos = [], onSolutionPhotosChange,
+}: TaskViewProps) {
   const answerObj =
     answer !== null && answer !== undefined && typeof answer === 'object' && !Array.isArray(answer)
       ? (answer as Record<string, Json | undefined>)
@@ -209,7 +223,10 @@ export function TaskView({ task, answer, onChange, images = [], disabled, isLock
   }
 
   return (
-    <div className="space-y-5">
+    // Интервалы плотнее на телефоне: ученик проходит тест и с него тоже
+    // (TestPlayer прячет навигатор в гамбургер именно ради этого), а на
+    // экране 360px каждая лишняя вертикаль отодвигает поле ответа за сгиб.
+    <div className="space-y-4 sm:space-y-5">
       <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
         Задача {task.task_number}
         {task.title ? ` — ${task.title}` : ''}
@@ -219,6 +236,9 @@ export function TaskView({ task, answer, onChange, images = [], disabled, isLock
         <TaskImageGallery images={images} placement="above_text" />
       )}
 
+      {/* Размер текста условия НЕ уменьшаем на узких экранах: условие —
+          главное, что читает ученик, мельче 16px на телефоне читается плохо
+          и провоцирует зум, который ломает раскладку формул KaTeX. */}
       {task.prompt_html
         ? <MarkdownContent content={task.prompt_html} />
         : <div className="text-base leading-relaxed whitespace-pre-wrap">{task.prompt_text}</div>
@@ -235,7 +255,7 @@ export function TaskView({ task, answer, onChange, images = [], disabled, isLock
       )}
 
       {isLocked ? (
-        <div className="rounded-md border border-green-300 bg-green-50 dark:bg-green-950/30 px-4 py-3 space-y-2">
+        <div className="rounded-md border border-green-300 bg-green-50 dark:bg-green-950/30 px-3 py-2.5 sm:px-4 sm:py-3 space-y-2">
           <div className="flex items-center gap-2.5">
             <CheckCircle2 className="h-5 w-5 text-green-600 shrink-0" />
             <div>
@@ -250,13 +270,24 @@ export function TaskView({ task, answer, onChange, images = [], disabled, isLock
               <MathText text={priorFeedback.teacherComment} className="text-green-900 dark:text-green-100" />
             </div>
           )}
+          {/* Зачтённое задание фото не прячет — своё же приложенное решение
+              полезно видеть и после блокировки, просто без права удалить. */}
+          {SOLUTION_PHOTO_TASK_TYPES.has(task.task_type) && solutionPhotos.length > 0 && onSolutionPhotosChange && (
+            <SolutionPhotoUpload
+              attemptId={attemptId}
+              taskId={task.id}
+              photos={solutionPhotos}
+              onChange={onSolutionPhotosChange}
+              disabled
+            />
+          )}
         </div>
       ) : (
         <>
           {/* Итог прошлой попытки по этому заданию: без него ученик видит
               разблокированное задание и не понимает, что в нём не так. */}
           {priorFeedback && (
-            <div className="rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-900 px-4 py-3 space-y-1.5">
+            <div className="rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-900 px-3 py-2.5 sm:px-4 sm:py-3 space-y-1.5">
               <div className="flex items-start gap-2.5">
                 <AlertCircle className="h-5 w-5 text-amber-600 dark:text-amber-500 shrink-0 mt-0.5" />
                 <div className="space-y-0.5">
@@ -283,6 +314,16 @@ export function TaskView({ task, answer, onChange, images = [], disabled, isLock
             </div>
           )}
           <div>{renderInput()}</div>
+
+          {SOLUTION_PHOTO_TASK_TYPES.has(task.task_type) && onSolutionPhotosChange && (
+            <SolutionPhotoUpload
+              attemptId={attemptId}
+              taskId={task.id}
+              photos={solutionPhotos}
+              onChange={onSolutionPhotosChange}
+              disabled={disabled}
+            />
+          )}
         </>
       )}
     </div>
