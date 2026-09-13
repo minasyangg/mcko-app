@@ -20,7 +20,7 @@ import { EditRoadmapDialog } from '@/components/teacher/EditRoadmapDialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { SearchableSelect } from '@/components/shared/SearchableSelect'
 import {
-  ArrowLeft, Plus, Trash2, ChevronUp, ChevronDown, Users, Loader2, X, GripVertical, AlertTriangle,
+  ArrowLeft, Plus, Trash2, ChevronUp, ChevronDown, Users, Loader2, X, GripVertical, AlertTriangle, Search,
 } from 'lucide-react'
 
 export interface EditorTopic {
@@ -52,6 +52,9 @@ export function RoadmapEditor({ roadmap, topics, tests, students, memberIds, gro
   // — Ученики —
   const [studentsOpen, setStudentsOpen] = useState(false)
   const [checked, setChecked] = useState<Set<string>>(new Set(memberIds))
+  // Поиск по имени/классу в диалоге — при большом числе учеников прокрутка
+  // max-h-72 без фильтра превращается в долгий скролл вслепую
+  const [studentQuery, setStudentQuery] = useState('')
   // Уже подтверждённые сервером связи-источники (что реально в БД) — не
   // меняются кликами в диалоге, только после успешного saveStudents/unlinkGroup.
   const [linkedGroupIds, setLinkedGroupIds] = useState<Set<string>>(new Set(sourceGroupIds))
@@ -67,6 +70,13 @@ export function RoadmapEditor({ roadmap, topics, tests, students, memberIds, gro
   // в диалоге. Иначе группа со «свежим» учеником, ещё не закреплённым за
   // учителем, роняла бы сохранение всего состава с 403.
   const studentIdSet = new Set(students.map(s => s.id))
+
+  const filteredStudents = studentQuery.trim()
+    ? students.filter(s => {
+        const q = studentQuery.trim().toLowerCase()
+        return s.full_name.toLowerCase().includes(q) || (s.grade ?? '').toLowerCase().includes(q)
+      })
+    : students
 
   // Только локально отмечает чекбоксы и помечает группу «к привязке» —
   // ничего не уходит на сервер до нажатия «Сохранить» (saveStudents), чтобы
@@ -114,6 +124,7 @@ export function RoadmapEditor({ roadmap, topics, tests, students, memberIds, gro
   function resetStudentsDialog() {
     setChecked(new Set(memberIds))
     setPendingLinkGroupIds(new Set())
+    setStudentQuery('')
     setStudentsOpen(false)
   }
 
@@ -481,11 +492,26 @@ export function RoadmapEditor({ roadmap, topics, tests, students, memberIds, gro
             )}
           </div>
 
+          {students.length > 8 && (
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+              <Input
+                value={studentQuery}
+                onChange={(e) => setStudentQuery(e.target.value)}
+                placeholder="Поиск по имени или классу..."
+                className="pl-8 h-8 text-sm"
+              />
+            </div>
+          )}
+
           <div className="space-y-1 max-h-72 overflow-y-auto rounded-md border divide-y">
             {students.length === 0 && (
               <p className="px-3 py-6 text-center text-sm text-muted-foreground">За вами не закреплено учеников</p>
             )}
-            {students.map(s => (
+            {students.length > 0 && filteredStudents.length === 0 && (
+              <p className="px-3 py-6 text-center text-sm text-muted-foreground">Ничего не найдено</p>
+            )}
+            {filteredStudents.map(s => (
               <label key={s.id} className="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-muted/40">
                 <input type="checkbox" className="h-4 w-4 shrink-0" checked={checked.has(s.id)}
                   onChange={() => setChecked(prev => {

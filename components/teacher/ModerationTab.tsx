@@ -3,6 +3,8 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
+import { usePagination } from '@/lib/hooks/usePagination'
+import { LoadMoreControl } from '@/components/shared/LoadMoreControl'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -44,6 +46,7 @@ export function ModerationTab({
   teachers: TeacherOption[]
 }) {
   const router = useRouter()
+  const { visible: pagedPending, hasMore, loadMore, total, showing } = usePagination(pending, 15)
   const [selected, setSelected] = useState<PendingUser | null>(null)
   const [role, setRole] = useState<'student' | 'teacher' | 'admin'>('student')
   const [grade, setGrade] = useState('')
@@ -107,7 +110,7 @@ export function ModerationTab({
             </tr>
           </thead>
           <tbody>
-            {pending.map(u => (
+            {pagedPending.map(u => (
               <tr key={u.id} className="border-b last:border-0 hover:bg-muted/30">
                 <td className="px-3 py-2 font-medium">{u.full_name}</td>
                 <td className="px-3 py-2 text-muted-foreground">
@@ -128,6 +131,14 @@ export function ModerationTab({
           </tbody>
         </table>
       </div>
+
+      <LoadMoreControl
+        hasMore={hasMore}
+        loadMore={loadMore}
+        remaining={total - showing}
+        step={15}
+        totalLabel={total > 15 ? `Показано всего ${total} заявок` : undefined}
+      />
 
       <Dialog open={!!selected} onOpenChange={(v) => { if (!v && !busy) setSelected(null) }}>
         <DialogContent className="max-w-md">

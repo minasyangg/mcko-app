@@ -1,6 +1,8 @@
 'use client'
 
 import { useState } from 'react'
+import { usePagination } from '@/lib/hooks/usePagination'
+import { LoadMoreControl } from '@/components/shared/LoadMoreControl'
 import { Badge } from '@/components/ui/badge'
 import { StatusChip } from '@/components/shared/StatusChip'
 import { ChevronDown, ChevronRight } from 'lucide-react'
@@ -22,6 +24,8 @@ interface Props {
 // читаемее при нескольких темах/заданиях на тему.
 export function ProgramProgressView({ program, readOnly = false, onSelectAttempt }: Props) {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
+  // По 15 строк — список растёт с числом учеников в программе
+  const { visible: pagedStudents, hasMore, loadMore, total, showing } = usePagination(program.students, 15)
 
   const allItems = program.topics.flatMap(t => t.items)
   const statusByKey = new Map(program.statuses.map(s => [`${s.assignment_id}_${s.student_id}`, s]))
@@ -35,7 +39,7 @@ export function ProgramProgressView({ program, readOnly = false, onSelectAttempt
 
   return (
     <div className="space-y-2">
-      {program.students.map(student => {
+      {pagedStudents.map(student => {
         const studentStatuses = allItems
           .map(item => statusByKey.get(`${item.assignment_id}_${student.id}`))
           .filter((s): s is NonNullable<typeof s> => !!s)
@@ -134,6 +138,13 @@ export function ProgramProgressView({ program, readOnly = false, onSelectAttempt
           </div>
         )
       })}
+      <LoadMoreControl
+        hasMore={hasMore}
+        loadMore={loadMore}
+        remaining={total - showing}
+        step={15}
+        totalLabel={total > 15 ? `Показано всего ${total} учеников` : undefined}
+      />
     </div>
   )
 }

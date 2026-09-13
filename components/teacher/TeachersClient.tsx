@@ -4,6 +4,8 @@ import { useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { toast } from 'sonner'
+import { usePagination } from '@/lib/hooks/usePagination'
+import { LoadMoreControl } from '@/components/shared/LoadMoreControl'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -37,6 +39,8 @@ export function TeachersClient({ teachers, students }: { teachers: TeacherRow[];
     () => new Map(teachers.map(t => [t.id, t.full_name])),
     [teachers],
   )
+  // По 15 строк — список учителей растёт вместе с организацией
+  const { visible: pagedTeachers, hasMore, loadMore, total, showing } = usePagination(teachers, 15)
   const [assignTarget, setAssignTarget] = useState<TeacherRow | null>(null)
   const [checked, setChecked] = useState<Set<string>>(new Set())
   const [query, setQuery] = useState('')
@@ -110,7 +114,7 @@ export function TeachersClient({ teachers, students }: { teachers: TeacherRow[];
                 Учителей пока нет.
               </td></tr>
             )}
-            {teachers.map(t => (
+            {pagedTeachers.map(t => (
               <tr key={t.id} className="hover:bg-muted/30 transition-colors">
                 <td className="px-4 py-3 font-medium">
                   <div className="flex items-center gap-1.5">
@@ -145,6 +149,14 @@ export function TeachersClient({ teachers, students }: { teachers: TeacherRow[];
           </tbody>
         </table>
       </div>
+
+      <LoadMoreControl
+        hasMore={hasMore}
+        loadMore={loadMore}
+        remaining={total - showing}
+        step={15}
+        totalLabel={total > 15 ? `Показано всего ${total} учителей` : undefined}
+      />
 
       {/* Закрепление учеников */}
       <Dialog open={!!assignTarget} onOpenChange={(v) => { if (!v) setAssignTarget(null) }}>

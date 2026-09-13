@@ -5,6 +5,8 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Trash2, Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { usePagination } from '@/lib/hooks/usePagination'
+import { LoadMoreControl } from '@/components/shared/LoadMoreControl'
 
 export type MarkStatus = 'present' | 'absent' | 'sick' | 'holiday'
 
@@ -92,6 +94,13 @@ export function AttendanceGrid({
     setLocal(new Map(marks.map(m => [`${m.student_id}|${m.day_id}`, m.status])))
     setSyncedKey(marksKey)
   }
+
+  // По 20 строк на экран — журнал обычно не длиннее класса, но с большим
+  // потоком (несколько параллелей в одном журнале) список может вырасти.
+  // fillDay намеренно продолжает работать на ВСЕХ students, а не только
+  // видимых — «весь день выходной» должно охватывать весь журнал, иначе
+  // часть класса тихо осталась бы без отметки.
+  const { visible: pagedStudents, hasMore, loadMore, total, showing } = usePagination(students, 20)
 
   const key = (s: string, d: string) => `${s}|${d}`
 
@@ -206,7 +215,7 @@ export function AttendanceGrid({
             </tr>
           </thead>
           <tbody>
-            {students.map(s => (
+            {pagedStudents.map(s => (
               <tr key={s.id} className="border-b last:border-0">
                 <td className="sticky left-0 z-10 border-r bg-background px-3 py-1.5">
                   <div className="flex items-center gap-2">
@@ -251,6 +260,16 @@ export function AttendanceGrid({
         </table>
       </div>
 
+      <LoadMoreControl
+        hasMore={hasMore}
+        loadMore={loadMore}
+        remaining={total - showing}
+        step={20}
+        totalLabel={total > 20 ? `Показано всего ${total} учеников` : undefined}
+      />
+
+      {/* Итоги — по всем ученикам журнала, не только по видимой странице:
+          сводная статистика теряет смысл, если считать её по неполному списку */}
       <AttendanceSummary students={students} days={days} local={local} />
     </div>
   )

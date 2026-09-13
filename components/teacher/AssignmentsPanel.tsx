@@ -72,6 +72,11 @@ export function AssignmentsPanel({
   // предела на одной странице (пагинация сбрасывается при смене фильтра
   // «Все/Тесты/ДЗ/Программы» вместе с filteredRows, как и задумано)
   const { visible: pagedRows, hasMore, loadMore, total, showing } = usePagination(filteredRows, 15)
+  // Сводка по программам — отдельный список, растёт с числом roadmap
+  const {
+    visible: pagedPrograms, hasMore: hasMorePrograms, loadMore: loadMorePrograms,
+    total: totalPrograms, showing: showingPrograms,
+  } = usePagination(programSummaries, 15)
 
   return (
     <>
@@ -98,7 +103,16 @@ export function AssignmentsPanel({
       </div>
 
       {filter === 'programs' ? (
-        <ProgramSummaryTable rows={programSummaries} isAdmin={isAdmin} onOpen={setOpenRoadmapId} />
+        <>
+          <ProgramSummaryTable rows={pagedPrograms} isAdmin={isAdmin} onOpen={setOpenRoadmapId} />
+          <LoadMoreControl
+            hasMore={hasMorePrograms}
+            loadMore={loadMorePrograms}
+            remaining={totalPrograms - showingPrograms}
+            step={15}
+            totalLabel={totalPrograms > 15 ? `Показано всего ${totalPrograms} программ` : undefined}
+          />
+        </>
       ) : (
         <div className="space-y-5">
           {/* «Все» показывает программы тоже — отдельным блоком сверху,
@@ -106,7 +120,14 @@ export function AssignmentsPanel({
           {filter === 'all' && programSummaries.length > 0 && (
             <div className="space-y-2">
               <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Программы</h3>
-              <ProgramSummaryTable rows={programSummaries} isAdmin={isAdmin} onOpen={setOpenRoadmapId} />
+              <ProgramSummaryTable rows={pagedPrograms} isAdmin={isAdmin} onOpen={setOpenRoadmapId} />
+              <LoadMoreControl
+                hasMore={hasMorePrograms}
+                loadMore={loadMorePrograms}
+                remaining={totalPrograms - showingPrograms}
+                step={15}
+                totalLabel={totalPrograms > 15 ? `Показано всего ${totalPrograms} программ` : undefined}
+              />
             </div>
           )}
 
