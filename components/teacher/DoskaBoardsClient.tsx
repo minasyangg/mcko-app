@@ -3,6 +3,8 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
+import { usePagination } from '@/lib/hooks/usePagination'
+import { LoadMoreControl } from '@/components/shared/LoadMoreControl'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
@@ -37,6 +39,8 @@ interface Props {
 
 export function DoskaBoardsClient({ boards, students, groups }: Props) {
   const router = useRouter()
+  // По 15 строк — число досок растёт вместе с числом учеников/групп учителя
+  const { visible: pagedBoards, hasMore, loadMore, total, showing } = usePagination(boards, 15)
   const [open, setOpen] = useState(false)
   // Доска заводится либо на одного ученика, либо на группу целиком. Это один
   // выбор, а не два независимых: иначе непонятно, что победит.
@@ -227,7 +231,7 @@ export function DoskaBoardsClient({ boards, students, groups }: Props) {
               </tr>
             </thead>
             <tbody>
-              {boards.map((b) => (
+              {pagedBoards.map((b) => (
                 <tr key={b.id} className="border-t">
                   <td className="px-4 py-3 font-medium">{b.title}</td>
                   <td className="px-4 py-3">
@@ -289,6 +293,13 @@ export function DoskaBoardsClient({ boards, students, groups }: Props) {
           </table>
         </div>
       )}
+      <LoadMoreControl
+        hasMore={hasMore}
+        loadMore={loadMore}
+        remaining={total - showing}
+        step={15}
+        totalLabel={total > 15 ? `Показано всего ${total} досок` : undefined}
+      />
     </div>
   )
 }

@@ -3,6 +3,8 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { usePolling } from '@/lib/hooks/usePolling'
+import { usePagination } from '@/lib/hooks/usePagination'
+import { LoadMoreControl } from '@/components/shared/LoadMoreControl'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import {
@@ -306,6 +308,13 @@ export function MonitorTable({ initialAttempts, isAdmin = false, assignments = [
   const { filtered, filters, setFilter, clearFilters, hasActiveFilters } =
     useTableFilter(tabRows, FILTER_FIELDS)
 
+  // По 15 строк на экран, дальше «показать ещё» — раньше вкладки «В
+  // процессе»/«На проверке»/«Проверено» рендерили весь filtered целиком, и
+  // с ростом числа учеников/попыток список рос без предела на одной странице.
+  // Возврат к первым 15 — при смене вкладки и при смене фильтров.
+  const { visible: pagedRows, hasMore, loadMore, total, showing } =
+    usePagination(filtered, 15, 15, `${tab}|${JSON.stringify(filters)}`)
+
   const tabs: { key: Tab; label: string; count: number }[] = [
     { key: 'assignments', label: 'Назначения', count: assignments.length },
     { key: 'active',  label: 'В процессе',  count: active.length },
@@ -385,9 +394,18 @@ export function MonitorTable({ initialAttempts, isAdmin = false, assignments = [
       )}
 
       {tab !== 'assignments' && (
+      <>
       <div className="rounded-md border overflow-hidden">
-        <TableView rows={filtered} tab={tab} isAdmin={isAdmin} onSelect={setSelectedAttemptId} onDelete={handleDelete} onFinish={handleFinish} />
+        <TableView rows={pagedRows} tab={tab} isAdmin={isAdmin} onSelect={setSelectedAttemptId} onDelete={handleDelete} onFinish={handleFinish} />
       </div>
+      <LoadMoreControl
+        hasMore={hasMore}
+        loadMore={loadMore}
+        remaining={total - showing}
+        step={15}
+        totalLabel={total > 15 ? `Показано всего ${total} строк` : undefined}
+      />
+      </>
       )}
 
       <AttemptDrawer

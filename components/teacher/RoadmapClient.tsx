@@ -12,7 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from '@/components/ui/dialog'
-import { Plus, Route, Users, ListChecks, GripVertical, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Plus, Route, Users, ListChecks, GripVertical } from 'lucide-react'
 import { EditRoadmapDialog } from '@/components/teacher/EditRoadmapDialog'
 import { AdminAuthorNotice } from '@/components/shared/AdminAuthorNotice'
 
@@ -167,7 +167,7 @@ export function RoadmapClient({ roadmaps: initialRoadmaps }: { roadmaps: Roadmap
                 {label}
               </h2>
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {rows.map((r, idx) => (
+                {rows.map((r) => (
                   <div
                     key={r.id}
                     className="relative"
@@ -185,12 +185,7 @@ export function RoadmapClient({ roadmaps: initialRoadmaps }: { roadmaps: Roadmap
                       />
                     </div>
                     {rows.length > 1 && (
-                      // Ручка перетаскивания + стрелки. Стрелки не дубль, а
-                      // единственный рабочий способ на телефоне/планшете:
-                      // нативный HTML5 drag тач-события не эмулирует, а
-                      // учительский раздел адаптирован под мобильные
-                      // (см. TeacherNav). Заодно это доступ с клавиатуры.
-                      <div className="absolute left-1.5 top-1.5 z-10 flex items-center gap-0.5">
+                      <div className="absolute left-1.5 top-1.5 z-10 flex items-center">
                         <span
                           draggable
                           onDragStart={(e) => {
@@ -199,31 +194,11 @@ export function RoadmapClient({ roadmaps: initialRoadmaps }: { roadmaps: Roadmap
                             setDragId(r.id)
                           }}
                           onDragEnd={() => { setDragId(null); setOverId(null) }}
-                          className="hidden sm:block cursor-grab active:cursor-grabbing text-muted-foreground/40 hover:text-muted-foreground"
+                          className="cursor-grab active:cursor-grabbing text-muted-foreground/40 hover:text-muted-foreground"
                           title="Перетащите, чтобы изменить порядок"
                         >
                           <GripVertical className="h-4 w-4" />
                         </span>
-                        <button
-                          type="button"
-                          disabled={idx === 0}
-                          onClick={() => reorderWithin(dedupeKey, idx, idx - 1)}
-                          className="rounded p-1 text-muted-foreground/50 hover:bg-muted hover:text-foreground disabled:opacity-25 disabled:hover:bg-transparent"
-                          aria-label={`Переместить «${r.title}» раньше`}
-                          title="Переместить раньше"
-                        >
-                          <ChevronLeft className="h-3.5 w-3.5" />
-                        </button>
-                        <button
-                          type="button"
-                          disabled={idx === rows.length - 1}
-                          onClick={() => reorderWithin(dedupeKey, idx, idx + 1)}
-                          className="rounded p-1 text-muted-foreground/50 hover:bg-muted hover:text-foreground disabled:opacity-25 disabled:hover:bg-transparent"
-                          aria-label={`Переместить «${r.title}» позже`}
-                          title="Переместить позже"
-                        >
-                          <ChevronRight className="h-3.5 w-3.5" />
-                        </button>
                       </div>
                     )}
                     <Link href={`/teacher/roadmaps/${r.id}`}>
@@ -235,12 +210,11 @@ export function RoadmapClient({ roadmaps: initialRoadmaps }: { roadmaps: Roadmap
                       )}
                     >
                       <CardHeader className="pb-2">
-                        {/* Верхняя строка уступает место кнопкам порядка слева
-                            (ручка + 2 стрелки) и кнопке «изменить» справа;
-                            на узких экранах ручка скрыта, поэтому отступ меньше */}
+                        {/* Верхняя строка уступает место ручке перетаскивания
+                            слева и кнопке «изменить» справа */}
                         <div className={cn(
                           'flex items-start justify-between gap-2 pr-9',
-                          rows.length > 1 ? 'pl-12 sm:pl-18' : '',
+                          rows.length > 1 ? 'pl-6' : '',
                         )}>
                           <CardTitle className="text-base leading-snug">{r.title}</CardTitle>
                         </div>

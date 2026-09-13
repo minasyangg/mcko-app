@@ -2,6 +2,8 @@
 
 import { useMemo, useState } from 'react'
 import Link from 'next/link'
+import { usePagination } from '@/lib/hooks/usePagination'
+import { LoadMoreControl } from '@/components/shared/LoadMoreControl'
 import { Button } from '@/components/ui/button'
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -66,6 +68,17 @@ export function AssignmentsPanel({
     [rows, filter],
   )
 
+  // По 15 строк на экран — с ростом числа назначений список иначе рос без
+  // предела на одной странице. Возврат к первым 15 — при смене фильтра
+  // «Все/Тесты/ДЗ/Программы».
+  const { visible: pagedRows, hasMore, loadMore, total, showing } =
+    usePagination(filteredRows, 15, 15, filter)
+  // Сводка по программам — отдельный список, растёт с числом roadmap
+  const {
+    visible: pagedPrograms, hasMore: hasMorePrograms, loadMore: loadMorePrograms,
+    total: totalPrograms, showing: showingPrograms,
+  } = usePagination(programSummaries, 15)
+
   return (
     <>
       <div className="flex items-center justify-between gap-3 flex-wrap">
@@ -91,7 +104,16 @@ export function AssignmentsPanel({
       </div>
 
       {filter === 'programs' ? (
-        <ProgramSummaryTable rows={programSummaries} isAdmin={isAdmin} onOpen={setOpenRoadmapId} />
+        <>
+          <ProgramSummaryTable rows={pagedPrograms} isAdmin={isAdmin} onOpen={setOpenRoadmapId} />
+          <LoadMoreControl
+            hasMore={hasMorePrograms}
+            loadMore={loadMorePrograms}
+            remaining={totalPrograms - showingPrograms}
+            step={15}
+            totalLabel={totalPrograms > 15 ? `Показано всего ${totalPrograms} программ` : undefined}
+          />
+        </>
       ) : (
         <div className="space-y-5">
           {/* «Все» показывает программы тоже — отдельным блоком сверху,
@@ -99,7 +121,14 @@ export function AssignmentsPanel({
           {filter === 'all' && programSummaries.length > 0 && (
             <div className="space-y-2">
               <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Программы</h3>
-              <ProgramSummaryTable rows={programSummaries} isAdmin={isAdmin} onOpen={setOpenRoadmapId} />
+              <ProgramSummaryTable rows={pagedPrograms} isAdmin={isAdmin} onOpen={setOpenRoadmapId} />
+              <LoadMoreControl
+                hasMore={hasMorePrograms}
+                loadMore={loadMorePrograms}
+                remaining={totalPrograms - showingPrograms}
+                step={15}
+                totalLabel={totalPrograms > 15 ? `Показано всего ${totalPrograms} программ` : undefined}
+              />
             </div>
           )}
 
@@ -128,7 +157,7 @@ export function AssignmentsPanel({
                         </tr>
                       </thead>
                       <tbody className="divide-y">
-                        {filteredRows.map(a => {
+                        {pagedRows.map(a => {
                           // Досрочное завершение (полный балл / решение учителя)
                           // объясняем словами: счётчик «использовано 1 из 3» рядом
                           // с «завершён» иначе выглядит как рассинхрон.
@@ -184,6 +213,13 @@ export function AssignmentsPanel({
                   </div>
                 </div>
               )}
+              <LoadMoreControl
+                hasMore={hasMore}
+                loadMore={loadMore}
+                remaining={total - showing}
+                step={15}
+                totalLabel={total > 15 ? `Показано всего ${total} назначений` : undefined}
+              />
             </div>
           )}
         </div>

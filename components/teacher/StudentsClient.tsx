@@ -3,6 +3,8 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
+import { usePagination } from '@/lib/hooks/usePagination'
+import { LoadMoreControl } from '@/components/shared/LoadMoreControl'
 import { BulkDeleteStudentsBar } from '@/components/teacher/BulkDeleteStudentsBar'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -52,7 +54,11 @@ interface Props {
 export function StudentsClient({ students: initial, isAdmin = false, teachers = [] }: Props) {
   const router = useRouter()
   const [students, setStudents] = useState<StudentRow[]>(initial)
-  // Массовый выбор для удаления (только у админа, см. панель ниже)
+  // По 15 строк на экран — список растёт вместе с числом учеников организации
+  const { visible: pagedStudents, hasMore, loadMore, total, showing } = usePagination(students, 15)
+  // Массовый выбор для удаления (только у админа, см. панель ниже) — «выбрать
+  // всех» относится только к ВИДИМЫМ строкам, иначе счётчик выбранных
+  // разошёлся бы с тем, что реально показано на экране
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [editTarget, setEditTarget] = useState<StudentRow | null>(null)
   const [editForm, setEditForm] = useState({ full_name: '', grade: '', email: '', password: '', telegram: '', parentTelegram: '' })
@@ -203,10 +209,10 @@ export function StudentsClient({ students: initial, isAdmin = false, teachers = 
                   <input
                     type="checkbox"
                     className="h-4 w-4"
-                    checked={students.length > 0 && students.every(s => selected.has(s.id))}
+                    checked={pagedStudents.length > 0 && pagedStudents.every(s => selected.has(s.id))}
                     onChange={(e) => setSelected(prev => {
                       const n = new Set(prev)
-                      for (const s of students) { if (e.target.checked) n.add(s.id); else n.delete(s.id) }
+                      for (const s of pagedStudents) { if (e.target.checked) n.add(s.id); else n.delete(s.id) }
                       return n
                     })}
                     title="Выбрать всех"
@@ -223,7 +229,7 @@ export function StudentsClient({ students: initial, isAdmin = false, teachers = 
             </tr>
           </thead>
           <tbody className="divide-y">
-            {students.map((s) => {
+            {pagedStudents.map((s) => {
               const isActive = s.is_active !== false
               return (
                 <tr key={s.id} className={`hover:bg-muted/30 transition-colors ${!isActive ? 'opacity-60' : ''}`}>
@@ -375,6 +381,14 @@ export function StudentsClient({ students: initial, isAdmin = false, teachers = 
           </tbody>
         </table>
       </div>
+
+      <LoadMoreControl
+        hasMore={hasMore}
+        loadMore={loadMore}
+        remaining={total - showing}
+        step={15}
+        totalLabel={total > 15 ? `Показано всего ${total} учеников` : undefined}
+      />
 
       {/* Edit dialog (admin only) */}
       {isAdmin && (

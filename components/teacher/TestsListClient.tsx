@@ -2,6 +2,8 @@
 
 import { useState, useMemo } from 'react'
 import Link from 'next/link'
+import { usePagination } from '@/lib/hooks/usePagination'
+import { LoadMoreControl } from '@/components/shared/LoadMoreControl'
 import { BulkDeleteTestsBar } from '@/components/teacher/BulkDeleteTestsBar'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -163,6 +165,11 @@ export function TestsListClient({
   const homework = filtered.filter(r => r.kind === 'homework')
   const current = tab === 'test' ? tests : homework
 
+  // По 15 строк на вкладку, возврат к первым 15 — при смене вкладки
+  // «Тесты»/«Домашние задания» или фильтра по учителю
+  const { visible: pagedCurrent, hasMore, loadMore, total, showing } =
+    usePagination(current, 15, 15, `${tab}|${filterTeacher}`)
+
   const tabs: { key: Tab; label: string; count: number }[] = [
     { key: 'test', label: 'Тесты', count: tests.length },
     { key: 'homework', label: 'Домашние задания', count: homework.length },
@@ -238,12 +245,19 @@ export function TestsListClient({
             label={tab === 'homework' ? 'ДЗ' : 'тест'}
           />
           <TestsTable
-            rows={current}
+            rows={pagedCurrent}
             showExamType={tab === 'test'}
             showOwner={isAdmin}
             selected={selected}
             onToggle={toggle}
             onToggleAll={toggleAll}
+          />
+          <LoadMoreControl
+            hasMore={hasMore}
+            loadMore={loadMore}
+            remaining={total - showing}
+            step={15}
+            totalLabel={total > 15 ? `Показано всего ${total}` : undefined}
           />
         </div>
       )}

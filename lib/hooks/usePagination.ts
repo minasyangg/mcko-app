@@ -1,38 +1,55 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useCallback } from 'react'
 
 const PAGE_SIZE = 25
 
-/** Client-side pagination with IntersectionObserver auto-load and manual "load more". */
-export function usePagination<T>(items: T[], pageSize = PAGE_SIZE) {
-  const [page, setPage] = useState(1)
+/**
+ * Клиентская пагинация списка: показываем первые `initialSize` строк, дальше
+ * растём на `step` по каждому нажатию «Показать ещё». `initialSize` по
+ * умолчанию равен `step`; разные значения нужны, когда первый экран и шаг
+ * подгрузки заданы отдельно (напр. Результаты: сразу 20, потом по 10).
+ * `resetKey` — значение, при смене которого список возвращается к первой
+ * порции (вкладка, набор фильтров); списки без переключателей его не передают.
+ *
+ * Подгрузка только по явному нажатию кнопки. Автоподгрузка по скроллу
+ * (IntersectionObserver на сентинеле под таблицей) здесь была и оказалась
+ * несовместима с задачей: на списке из 15 строк сентинел попадал в зону
+ * наблюдения сразу на первом рендере — уходить за сгиб короткому списку
+ * некуда, — и список долистывался до конца сам, до первой отрисовки. Смысл
+ * пагинации здесь в том, чтобы строк на странице было меньше, поэтому
+ * «дозагрузить незаметно» противоречит самой цели.
+ */
+export function usePagination<T>(
+  items: T[],
+  step = PAGE_SIZE,
+  initialSize = step,
+  resetKey?: unknown,
+) {
+  const [shown, setShown] = useState(initialSize)
 
-  // Reset to first page whenever the source array changes (e.g., filter applied)
-  useEffect(() => setPage(1), [items])
+  // Сброс к первой порции при смене вкладки/фильтра — по явному ключу от
+  // вызывающего, а не по угадыванию. Автоматически вывести этот момент из
+  // самого `items` нельзя: по ссылке на массив — ложные срабатывания (почти
+  // везде это .filter()/.map(), пересобираемый на каждом рендере), по
+  // items.length — пропуски (у двух вкладок легко совпадает число строк, и
+  // тогда на новой вкладке видно «30 строк» вместо первых 15). Списки без
+  // переключателей resetKey не передают — им сбрасывать нечего.
+  //
+  // Сравнение прямо в рендере, а не в эффекте: так React отрисовывает первую
+  // порцию сразу, одним проходом. Эффект показал бы кадр со старым `shown`
+  // (на новой вкладке мелькнули бы 30 строк вместо 15) и добавил бы лишний
+  // ре-рендер — штатный приём React для «состояние зависит от пропа».
+  const [prevResetKey, setPrevResetKey] = useState(resetKey)
+  if (prevResetKey !== resetKey) {
+    setPrevResetKey(resetKey)
+    setShown(initialSize)
+  }
 
-  const visible = items.slice(0, page * pageSize)
+  const visible = items.slice(0, shown)
   const hasMore = visible.length < items.length
   const loadMore = useCallback(() => {
-    if (hasMore) setPage((p) => p + 1)
-  }, [hasMore])
+    if (hasMore) setShown((s) => s + step)
+  }, [hasMore, step])
 
   return { visible, hasMore, loadMore, total: items.length, showing: visible.length }
 }
 
-/** Attach to a sentinel div — fires onLoadMore when it enters the viewport. */
-export function useScrollTrigger(onLoadMore: () => void, enabled: boolean) {
-  const ref = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!enabled) return
-    const el = ref.current
-    if (!el) return
-    const io = new IntersectionObserver(
-      ([entry]) => { if (entry.isIntersecting) onLoadMore() },
-      { rootMargin: '300px' }
-    )
-    io.observe(el)
-    return () => io.disconnect()
-  }, [onLoadMore, enabled])
-
-  return ref
-}

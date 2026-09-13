@@ -1,6 +1,8 @@
 'use client'
 
 import { useState, useTransition } from 'react'
+import { usePagination } from '@/lib/hooks/usePagination'
+import { LoadMoreControl } from '@/components/shared/LoadMoreControl'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
@@ -32,6 +34,8 @@ interface Props {
 export function GroupMembersEditor({ groupId, initialMembers, availableStudents }: Props) {
   const router = useRouter()
   const [members, setMembers] = useState<Member[]>(initialMembers)
+  // По 15 строк — группа может расти до размера всего класса и больше
+  const { visible: pagedMembers, hasMore, loadMore, total, showing } = usePagination(members, 15)
   const [students, setStudents] = useState<AvailableStudent[]>(availableStudents)
   const [selectedStudentId, setSelectedStudentId] = useState<string>('')
   const [isPending, startTransition] = useTransition()
@@ -136,7 +140,7 @@ export function GroupMembersEditor({ groupId, initialMembers, availableStudents 
                 </tr>
               </thead>
               <tbody>
-                {members.map((member) => (
+                {pagedMembers.map((member) => (
                   <tr key={member.user_id} className="border-b last:border-0 hover:bg-muted/30">
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
@@ -169,6 +173,13 @@ export function GroupMembersEditor({ groupId, initialMembers, availableStudents 
             </table>
           </div>
         )}
+        <LoadMoreControl
+          hasMore={hasMore}
+          loadMore={loadMore}
+          remaining={total - showing}
+          step={15}
+          totalLabel={total > 15 ? `Показано всего ${total} участников` : undefined}
+        />
       </div>
 
       {/* Add member form */}
