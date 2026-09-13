@@ -69,9 +69,10 @@ export function AssignmentsPanel({
   )
 
   // По 15 строк на экран — с ростом числа назначений список иначе рос без
-  // предела на одной странице (пагинация сбрасывается при смене фильтра
-  // «Все/Тесты/ДЗ/Программы» вместе с filteredRows, как и задумано)
-  const { visible: pagedRows, hasMore, loadMore, total, showing } = usePagination(filteredRows, 15)
+  // предела на одной странице. Возврат к первым 15 — при смене фильтра
+  // «Все/Тесты/ДЗ/Программы».
+  const { visible: pagedRows, hasMore, loadMore, total, showing } =
+    usePagination(filteredRows, 15, 15, filter)
   // Сводка по программам — отдельный список, растёт с числом roadmap
   const {
     visible: pagedPrograms, hasMore: hasMorePrograms, loadMore: loadMorePrograms,

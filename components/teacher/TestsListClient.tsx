@@ -165,9 +165,10 @@ export function TestsListClient({
   const homework = filtered.filter(r => r.kind === 'homework')
   const current = tab === 'test' ? tests : homework
 
-  // По 15 строк на вкладку — сбрасывается при смене вкладки/фильтра учителя
-  // вместе с current (usePagination следит за identity массива)
-  const { visible: pagedCurrent, hasMore, loadMore, total, showing } = usePagination(current, 15)
+  // По 15 строк на вкладку, возврат к первым 15 — при смене вкладки
+  // «Тесты»/«Домашние задания» или фильтра по учителю
+  const { visible: pagedCurrent, hasMore, loadMore, total, showing } =
+    usePagination(current, 15, 15, `${tab}|${filterTeacher}`)
 
   const tabs: { key: Tab; label: string; count: number }[] = [
     { key: 'test', label: 'Тесты', count: tests.length },

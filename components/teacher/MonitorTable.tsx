@@ -310,8 +310,10 @@ export function MonitorTable({ initialAttempts, isAdmin = false, assignments = [
 
   // По 15 строк на экран, дальше «показать ещё» — раньше вкладки «В
   // процессе»/«На проверке»/«Проверено» рендерили весь filtered целиком, и
-  // с ростом числа учеников/попыток список рос без предела на одной странице
-  const { visible: pagedRows, hasMore, loadMore, total, showing } = usePagination(filtered, 15)
+  // с ростом числа учеников/попыток список рос без предела на одной странице.
+  // Возврат к первым 15 — при смене вкладки и при смене фильтров.
+  const { visible: pagedRows, hasMore, loadMore, total, showing } =
+    usePagination(filtered, 15, 15, `${tab}|${JSON.stringify(filters)}`)
 
   const tabs: { key: Tab; label: string; count: number }[] = [
     { key: 'assignments', label: 'Назначения', count: assignments.length },

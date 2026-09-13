@@ -56,8 +56,12 @@ export function ResultsClient({ rows, tests, groups, programs }: Props) {
     })
   }, [updatedRows, search, filterTest, filterGroup, filterStatus, filterKind, filterProgram])
 
-  // Первый экран — 20 строк, дальше по 10 за раз («показать ещё 10»)
-  const { visible, hasMore, loadMore, total, showing } = usePagination(filtered, 10, 20)
+  // Первый экран — 20 строк, дальше по 10 за раз («показать ещё 10»).
+  // Возврат к первым 20 — при любом изменении поиска/фильтров.
+  const { visible, hasMore, loadMore, total, showing } = usePagination(
+    filtered, 10, 20,
+    `${search}|${filterTest}|${filterGroup}|${filterStatus}|${filterKind}|${filterProgram}`,
+  )
 
   const completed = filtered.filter((r) => r.maxScore > 0)
   const avgPct = completed.length > 0
