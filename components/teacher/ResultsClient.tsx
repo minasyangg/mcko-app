@@ -1,7 +1,8 @@
 'use client'
 
 import { useState, useMemo } from 'react'
-import { usePagination, useScrollTrigger } from '@/lib/hooks/usePagination'
+import { usePagination } from '@/lib/hooks/usePagination'
+import { LoadMoreControl } from '@/components/shared/LoadMoreControl'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -55,8 +56,8 @@ export function ResultsClient({ rows, tests, groups, programs }: Props) {
     })
   }, [updatedRows, search, filterTest, filterGroup, filterStatus, filterKind, filterProgram])
 
-  const { visible, hasMore, loadMore, total, showing } = usePagination(filtered)
-  const scrollRef = useScrollTrigger(loadMore, hasMore)
+  // Первый экран — 20 строк, дальше по 10 за раз («показать ещё 10»)
+  const { visible, hasMore, loadMore, total, showing } = usePagination(filtered, 10, 20)
 
   const completed = filtered.filter((r) => r.maxScore > 0)
   const avgPct = completed.length > 0
@@ -287,27 +288,13 @@ export function ResultsClient({ rows, tests, groups, programs }: Props) {
         </div>
       )}
 
-      {/* Pagination footer */}
-      {hasMore && (
-        <div className="flex flex-col items-center gap-3 pt-2">
-          {/* Auto-load sentinel (desktop scroll) */}
-          <div ref={scrollRef} />
-          {/* Manual button (mobile-friendly) */}
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={loadMore}
-            className="w-full sm:w-auto"
-          >
-            Ещё ({total - showing} строк)
-          </Button>
-        </div>
-      )}
-      {!hasMore && total > 25 && (
-        <p className="text-center text-xs text-muted-foreground">
-          Показано всего {total} результатов
-        </p>
-      )}
+      <LoadMoreControl
+        hasMore={hasMore}
+        loadMore={loadMore}
+        remaining={total - showing}
+        step={10}
+        totalLabel={total > 20 ? `Показано всего ${total} результатов` : undefined}
+      />
 
       <AttemptDrawer
         attemptId={selectedAttemptId}

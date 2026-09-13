@@ -2,6 +2,8 @@
 
 import { useMemo, useState } from 'react'
 import Link from 'next/link'
+import { usePagination } from '@/lib/hooks/usePagination'
+import { LoadMoreControl } from '@/components/shared/LoadMoreControl'
 import { Button } from '@/components/ui/button'
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -66,6 +68,11 @@ export function AssignmentsPanel({
     [rows, filter],
   )
 
+  // По 15 строк на экран — с ростом числа назначений список иначе рос без
+  // предела на одной странице (пагинация сбрасывается при смене фильтра
+  // «Все/Тесты/ДЗ/Программы» вместе с filteredRows, как и задумано)
+  const { visible: pagedRows, hasMore, loadMore, total, showing } = usePagination(filteredRows, 15)
+
   return (
     <>
       <div className="flex items-center justify-between gap-3 flex-wrap">
@@ -128,7 +135,7 @@ export function AssignmentsPanel({
                         </tr>
                       </thead>
                       <tbody className="divide-y">
-                        {filteredRows.map(a => {
+                        {pagedRows.map(a => {
                           // Досрочное завершение (полный балл / решение учителя)
                           // объясняем словами: счётчик «использовано 1 из 3» рядом
                           // с «завершён» иначе выглядит как рассинхрон.
@@ -184,6 +191,13 @@ export function AssignmentsPanel({
                   </div>
                 </div>
               )}
+              <LoadMoreControl
+                hasMore={hasMore}
+                loadMore={loadMore}
+                remaining={total - showing}
+                step={15}
+                totalLabel={total > 15 ? `Показано всего ${total} назначений` : undefined}
+              />
             </div>
           )}
         </div>

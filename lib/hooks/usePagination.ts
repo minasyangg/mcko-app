@@ -2,18 +2,26 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 
 const PAGE_SIZE = 25
 
-/** Client-side pagination with IntersectionObserver auto-load and manual "load more". */
-export function usePagination<T>(items: T[], pageSize = PAGE_SIZE) {
-  const [page, setPage] = useState(1)
+/**
+ * Client-side pagination with IntersectionObserver auto-load and manual
+ * "load more". `initialSize` — сколько строк показать сразу (по умолчанию
+ * равен `step`); `step` — на сколько строк вырастает список по каждому
+ * "показать ещё"/докрутке колесом. Разные значения нужны, когда первый
+ * экран и шаг подгрузки заданы отдельно (напр. Результаты: сразу 20, потом
+ * по 10).
+ */
+export function usePagination<T>(items: T[], step = PAGE_SIZE, initialSize = step) {
+  const [shown, setShown] = useState(initialSize)
 
-  // Reset to first page whenever the source array changes (e.g., filter applied)
-  useEffect(() => setPage(1), [items])
+  // Reset whenever the source array changes (e.g., filter applied) —
+  // иначе после смены фильтра/вкладки видно N строк от предыдущего набора
+  useEffect(() => setShown(initialSize), [items, initialSize])
 
-  const visible = items.slice(0, page * pageSize)
+  const visible = items.slice(0, shown)
   const hasMore = visible.length < items.length
   const loadMore = useCallback(() => {
-    if (hasMore) setPage((p) => p + 1)
-  }, [hasMore])
+    if (hasMore) setShown((s) => s + step)
+  }, [hasMore, step])
 
   return { visible, hasMore, loadMore, total: items.length, showing: visible.length }
 }
