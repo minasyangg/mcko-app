@@ -15,8 +15,8 @@ export default async function RoadmapsPage() {
 
   const { data: roadmaps } = await supabase
     .from('roadmaps')
-    .select('id, title, subject, description, group_id, created_at')
-    .order('created_at', { ascending: false })
+    .select('id, title, subject, description, group_id, sort_order')
+    .order('sort_order', { ascending: true })
 
   // Счётчики тем и учеников
   const ids = (roadmaps ?? []).map(r => r.id)
@@ -36,6 +36,7 @@ export default async function RoadmapsPage() {
     title: r.title,
     subject: r.subject,
     description: r.description,
+    sort_order: r.sort_order,
     topic_count: topicCount.get(r.id) ?? 0,
     student_count: r.group_id ? (memberCount.get(r.group_id) ?? 0) : 0,
   }))

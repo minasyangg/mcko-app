@@ -754,6 +754,9 @@ export type Database = {
           level: string | null
           organization_id: string | null
           page_count: number | null
+          pdf_original_size_bytes: number | null
+          pdf_size_bytes: number | null
+          pdf_storage_path: string | null
           publication_year: number | null
           publisher: string | null
           subject: string
@@ -775,6 +778,9 @@ export type Database = {
           level?: string | null
           organization_id?: string | null
           page_count?: number | null
+          pdf_original_size_bytes?: number | null
+          pdf_size_bytes?: number | null
+          pdf_storage_path?: string | null
           publication_year?: number | null
           publisher?: string | null
           subject: string
@@ -796,6 +802,9 @@ export type Database = {
           level?: string | null
           organization_id?: string | null
           page_count?: number | null
+          pdf_original_size_bytes?: number | null
+          pdf_size_bytes?: number | null
+          pdf_storage_path?: string | null
           publication_year?: number | null
           publisher?: string | null
           subject?: string
@@ -1930,6 +1939,7 @@ export type Database = {
           group_id: string | null
           id: string
           organization_id: string
+          sort_order: number
           subject: string | null
           title: string
         }
@@ -1940,6 +1950,7 @@ export type Database = {
           group_id?: string | null
           id?: string
           organization_id: string
+          sort_order?: number
           subject?: string | null
           title: string
         }
@@ -1950,6 +1961,7 @@ export type Database = {
           group_id?: string | null
           id?: string
           organization_id?: string
+          sort_order?: number
           subject?: string | null
           title?: string
         }
