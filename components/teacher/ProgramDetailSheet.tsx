@@ -60,6 +60,7 @@ export function ProgramDetailSheet({ roadmapId, onClose }: Props) {
               <ProgramProgressView
                 program={detail}
                 onSelectAttempt={setSelectedAttemptId}
+                onGranted={() => load(detail.id)}
               />
             )}
           </div>

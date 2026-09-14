@@ -120,6 +120,22 @@ export interface ProgramItemStatus {
   max_attempts: number
   /** null — задание открыто; см. lib/assignments/completion */
   closed_reason: string | null
+  /**
+   * Ученик вступил в группу программы более чем на 3 дня позже создания
+   * ЭТОГО группового назначения (миграция 058, student_sees_group_assignment)
+   * — само задание ему не видно и не открывается, статус здесь чисто
+   * информационный «пропущено», не «not_started». Персональных назначений
+   * (personalAssignmentId ниже) не касается — они видны всегда.
+   */
+  hiddenByLateJoin: boolean
+  /**
+   * id персонального назначения (assignments.student_id), которым учитель
+   * вручную открыл ЭТО же задание пропустившему ученику — «Открыть доступ»
+   * в ProgramProgressView. Прогресс по нему считается отдельной строкой
+   * statuses с этим же assignment_id (см. buildStatuses), это поле — просто
+   * ссылка, чтобы UI не предлагал открыть повторно.
+   */
+  personalAssignmentId: string | null
 }
 
 export interface ProgramTopicItem {
@@ -168,20 +184,26 @@ export async function getRoadmapDetail(supabase: Client, roadmapId: string): Pro
         .from('assignments')
         .select(`
           id, roadmap_topic_id, kind, max_attempts, ends_at, closed_at, test_version_id,
+          group_id, student_id, created_at,
           test_versions!test_version_id ( tests!test_id ( title, kind ) )
         `)
         .in('roadmap_topic_id', topicIds)
     : { data: [] as {
         id: string; roadmap_topic_id: string | null; kind: string | null
         max_attempts: number | null; ends_at: string | null; closed_at: string | null
-        test_version_id: string
+        test_version_id: string; group_id: string | null; student_id: string | null
+        created_at: string | null
         test_versions: { tests: { title: string; kind: string } | null } | null
       }[] }
 
   const { data: members } = roadmap.group_id
-    ? await supabase.from('group_members').select('user_id').eq('group_id', roadmap.group_id)
-    : { data: [] as { user_id: string }[] }
-  const studentIds = (members ?? []).map(m => m.user_id)
+    ? await supabase.from('group_members').select('user_id, added_at').eq('group_id', roadmap.group_id)
+    : { data: [] as { user_id: string; added_at: string | null }[] }
+  const studentIds = members?.map(m => m.user_id) ?? []
+  // Дата вступления КАЖДОГО ученика в группу программы — нужна, чтобы
+  // повторить формулу student_sees_group_assignment (миграция 058) на клиенте
+  // учителя: он должен видеть, какие групповые назначения ученику не видны.
+  const joinedAtByStudent = new Map(members?.map(m => [m.user_id, m.added_at]) ?? [])
 
   const { data: profiles } = studentIds.length
     ? await supabase.from('profiles').select('id, full_name').in('id', studentIds)
@@ -239,32 +261,88 @@ export async function getRoadmapDetail(supabase: Client, roadmapId: string): Pro
     sfrByKey.set(`${r.assignment_id}_${r.student_id}`, r)
   }
 
+  // Групповые назначения темы — общие всем ученикам программы (обычный
+  // случай). Персональные (student_id заполнен) — либо личное ДЗ, добавленное
+  // мимо группы, либо «догоняющая» копия, которой учитель вручную открыл
+  // ученику доступ к групповому заданию, скрытому правилом «3 дня» (см. ниже).
+  const groupItems = (assignmentRows ?? []).filter(a => a.group_id)
+  const personalItems = (assignmentRows ?? []).filter(a => a.student_id)
+
+  // (test_version_id, student_id) → id личной копии — чтобы у скрытого
+  // группового задания найти, не открыт ли уже персональный доступ.
+  const personalByVersionAndStudent = new Map(
+    personalItems.map(a => [`${a.test_version_id}_${a.student_id}`, a.id])
+  )
+
+  // Повторяет student_sees_group_assignment (миграция 058): группового
+  // назначения ученику не видно, если он вступил в группу больше чем на 3 дня
+  // позже создания САМОГО назначения. Нет created_at/added_at — не скрываем
+  // (осторожный дефолт «показать», а не наоборот).
+  const THREE_DAYS_MS = 3 * 24 * 60 * 60 * 1000
+  function isHiddenByLateJoin(assignmentCreatedAt: string | null, studentId: string): boolean {
+    const joinedAt = joinedAtByStudent.get(studentId)
+    if (!assignmentCreatedAt || !joinedAt) return false
+    return new Date(joinedAt).getTime() > new Date(assignmentCreatedAt).getTime() + THREE_DAYS_MS
+  }
+
   const statuses: ProgramItemStatus[] = []
-  for (const a of assignmentRows ?? []) {
+  for (const a of groupItems) {
     for (const sid of studentIds) {
+      const hidden = isHiddenByLateJoin(a.created_at, sid)
       const key = `${a.id}_${sid}`
       const latest = latestByKey.get(key)
       const sfrRow = sfrByKey.get(key)
       statuses.push({
         assignment_id: a.id,
         student_id: sid,
-        status: latest?.status ?? 'not_started',
-        score: sfrRow?.final_score ?? latest?.score ?? null,
-        max_score: sfrRow?.max_score ?? latest?.max_score ?? null,
-        attempt_id: latest?.id ?? null,
+        // Скрытому назначению не бывает реальной попытки этого ученика (RLS
+        // не даёт её начать) — статус чисто информационный «пропущено».
+        status: hidden ? 'not_started' : latest?.status ?? 'not_started',
+        score: hidden ? null : sfrRow?.final_score ?? latest?.score ?? null,
+        max_score: hidden ? null : sfrRow?.max_score ?? latest?.max_score ?? null,
+        attempt_id: hidden ? null : latest?.id ?? null,
         // attempt_count в итоге не уменьшается при удалении попытки админом,
         // поэтому он приоритетнее живого подсчёта
-        attempts_used: Math.max(sfrRow?.attempt_count ?? 0, liveCountByKey.get(key) ?? 0),
+        attempts_used: hidden ? 0 : Math.max(sfrRow?.attempt_count ?? 0, liveCountByKey.get(key) ?? 0),
         max_attempts: a.max_attempts ?? 1,
         // closed_at на назначении — закрытие «для всех», оно перекрывает
         // персональную причину (миграция 038)
-        closed_reason: a.closed_at ? 'forced' : sfrRow?.closed_reason ?? null,
+        closed_reason: hidden ? null : a.closed_at ? 'forced' : sfrRow?.closed_reason ?? null,
+        hiddenByLateJoin: hidden,
+        personalAssignmentId: hidden
+          ? personalByVersionAndStudent.get(`${a.test_version_id}_${sid}`) ?? null
+          : null,
       })
     }
   }
+  // Персональные назначения темы (личные ДЗ и «догоняющие» копии) — статус
+  // только для СВОЕГО ученика, не для всей программы.
+  for (const a of personalItems) {
+    const sid = a.student_id!
+    const key = `${a.id}_${sid}`
+    const latest = latestByKey.get(key)
+    const sfrRow = sfrByKey.get(key)
+    statuses.push({
+      assignment_id: a.id,
+      student_id: sid,
+      status: latest?.status ?? 'not_started',
+      score: sfrRow?.final_score ?? latest?.score ?? null,
+      max_score: sfrRow?.max_score ?? latest?.max_score ?? null,
+      attempt_id: latest?.id ?? null,
+      attempts_used: Math.max(sfrRow?.attempt_count ?? 0, liveCountByKey.get(key) ?? 0),
+      max_attempts: a.max_attempts ?? 1,
+      closed_reason: a.closed_at ? 'forced' : sfrRow?.closed_reason ?? null,
+      hiddenByLateJoin: false,
+      personalAssignmentId: null,
+    })
+  }
 
+  // Темы программы состоят из ГРУППОВЫХ заданий — «догоняющие» личные копии
+  // не заводят отдельный пункт темы (иначе он бы лишним появился у всех
+  // остальных учеников); их прогресс читается через personalAssignmentId
+  // выше, привязку к списку statuses этого же ученика.
   const itemsByTopic = new Map<string, ProgramTopicItem[]>()
-  for (const a of assignmentRows ?? []) {
+  for (const a of groupItems) {
     const tid = a.roadmap_topic_id
     if (!tid) continue
     const arr = itemsByTopic.get(tid) ?? []

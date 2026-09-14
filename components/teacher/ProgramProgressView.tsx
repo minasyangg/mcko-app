@@ -4,9 +4,11 @@ import { useState } from 'react'
 import { usePagination } from '@/lib/hooks/usePagination'
 import { LoadMoreControl } from '@/components/shared/LoadMoreControl'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { StatusChip } from '@/components/shared/StatusChip'
-import { ChevronDown, ChevronRight } from 'lucide-react'
+import { ChevronDown, ChevronRight, UserPlus, Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { toast } from 'sonner'
 import { closedReasonLabel } from '@/lib/assignments/completion'
 import { CloseAssignmentButton } from '@/components/teacher/CloseAssignmentButton'
 import type { ProgramDetail } from '@/lib/roadmaps/progress'
@@ -16,19 +18,40 @@ interface Props {
   // readOnly=true — админ-кабинет: без кликов по ячейкам
   readOnly?: boolean
   onSelectAttempt?: (attemptId: string) => void
+  /** Рефетч после «Открыть доступ» — тот же callback, что и после оценки попытки */
+  onGranted?: () => void
 }
 
 // Список учеников программы — каждый компактной строкой (ФИО + краткий итог),
 // разворачивается по клику в детальную раскладку тем/заданий ЭТОГО ученика.
 // Прогрессивное раскрытие вместо одной широкой таблицы «тема × ученик» —
 // читаемее при нескольких темах/заданиях на тему.
-export function ProgramProgressView({ program, readOnly = false, onSelectAttempt }: Props) {
+export function ProgramProgressView({ program, readOnly = false, onSelectAttempt, onGranted }: Props) {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
+  const [grantingKey, setGrantingKey] = useState<string | null>(null)
   // По 15 строк — список растёт с числом учеников в программе
   const { visible: pagedStudents, hasMore, loadMore, total, showing } = usePagination(program.students, 15)
 
   const allItems = program.topics.flatMap(t => t.items)
   const statusByKey = new Map(program.statuses.map(s => [`${s.assignment_id}_${s.student_id}`, s]))
+
+  async function grantAccess(topicId: string, assignmentId: string, studentId: string) {
+    const key = `${assignmentId}_${studentId}`
+    setGrantingKey(key)
+    try {
+      const res = await fetch(`/api/roadmaps/${program.id}/topics/${topicId}/items/${assignmentId}/grant-access`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ student_id: studentId }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) { toast.error(data.error ?? 'Не удалось открыть доступ'); return }
+      toast.success('Доступ открыт — заданию присвоена личная попытка без общего дедлайна группы')
+      onGranted?.()
+    } finally {
+      setGrantingKey(null)
+    }
+  }
 
   if (program.students.length === 0) {
     return <p className="text-sm text-muted-foreground py-6 text-center">В программе пока нет учеников.</p>
@@ -75,7 +98,19 @@ export function ProgramProgressView({ program, readOnly = false, onSelectAttempt
                     ) : (
                       <div className="space-y-1">
                         {topic.items.map(item => {
-                          const s = statusByKey.get(`${item.assignment_id}_${student.id}`)
+                          const groupStatus = statusByKey.get(`${item.assignment_id}_${student.id}`)
+                          // Скрыто правилом «3 дня» (058) — ученик вступил в
+                          // группу программы заметно позже, чем создано это
+                          // задание, RLS ему его не показывает вовсе. Если
+                          // учитель уже открыл личный доступ (кнопка ниже),
+                          // берём статус ЛИЧНОЙ копии — она и есть реальный
+                          // прогресс этого ученика по теме.
+                          const hidden = !!groupStatus?.hiddenByLateJoin
+                          const personalStatus = hidden && groupStatus?.personalAssignmentId
+                            ? statusByKey.get(`${groupStatus.personalAssignmentId}_${student.id}`)
+                            : undefined
+                          const s = hidden ? personalStatus : groupStatus
+                          const grantKey = `${item.assignment_id}_${student.id}`
                           const clickable = !readOnly && !!s?.attempt_id && onSelectAttempt
                           return (
                             <div
@@ -92,40 +127,68 @@ export function ProgramProgressView({ program, readOnly = false, onSelectAttempt
                                 </Badge>
                                 <span className="text-muted-foreground truncate">{item.title}</span>
                               </span>
-                              <span className="flex items-center gap-2 shrink-0">
-                                {s && s.score !== null && (
-                                  <span className="text-xs font-medium tabular-nums text-muted-foreground">
-                                    {s.score}/{s.max_score ?? '?'}
+                              {hidden && !s ? (
+                                // Скрыто правилом «3 дня» и учитель ещё не открыл
+                                // личный доступ — показываем это явно вместо
+                                // молчаливого «не начато», которое выглядело бы
+                                // как обычный пропуск задания учеником.
+                                <span className="flex items-center gap-2 shrink-0">
+                                  <span className="text-[11px] text-muted-foreground/70" title="Ученик вступил в программу после того, как это задание было выдано группе — ему оно не видно">
+                                    пропущено (вступил позже)
                                   </span>
-                                )}
-                                {item.max_attempts > 1 && s && (
-                                  <span className="text-[11px] text-muted-foreground/70">
-                                    {s.attempts_used}/{item.max_attempts}
-                                  </span>
-                                )}
-                                {closedReasonLabel(s?.closed_reason) && (
-                                  <span
-                                    className="text-[11px] font-medium text-emerald-700 dark:text-emerald-400"
-                                    title={`Завершено: ${closedReasonLabel(s?.closed_reason)}`}
-                                  >
-                                    ✓ завершено
-                                  </span>
-                                )}
-                                <StatusChip status={s?.status ?? 'not_started'} />
-                                {/* stopPropagation: строка кликабельна и открывает
-                                    попытку — кнопка не должна её открывать */}
-                                {!readOnly && (
-                                  <span onClick={(e) => e.stopPropagation()}>
-                                    <CloseAssignmentButton
-                                      assignmentId={item.assignment_id}
-                                      studentId={student.id}
-                                      closedReason={s?.closed_reason ?? null}
-                                      targetLabel={`Ученик ${student.full_name} по заданию «${item.title}»`}
-                                      size="row"
-                                    />
-                                  </span>
-                                )}
-                              </span>
+                                  {!readOnly && (
+                                    <Button
+                                      variant="outline" size="sm" className="h-7 text-xs"
+                                      disabled={grantingKey === grantKey}
+                                      onClick={(e) => { e.stopPropagation(); grantAccess(topic.id, item.assignment_id, student.id) }}
+                                    >
+                                      {grantingKey === grantKey
+                                        ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                        : <><UserPlus className="h-3.5 w-3.5 mr-1" />Открыть доступ</>}
+                                    </Button>
+                                  )}
+                                </span>
+                              ) : (
+                                <span className="flex items-center gap-2 shrink-0">
+                                  {hidden && (
+                                    <span className="text-[11px] text-muted-foreground/70" title="Личная копия задания — без общего дедлайна группы, открыта учителем вручную">
+                                      личный доступ
+                                    </span>
+                                  )}
+                                  {s && s.score !== null && (
+                                    <span className="text-xs font-medium tabular-nums text-muted-foreground">
+                                      {s.score}/{s.max_score ?? '?'}
+                                    </span>
+                                  )}
+                                  {item.max_attempts > 1 && !hidden && s && (
+                                    <span className="text-[11px] text-muted-foreground/70">
+                                      {s.attempts_used}/{item.max_attempts}
+                                    </span>
+                                  )}
+                                  {closedReasonLabel(s?.closed_reason) && (
+                                    <span
+                                      className="text-[11px] font-medium text-emerald-700 dark:text-emerald-400"
+                                      title={`Завершено: ${closedReasonLabel(s?.closed_reason)}`}
+                                    >
+                                      ✓ завершено
+                                    </span>
+                                  )}
+                                  <StatusChip status={s?.status ?? 'not_started'} />
+                                  {/* stopPropagation: строка кликабельна и открывает
+                                      попытку — кнопка не должна её открывать */}
+                                  {!readOnly && (
+                                    <span onClick={(e) => e.stopPropagation()}>
+                                      <CloseAssignmentButton
+                                        assignmentId={hidden ? groupStatus!.personalAssignmentId! : item.assignment_id}
+                                        studentId={student.id}
+                                        closedReason={s?.closed_reason ?? null}
+                                        targetLabel={`Ученик ${student.full_name} по заданию «${item.title}»`}
+                                        size="row"
+                                      />
+                                    </span>
+                                  )}
+                                </span>
+                              )}
                             </div>
                           )
                         })}
