@@ -76,11 +76,19 @@ export default async function StudentHomePage({ searchParams }: { searchParams: 
     roadmapIds.length
       ? supabase.from('roadmap_topics').select('id, roadmap_id, title, sort_order').in('roadmap_id', roadmapIds).order('sort_order')
       : Promise.resolve({ data: [] as { id: string; roadmap_id: string; title: string; sort_order: number }[] }),
-    groupIds.length
-      ? supabase.from('assignments')
-          .select('id, roadmap_topic_id, kind, max_attempts, ends_at, closed_at, created_at, group_id, test_versions!test_version_id(tests!test_id(title, subject, exam_type, is_active))')
-          .in('group_id', groupIds).not('roadmap_topic_id', 'is', null)
-      : Promise.resolve({ data: [] as never[] }),
+    // Групповые назначения темы программы ИЛИ персональные «догоняющие» копии
+    // (assignments.student_id, group_id=null) — их заводит «Открыть доступ»
+    // (grant-access) ученику, кого правило «3 дня» (058) скрыло от группового
+    // назначения. group_id=null у них не проходит .in('group_id', groupIds),
+    // поэтому раньше такие назначения не показывались ученику вообще нигде —
+    // ни здесь, ни в общем списке (тот исключает их фильтром roadmap_topic_id
+    // is null) — кнопка технически открывала доступ, но кабинет его не видел.
+    supabase.from('assignments')
+      .select('id, roadmap_topic_id, kind, max_attempts, ends_at, closed_at, created_at, group_id, test_versions!test_version_id(tests!test_id(title, subject, exam_type, is_active))')
+      .or(groupIds.length > 0
+        ? `student_id.eq.${user.id},group_id.in.(${groupIds.join(',')})`
+        : `student_id.eq.${user.id}`)
+      .not('roadmap_topic_id', 'is', null),
   ])
 
   const topicById = new Map((topics ?? []).map(t => [t.id, t]))
