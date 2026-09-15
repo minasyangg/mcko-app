@@ -67,10 +67,22 @@ const { data: book, error: bookErr } = await db.from('books').select('id, title'
 if (bookErr || !book) { console.error('Книга не найдена:', bookErr?.message ?? bookId); process.exit(1) }
 console.log(`Книга: ${book.title} (${bookId})`)
 
-const { data: pages, error: pagesErr } = await db.from('book_pages').select('page_index, markdown').eq('book_id', bookId)
-if (pagesErr) { console.error('book_pages:', pagesErr.message); process.exit(1) }
-const { data: problems, error: probErr } = await db.from('book_problems').select('task_number, prompt_md').eq('book_id', bookId)
-if (probErr) { console.error('book_problems:', probErr.message); process.exit(1) }
+// PostgREST по умолчанию режет выборку на 1000 строк — книги с >1000 заданий
+// (Атанасян: 1340) теряли последние ~340 без единой ошибки (data просто
+// приходил укороченным), их bcebos-ссылки никогда не находились и не
+// заменялись. Тянем постранично по 1000, пока не придёт пустая страница.
+async function selectAll(table, columns) {
+  const rows = []
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await db.from(table).select(columns).eq('book_id', bookId).range(from, from + 999)
+    if (error) { console.error(`${table}:`, error.message); process.exit(1) }
+    rows.push(...data)
+    if (data.length < 1000) break
+  }
+  return rows
+}
+const pages = await selectAll('book_pages', 'page_index, markdown')
+const problems = await selectAll('book_problems', 'task_number, prompt_md')
 
 const uniqueUrls = new Set()
 for (const p of pages) for (const m of p.markdown.matchAll(BCEBOS_RE)) uniqueUrls.add(m[0])

@@ -10,6 +10,14 @@
 //   --title "..." --authors "..." --subject Математика --grade 7
 //   --level углублённый --type textbook --publisher "..." --year 2024
 //
+// Учебник на НЕСКОЛЬКО классов сразу (одна книга, главы делятся по классам
+// внутри — напр. Атанасян «Геометрия. 7-9 классы»): --grade оставляем
+// пустым/не задаём, а границы задаём явно per-книга —
+//   --grade-by-chapter "7:1-5,8:6-9,9:10-15"
+// (номер главы = порядковый счётчик "Глава N" по документу, 1-based;
+// диапазоны включительно). grade проставляется на book_sections/
+// book_problems, не на books — см. миграцию 078.
+//
 // Исходный PDF книги (опционально, только для прямой записи в БД):
 //   --pdf <file.pdf>        # сжимается через scripts/compress-pdf.mjs и заливается
 //                           # в приватный bucket book-documents, путь пишется в
@@ -49,6 +57,19 @@ function flag(name) {
 }
 const dryRun = args.includes('--dry-run')
 const emitSqlDir = args.includes('--emit-sql') ? (flag('emit-sql') ?? 'book-import-sql') : null
+
+// "7:1-5,8:6-9,9:10-15" → [{grade:'7', from:1, to:5}, ...] — номер главы
+// = порядковый счётчик "Глава N" по документу (1-based), не печатное
+// римское/арабское число (см. parseToc: fallback-нумерация чинит это само).
+function parseGradeByChapter(spec) {
+  if (!spec) return null
+  return spec.split(',').map(part => {
+    const m = part.trim().match(/^(\d+)\s*:\s*(\d+)\s*-\s*(\d+)$/)
+    if (!m) { console.error(`--grade-by-chapter: не разобрано "${part}", ожидался формат "7:1-5"`); process.exit(1) }
+    return { grade: m[1], from: parseInt(m[2]), to: parseInt(m[3]) }
+  })
+}
+const gradeByChapter = parseGradeByChapter(flag('grade-by-chapter'))
 const pdfFile = flag('pdf') ?? null
 const pdfNoCompress = args.includes('--pdf-no-compress')
 if (pdfFile && !fs.existsSync(pdfFile)) {
@@ -407,6 +428,31 @@ function parseToc(text) {
         pending = ''
         continue
       }
+      // "N. Title" без отточия, законченное на этой же строке (не обрезано
+      // переносом) — тот же дефект OCR, что у barePara, но для пункта:
+      // отточия «.....N» на всей странице потеряны (см. Атанасян, стр. 412 —
+      // главы V-VII напечатаны вовсе без номеров страниц в оглавлении).
+      // printedPage=null здесь восстанавливается позже фолбэком по
+      // paragraph_title-блокам самих страниц (см. resolveMissingPrintedPages).
+      const barePunkt = line.match(/^(\d{1,3})\.\s*(.+?)\.?\s*$/)
+      if (barePunkt && paragraph && parseInt(barePunkt[1]) > 0) {
+        paragraph.children.push({ kind: 'punkt', number: barePunkt[1], title: barePunkt[2], printedPage: null, children: [] })
+        pending = ''
+        continue
+      }
+      // Заголовки-разделители без номера страницы, тоже законченные на
+      // строке — иначе тянутся в pending и текут в заголовок следующего
+      // реального узла (см. тот же дефект OCR)
+      if (/^(Задачи|Дополнительные\s+задачи|Практические\s+(задания|задачи)|Вопросы\s+для\s+повторения(\s+к\s+главе.*)?|Задачи\s+повышенной\s+трудности)\s*$/i.test(line)) {
+        const kind = /^Дополнительные/i.test(line) ? 'extra' : 'other-inline'
+        if (kind === 'extra') { (chapter?.children ?? sections).push({ kind: 'extra', number: null, title: line, printedPage: null, children: [] }) }
+        // «Задачи»/«Практические задания»/«Вопросы для повторения» сами по
+        // себе не заводят TOC-узел (как и в ветке с отточием ниже — see
+        // строка ~432 "else" не создаёт для них ничего) — просто закрываем
+        // текущий pending, чтобы он не приклеился к следующему заголовку
+        pending = ''
+        continue
+      }
       // строка без ..... N — начало обрезанного переносом заголовка;
       // если следующая осмысленная строка содержит номер страницы и сама
       // не начинается с №/§/Глава — она продолжение этого заголовка
@@ -432,6 +478,17 @@ function parseToc(text) {
     } else if (/^Дополнительные упражнения/i.test(title) || /^Домашн[а-яё]*\s+контрольн/i.test(title)) {
       ;(chapter?.children ?? sections).push({ kind: 'extra', number: null, title, printedPage: page, children: [] })
       paragraph = null
+    } else if (/^(Задачи|Дополнительные\s+задачи|Практические\s+(задания|задачи)|Вопросы\s+для\s+повторения(\s+к\s+главе.*)?|Задачи\s+повышенной\s+трудности)\s*$/i.test(title)) {
+      // Та же ветка-исключение, что и выше для строк БЕЗ отточия (строка
+      // ~446) — но эта строка отточие имеет («Практические задания ..... 8»).
+      // БАГ, который она чинит: до этого фикса такая строка проваливалась в
+      // "else" ниже (Предисловие/Ответы/Указатель) и ОШИБОЧНО обнуляла и
+      // chapter, и paragraph — все параграфы/пункты ПОСЛЕ первого "Практические
+      // задания"/"Задачи" любой главы становились root-level узлами вместо
+      // детей главы, из-за чего --grade-by-chapter не мог унаследовать класс
+      // (см. Атанасян: "§ 2. Луч и угол" и все параграфы после первого
+      // теряли родителя). Сам узел не заводим — только сохраняем chapter/
+      // paragraph как есть.
     } else {
       // Предисловие, Задачи повышенной трудности, Ответы, Предметный указатель...
       sections.push({ kind: 'other', number: null, title, printedPage: page, children: [] })
@@ -633,10 +690,76 @@ const flatSections = []
   }
 })(toc, null)
 
+// Фолбэк для узлов, у которых OCR не дал printedPage вовсе (оглавление
+// местами теряет отточия "…N" целыми страницами — см. Атанасян, стр. 412:
+// главы V-VII напечатаны без единого номера страницы). Заголовки глав/
+// параграфов/пунктов при этом реально печатаются В ТЕКСТЕ САМОЙ КНИГИ как
+// чистый "paragraph_title"-блок (page.titles) — ищем совпадение там,
+// в границах между соседними УЖЕ известными узлами document-order, чтобы
+// не поймать одноимённый пункт из другой главы.
+function resolveMissingPageStarts(sections) {
+  let resolved = 0
+  for (let i = 0; i < sections.length; i++) {
+    const n = sections[i]
+    if (n.pageStart !== null) continue
+    const prevKnown = sections.slice(0, i).reverse().find(s => s.pageStart !== null)
+    const nextKnown = sections.slice(i + 1).find(s => s.pageStart !== null)
+    const lo = prevKnown?.pageStart ?? 0
+    const hi = nextKnown?.pageStart ?? pages.length - 1
+    if (hi < lo) continue
+
+    // Ключ поиска в page.titles: "N. Первые_3_слова" для пункта/§,
+    // "Глава N" для главы — сравниваем по началу строки без учёта регистра.
+    let needle = null
+    if (n.kind === 'punkt') needle = new RegExp(`^${n.number}\\.\\s*${n.title.slice(0, 12).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'i')
+    else if (n.kind === 'paragraph') needle = new RegExp(`^§\\s*${String(n.number).replace(/\D/g, '')}\\b`, 'i')
+    else if (n.kind === 'chapter') needle = new RegExp(`^Глава\\s*${n.number}\\b`, 'i')
+    if (!needle) continue
+
+    for (let idx = lo; idx <= hi; idx++) {
+      const p = pages[idx]
+      // page.titles = сырой block_content блоков paragraph_title, с markdown-
+      // префиксом ("## 39. Свойства…", "#### Глава V") — снимаем перед сравнением
+      if (!p || !p.titles.some(t => needle.test(t.replace(/^#+\s*/, '').trim()))) continue
+      n.pageStart = idx
+      resolved++
+      break
+    }
+  }
+  return resolved
+}
+const resolvedByTitles = resolveMissingPageStarts(flatSections)
+if (resolvedByTitles > 0) warnings.push(`Оглавление: ${resolvedByTitles} раздел(ов) без номера страницы восстановлены по заголовкам в тексте книги`)
+
 for (let i = 0; i < flatSections.length; i++) {
   const cur = flatSections[i]
   const next = flatSections.slice(i + 1).find(s => s.pageStart !== null && s.pageStart >= (cur.pageStart ?? 0))
   cur.pageEnd = next?.pageStart != null ? Math.max(cur.pageStart ?? 0, next.pageStart - (next.pageStart > (cur.pageStart ?? 0) ? 1 : 0)) : pages.length - 1
+}
+
+// Класс по номеру главы (--grade-by-chapter) — номер считаем ТЕМ ЖЕ
+// порядковым счётчиком, что и fallback-нумерация в parseToc (римские "Глава
+// V" не матчат \d+ в chapterMatch, там уже используется порядковый номер
+// по document order как fallback) — здесь просто повторяем тот же счёт по
+// kind==='chapter', чтобы номера совпали 1:1. Дети главы (root-level в toc,
+// т.е. без .parent === другая глава дальше по цепочке) наследуют её grade.
+if (gradeByChapter) {
+  let chapterNo = 0
+  const gradeByChapterNo = (no) => gradeByChapter.find(r => no >= r.from && no <= r.to)?.grade ?? null
+  const gradeBySection = new Map()
+  for (const s of flatSections) {
+    if (s.kind === 'chapter') {
+      chapterNo++
+      gradeBySection.set(s, gradeByChapterNo(chapterNo))
+    } else {
+      // ближайший родитель-глава вверх по цепочке (parent может быть
+      // параграфом/пунктом — поднимаемся, пока не найдём chapter или root)
+      let p = s.parent
+      while (p && p.kind !== 'chapter') p = p.parent
+      gradeBySection.set(s, p ? gradeBySection.get(p) ?? null : null)
+    }
+    s.grade = gradeBySection.get(s) ?? null
+  }
 }
 
 // ── Задания ──────────────────────────────────────────────────────────────────
@@ -663,18 +786,71 @@ function findHeuristicAnswersStart(allPages) {
   }
   return start
 }
+// «Ответы» бывает не выделены в TOC отдельной строкой вовсе (Атанасян:
+// OCR потерял отточие у этой строки оглавления так же, как терял их у
+// глав V-VII, см. resolveMissingPageStarts выше — но там заголовок хотя бы
+// печатается в тексте страницы явно, здесь строки в TOC для «Ответов»
+// просто нет физически). Ищем заголовок «# Ответы…»/«# Otbet…» прямо в
+// тексте страниц — надёжнее, чем TOC, и не привязано к конкретной книге:
+// любая книга с потерянной строкой оглавления получает этот же фолбэк
+// раньше, чем совсем грубая эвристика «плотный хвост с конца книги» ниже
+// (та при этом сама уязвима: у книг, где ПОСЛЕ ответов идёт ещё и
+// предметный указатель — тоже плотный список «Термин N» — эвристика с
+// конца видит более длинный/поздний хвост указателя и останавливается там,
+// пропуская настоящее начало ответов).
+function findAnswersHeading(allPages) {
+  const HEAD_RE = /^#{1,6}[ \t]*(ответы|otbet)/im
+  for (const p of allPages) if (HEAD_RE.test(p.markdown)) return p.index
+  return null
+}
 // Гейт по isDidactic: у уже отгруженных дидактических сборников (Кубышева,
 // Чесноков) ответов нет вовсе — эвристика для них не запускается, чтобы не
 // внести регресс. Для книг с явным «Ответы» в TOC эвристика не вызывается
 // вовсе (короткое замыкание ??).
-const answersStart = answersSection?.pageStart ?? (!isDidactic ? findHeuristicAnswersStart(pages) : null)
+const answersStart = answersSection?.pageStart
+  ?? (!isDidactic ? findAnswersHeading(pages) : null)
+  ?? (!isDidactic ? findHeuristicAnswersStart(pages) : null)
 // конец ответов = начало следующего раздела книги (Предметный указатель,
 // Справочный материал...) либо конец книги
 const afterAnswersStarts = answersStart !== null
   ? flatSections.filter(s => s.pageStart !== null && s.pageStart > answersStart && s !== answersSection).map(s => s.pageStart)
   : []
 const answersEnd = afterAnswersStarts.length > 0 ? Math.min(...afterAnswersStarts) - 1 : pages.length - 1
-const advancedSection = flatSections.find(s => /повышенной трудности/i.test(s.title))
+// «Задачи повышенной трудности» — раздел в конце КАЖДОЙ главы (не один на
+// всю книгу): печатное оглавление обычно содержит лишь ОДНУ такую строку
+// (Атанасян: попадается в оглавлении единожды, для главы IX, хотя реально
+// заголовок печатается в тексте 6 раз — по разу в каждой главе, где такой
+// блок есть) — единственный flatSections-узел покрывал бы только ОДНУ
+// главу, следующие 5 остались бы неопознанными (99→0 в статистике при
+// первой попытке починить структуру TOC этой книги).
+//
+// Верхняя граница диапазона НЕ ищется эвристикой по markdown-заголовкам —
+// внутри самого раздела есть подзаголовки той же разметки (шапка «Задачи к
+// главам I и II», а у задач на построение — шаблонные «Решение/Анализ/
+// Построение/Доказательство»), неотличимые по формату от конца раздела.
+// Надёжная граница — начало СЛЕДУЮЩЕЙ ГЛАВЫ из уже построенного TOC-дерева
+// (flatSections, kind==='chapter'): раздел «повышенной трудности» физически
+// идёт последним в главе, поэтому «до начала следующей главы» — точный
+// и простой инвариант, не зависящий от внутренней разметки раздела.
+const ADVANCED_HEAD_RE = /^#{0,6}[ \t]*Задачи\s+повышенной\s+трудности[ \t]*$/gim
+const chaptersByPageStart = flatSections.filter(s => s.kind === 'chapter' && s.pageStart !== null)
+  .sort((a, b) => a.pageStart - b.pageStart)
+const advancedRanges = [] // {pageStart, atStart, pageEnd, atEnd (exclusive)}
+for (const p of pages) {
+  ADVANCED_HEAD_RE.lastIndex = 0
+  let m
+  while ((m = ADVANCED_HEAD_RE.exec(p.markdown)) !== null) {
+    const nextChapter = chaptersByPageStart.find(c => c.pageStart > p.index)
+    const endPage = nextChapter ? nextChapter.pageStart : pages.length - 1
+    advancedRanges.push({ pageStart: p.index, atStart: m.index, pageEnd: endPage, atEnd: nextChapter ? 0 : Infinity })
+  }
+}
+function isInAdvancedRange(pageIndex, at) {
+  return advancedRanges.some(r =>
+    (pageIndex > r.pageStart || (pageIndex === r.pageStart && at >= r.atStart)) &&
+    (pageIndex < r.pageEnd || (pageIndex === r.pageEnd && at < r.atEnd))
+  )
+}
 // «Итоговое повторение» (Мордкович): глава с собственной сквозной нумерацией 1..N
 const repetitionSection = flatSections.find(s => /итогов[а-яё]*\s+повторени/i.test(s.title))
 
@@ -794,8 +970,8 @@ const inRepetition = (idx) =>
 // заводим свой поток 'plain@{sectionId}', как для «Итогового повторения»,
 // но без подразделов (весь раздел — одна плоская нумерация 1..N).
 const isExcludedRootSection = (s) =>
-  s === repetitionSection || s === answersSection || s === advancedSection ||
-  /домашн[а-яё]*\s+контрольн|оглавлени|содержани|приложени|предисловие|предметный указатель|справочный материал/i.test(s.title)
+  s === repetitionSection || s === answersSection ||
+  /домашн[а-яё]*\s+контрольн|оглавлени|содержани|приложени|предисловие|предметный указатель|справочный материал|повышенной трудности/i.test(s.title)
 // Дидактические сборники тоже могут содержать разделы со сквозной plain-
 // нумерацией ВНЕ work-структуры (Макарычев «Дидактические материалы»:
 // «Итоговый тест», «Итоговое повторение по темам» — 5 тематических leaf-
@@ -892,6 +1068,51 @@ function taskReFor(idx) {
     ? COMPOSITE_RE : SEQ_RE
 }
 
+// «Вопросы для повторения к главе…» — контрольные вопросы с собственным
+// рестартом нумерации 1..N (не задания книги вовсе, намеренно не
+// извлекаются — см. project_books_module). BARE_RE/PLAIN_RE всё равно их
+// матчит по формату, и LIS корректно отбраковывает как "вне
+// последовательности", но заваливает вывод бесполезными warning'ами (до
+// 18+ на страницу). Вырезаем диапазон от заголовка до следующего
+// "#"-заголовка/конца страницы ДО матчинга — заменяем пробелами той же
+// длины, чтобы не сдвинуть смещения (at) остальных совпадений на странице.
+const QUESTIONS_HEAD_RE = /^#{0,6}[ \t]*Вопросы\s+для\s+повторения(\s+к\s+главе[^\n]*)?[ \t]*$/gim
+const ANY_HEADING_RE = /^#{1,6}[ \t]+/m
+// Блок вопросов регулярно переходит через границу страницы БЕЗ повторения
+// заголовка (см. Атанасян: вопросы 1-18 на стр.26, 19-26 продолжают их на
+// стр.27 без "####", затем настоящий заголовок "Дополнительные задачи") —
+// поэтому маска считается ПОСЛЕДОВАТЕЛЬНО по всем страницам с состоянием
+// insideQuestions, переживающим переход, а не независимо на каждой странице.
+// ВАЖНО: маскируем только ОТДЕЛЬНУЮ копию для целей сканирования номеров
+// заданий, не пишем обратно в p.markdown — та же страница идёт как есть
+// (с вопросами) в book_pages для читалки, стирать их оттуда нельзя.
+const scanMd = new Map()
+{
+  let insideQuestions = false
+  for (const p of pages) {
+    let md = p.markdown
+    let searchFrom = 0
+    if (insideQuestions) {
+      const headingAt = md.search(ANY_HEADING_RE)
+      const end = headingAt >= 0 ? headingAt : md.length
+      md = ' '.repeat(end) + md.slice(end)
+      insideQuestions = headingAt < 0
+      searchFrom = end
+    }
+    QUESTIONS_HEAD_RE.lastIndex = searchFrom
+    let m
+    while ((m = QUESTIONS_HEAD_RE.exec(md)) !== null) {
+      const rest = md.slice(m.index + m[0].length)
+      const nextHeading = rest.search(ANY_HEADING_RE)
+      const end = nextHeading >= 0 ? m.index + m[0].length + nextHeading : md.length
+      md = md.slice(0, m.index) + ' '.repeat(end - m.index) + md.slice(end)
+      insideQuestions = nextHeading < 0
+      QUESTIONS_HEAD_RE.lastIndex = end
+    }
+    scanMd.set(p.index, md)
+  }
+}
+
 // Дидактические сборники не трогаем: задания короткие (разрывов почти нет),
 // а перенос текста сбил бы конечный автомат работ/вариантов в фазе 1.
 if (!isDidactic) {
@@ -900,7 +1121,7 @@ if (!isDidactic) {
     if (answersStart !== null && n >= answersStart) break
     // на странице N должно быть хотя бы одно задание — иначе хвосту не к чему цепляться
     const reN = taskReFor(n); reN.lastIndex = 0
-    if (!reN.test(pages[n].markdown)) continue
+    if (!reN.test(scanMd.get(n))) continue
     // ближайшая содержательная следующая страница (пропускаем пустые/колонцифры)
     let j = n + 1
     while (j < pages.length && (pages[j].markdown.trim() === '' || /^\d{1,4}$/.test(pages[j].markdown.trim()))) j++
@@ -947,6 +1168,15 @@ for (const p of pages) {
   if (answersStart !== null && p.index >= answersStart) break // ответы и дальше — не задания
   if (p.contentBlocks.length > 0) continue // страницы оглавления
 
+  // Матчим номера заданий по МАСКИРОВАННОЙ копии (вопросы для повторения
+  // вырезаны пробелами той же длины — смещения "at" не сдвигаются и текст
+  // задания эту маску не пересекает — маска покрывает только диапазон
+  // вопросов), но entry.md — ОРИГИНАЛ p.markdown: он используется дальше
+  // фазой 3 для нарезки prompt-текста атомов срезом по этим же "at"
+  // (md.slice(s.at, end)) — маскированный текст испортил бы содержимое
+  // задачи, если бы она физически соседствовала с диапазоном вопросов на
+  // той же странице (напр. «Дополнительные задачи» сразу после вопросов).
+  const scanText = scanMd.get(p.index)
   const md = p.markdown
 
   // ── Дидактика: события страницы (работы, варианты, кандидаты) по порядку ──
@@ -961,11 +1191,11 @@ for (const p of pages) {
     const events = []
     for (const w of didacticWorksByPage.get(p.index) ?? []) events.push({ at: w.at, type: 'work', w: w.resolved ?? w })
     VARIANT_RE.lastIndex = 0
-    while ((m = VARIANT_RE.exec(md)) !== null) events.push({ at: m.index, type: 'variant', v: parseInt(m[1]) })
+    while ((m = VARIANT_RE.exec(scanText)) !== null) events.push({ at: m.index, type: 'variant', v: parseInt(m[1]) })
     PLAIN_RE.lastIndex = 0
-    while ((m = PLAIN_RE.exec(md)) !== null) events.push({ at: m.index, type: 'task', style: '.', glyph: m[1] ?? null, num: parseInt(m[2]), star: m[3] || null })
+    while ((m = PLAIN_RE.exec(scanText)) !== null) events.push({ at: m.index, type: 'task', style: '.', glyph: m[1] ?? null, num: parseInt(m[2]), star: m[3] || null })
     PAREN_RE.lastIndex = 0
-    while ((m = PAREN_RE.exec(md)) !== null) events.push({ at: m.index, type: 'task', style: ')', glyph: null, num: parseInt(m[1]), star: /[*°]/.test(m[0]) ? '*' : null })
+    while ((m = PAREN_RE.exec(scanText)) !== null) events.push({ at: m.index, type: 'task', style: ')', glyph: null, num: parseInt(m[1]), star: /[*°]/.test(m[0]) ? '*' : null })
     events.sort((a, b) => a.at - b.at)
 
     for (const ev of events) {
@@ -1034,7 +1264,7 @@ for (const p of pages) {
   const dkrSec = dkrByPage.get(p.index) ?? null
   let dkrFrom = null
   if (dkrSec) {
-    const hm = p.index === dkrSec.pageStart ? md.match(DKR_HEAD_RE) : null
+    const hm = p.index === dkrSec.pageStart ? scanText.match(DKR_HEAD_RE) : null
     dkrFrom = p.index === dkrSec.pageStart ? (hm ? hm.index : 0) : 0
   }
 
@@ -1047,7 +1277,7 @@ for (const p of pages) {
 
   let m
   re.lastIndex = 0
-  while ((m = re.exec(md)) !== null) {
+  while ((m = re.exec(scanText)) !== null) {
     if (dkrFrom !== null && m.index >= dkrFrom) continue // ДКР-зона — ниже отдельно
     if (usePlain) {
       const rep = inRepetition(p.index)
@@ -1079,9 +1309,9 @@ for (const p of pages) {
   if (dkrSec) {
     const variants = []
     VARIANT_RE.lastIndex = 0
-    while ((m = VARIANT_RE.exec(md)) !== null) variants.push({ at: m.index, v: parseInt(m[1]) })
+    while ((m = VARIANT_RE.exec(scanText)) !== null) variants.push({ at: m.index, v: parseInt(m[1]) })
     PLAIN_RE.lastIndex = 0
-    while ((m = PLAIN_RE.exec(md)) !== null) {
+    while ((m = PLAIN_RE.exec(scanText)) !== null) {
       if (m.index < dkrFrom) continue
       const num = parseInt(m[2])
       const vh = variants.filter(v => v.at < m.index).pop()
@@ -1197,9 +1427,7 @@ for (const e of pageEntries) {
       forcedSection: s.subsection?.section ?? s.standaloneSection ?? null,
       difficulty:
         // ∞/⑤ — общий маркер; С/C — «задачи на смекалку» (Петерсон)
-        (s.glyph && /[∞⑤СC]/.test(s.glyph)) || s.star ||
-        (advancedSection && advancedSection.pageStart !== null &&
-          p.index >= advancedSection.pageStart && p.index <= (advancedSection.pageEnd ?? -1))
+        (s.glyph && /[∞⑤СC]/.test(s.glyph)) || s.star || isInAdvancedRange(p.index, s.at)
           ? 'advanced' : 'standard',
     })
   }
@@ -1414,6 +1642,90 @@ if (answersStart !== null) {
   }
 }
 
+// ── Предметный указатель ─────────────────────────────────────────────────────
+// Семантическое ядро для поиска задач по теме (по решению пользователя):
+// термин указателя → печатная страница → book_section_id (резолв через
+// book_sections.page_start/page_end) — агент ищет тему по названию в
+// book_index_terms.search_vector и получает раздел книги, где искать
+// задачи, вместо полнотекстового перебора book_problems.prompt_md. См.
+// миграцию 078.
+//
+// Как и «Ответы»/«Оглавление» у этой книги, «Предметный указатель» либо не
+// выделен в TOC отдельной строкой, либо (как здесь) TOC-узел найден, но
+// накрывает СРАЗУ и указатель, и следующее за ним «Оглавление» одним
+// диапазоном (обе строки потеряны в печатном оглавлении OCR'ом) — границы
+// находим прямым поиском заголовков в тексте, не через TOC.
+function findHeadingPage(regex) {
+  for (const p of pages) if (regex.test(p.markdown)) return p.index
+  return null
+}
+const indexStart = findHeadingPage(/^#{1,6}[ \t]*Предметный\s+указатель[ \t]*$/im)
+const tocPageStart = findHeadingPage(/^#{1,6}[ \t]*Оглавление[ \t]*$/im)
+const indexTerms = []
+if (indexStart !== null) {
+  const indexEnd = (tocPageStart !== null && tocPageStart > indexStart) ? tocPageStart - 1 : pages.length - 1
+  let text = pages.slice(indexStart, indexEnd + 1).map(p => p.markdown).join('\n')
+  text = text
+    .replace(/^#{1,6}[ \t]*Предметный\s+указатель[ \t]*$/im, ' ')
+    // OCR ложно размечает некоторые словарные статьи как markdown-заголовки
+    // (видимо из-за увеличенного отступа/шрифта в начале алфавитного блока
+    // печатной книги) — снимаем "#", это обычные термины, не структура
+    .replace(/^#{1,6}[ \t]+/gm, '')
+    // водяной знак сайта-источника, вклинившийся посреди строки термина
+    .replace(/Скачан?\s*с\s*vk\.com\/material\d*/gi, ' ')
+
+  const rawLines = text.split('\n').map(l => l.trim()).filter(Boolean)
+  // Склеиваем строки, разорванные переносом (термин без номера страницы в
+  // конце — продолжается на следующей строке; двухколоночная вёрстка также
+  // местами вклинивает МЕЖДУ половинками термина другую статью целиком —
+  // это восстановить нельзя без разметки колонок, оставляем как есть,
+  // не гонимся за идеалом, см. решение пользователя).
+  const lines = []
+  let pending = ''
+  const TRAILING_PAGES_RE = /(\d{1,4}(?:\s*,\s*\d{1,4})*)\s*$/
+  for (const raw of rawLines) {
+    const line = pending ? `${pending} ${raw}` : raw
+    if (TRAILING_PAGES_RE.test(line)) { lines.push(line); pending = '' }
+    else pending = line
+  }
+
+  // Стек уровней вложенности по ведущим тире: "— нулевой 225" продолжает
+  // ближайший термин с меньшим числом тире ("Вектор"), полный термин
+  // собирается конкатенацией "Родитель суффикс".
+  const stack = [] // {level, term}
+  for (const line of lines) {
+    const m = line.match(/^((?:—[,\s]*)+)?\s*(.+?)\s+(\d{1,4}(?:\s*,\s*\d{1,4})*)\s*$/)
+    if (!m) continue // строка без номера страницы после склейки — не статья указателя, пропускаем
+    const dashPrefix = m[1] ?? ''
+    const level = (dashPrefix.match(/—/g) ?? []).length
+    const rest = m[2].trim()
+    const pagesStr = m[3]
+    const printedPages = [...new Set(pagesStr.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n)))]
+    if (printedPages.length === 0 || !rest) continue
+
+    while (stack.length && stack[stack.length - 1].level >= level) stack.pop()
+    const parentTerm = level > 0 && stack.length ? stack[stack.length - 1].term : ''
+    // "Биссектриса треугольника 34 — угла 13" — второй термин той же
+    // словарной статьи НА ТОЙ ЖЕ СТРОКЕ (— перед второй половиной, но не
+    // в начале строки) — не наш случай здесь (dashPrefix матчит только
+    // ведущие тире), такие внутристрочные варианты остаются частью rest
+    // как есть (не идеальный, но безопасный результат — не теряем текст).
+    const term = parentTerm ? `${parentTerm} ${rest}`.trim() : rest
+    stack.push({ level, term })
+
+    indexTerms.push({ term, printedPages, sortOrder: indexTerms.length })
+  }
+}
+// Резолв printedPages[0] → book_sections по page_start/page_end (первая
+// секция, чей диапазон включает эту печатную страницу) — привязка термина
+// к КОНКРЕТНОМУ разделу книги, не просто к номеру страницы.
+for (const it of indexTerms) {
+  const scanIdx = printedToScan(it.printedPages[0])
+  it.sectionRef = scanIdx !== null
+    ? flatSections.find(s => s.pageStart !== null && scanIdx >= s.pageStart && scanIdx <= (s.pageEnd ?? s.pageStart))
+    : undefined
+}
+
 // ── Мета ─────────────────────────────────────────────────────────────────────
 
 const meta = {
@@ -1458,6 +1770,9 @@ console.log(`  с картинками:        ${uniqueProblems.filter(p => p.ha
 console.log(`  разрывных (склеено): ${continuationsPulled}`)
 console.log(`  повышенной трудности: ${uniqueProblems.filter(p => p.difficulty === 'advanced').length}`)
 console.log(`  без раздела:         ${uniqueProblems.filter(p => !p.section).length}`)
+if (indexTerms.length > 0) {
+  console.log(`Предметный указатель: ${indexTerms.length} терминов, ${indexTerms.filter(t => t.sectionRef).length} привязано к разделу`)
+}
 console.log(`Предупреждений: ${warnings.length}`)
 for (const w of warnings.slice(0, 25)) console.log(`  ⚠ ${w}`)
 if (warnings.length > 25) console.log(`  ... и ещё ${warnings.length - 25}`)
@@ -1483,6 +1798,7 @@ const sectionRows = flatSections.map((s, i) => ({
   page_start: s.pageStart,
   page_end: s.pageEnd,
   sort_order: i,
+  grade: s.grade ?? null,
 }))
 
 const pageRows = pages.map(p => ({
@@ -1507,6 +1823,15 @@ const problemRows = uniqueProblems.map(pr => ({
   answer_source: pr.answerSource ?? 'none',
   difficulty: pr.difficulty,
   has_images: pr.hasImages,
+  grade: pr.section?.grade ?? null,
+}))
+
+const indexTermRows = indexTerms.map(it => ({
+  book_id: bookId,
+  term: it.term,
+  printed_pages: it.printedPages,
+  book_section_id: it.sectionRef?.id ?? null,
+  sort_order: it.sortOrder,
 }))
 
 const bookRow = {
@@ -1539,6 +1864,9 @@ if (emitSqlDir) {
     if (v === null || v === undefined) return 'null'
     if (typeof v === 'number') return String(v)
     if (typeof v === 'boolean') return v ? 'true' : 'false'
+    // integer[] (book_index_terms.printed_pages) — НЕ jsonb: массив целых
+    // чисел, значит все элементы числа — Postgres ARRAY-литерал, не JSON
+    if (Array.isArray(v) && v.every(x => typeof x === 'number')) return `ARRAY[${v.join(',')}]::integer[]`
     if (typeof v === 'object') return `${q(JSON.stringify(v))}::jsonb`
     return `$mk$${String(v).replaceAll('$mk$', '')}$mk$`
   }
@@ -1561,6 +1889,7 @@ if (emitSqlDir) {
   for (let i = 0; i < problemRows.length; i += PROBS_PER) {
     write(`problems_${i}`, insert('book_problems', problemRows.slice(i, i + PROBS_PER)))
   }
+  if (indexTermRows.length > 0) write('index_terms', insert('book_index_terms', indexTermRows))
   console.log(`\nSQL записан в ${emitSqlDir}/ (${n} файлов). book_id = ${bookId}`)
   process.exit(0)
 }
@@ -1590,7 +1919,7 @@ if (!url || !key) {
 // в отличие от зависаний без ответа, которые нужно ловить таймаутом отдельно.
 // supabase-js не бросает исключение на сетевой сбой — он ловит его сам и
 // возвращает {error}, поэтому ретраим по result.error, а не по try/catch.
-async function withRetry(fn, label, attempts = 3) {
+async function withRetry(fn, label, attempts = 5) {
   let result
   for (let i = 1; i <= attempts; i++) {
     try {
@@ -1679,21 +2008,40 @@ if (pdfFile) {
 
 // Задания заливаются ДО перезаливки картинок (см. ниже): картинки — best-effort
 // шаг по медленной/нестабильной внешней сети, задания не должны от него зависеть.
-{
-  const { error } = await withRetry(() => db.from('book_sections').insert(sectionRows), 'book_sections')
-  if (error) { console.error('book_sections:', error.message); process.exit(1) }
-}
+//
 // Батчи по 20/40 (не 100/200, как раньше) — на этой машине большие payload'ы
 // к Supabase систематически рвутся ("fetch failed", TLS-перехват), пока
-// поменьше проходят надёжно (см. project_local_env_limits).
-for (let i = 0; i < pageRows.length; i += 20) {
-  const { error } = await withRetry(() => db.from('book_pages').insert(pageRows.slice(i, i + 20)), `book_pages@${i}`)
-  if (error) { console.error(`book_pages@${i}:`, error.message); process.exit(1) }
+// поменьше проходят надёжно (см. project_local_env_limits). book_sections
+// раньше вставлялась ОДНИМ batch'ем целиком — при книге с глубокой
+// структурой (Атанасян: 196 секций вместо обычных 40-60) это тоже стало
+// рваться систематически (3/3 попыток withRetry, не спорадически) — теперь
+// батчится так же, по 40. self-referencing FK (parent_id) безопасен: строки
+// идут в document order (walk() — pre-order DFS, родитель раньше детей в
+// массиве), а батчи пишутся последовательно (await), так что родитель уже
+// физически в БД к моменту вставки батча с его детьми.
+// Пауза МЕЖДУ каждым батчем (не только между таблицами) — по наблюдению
+// пользователя, длинный сплошной поток мелких запросов подряд (у этой
+// книги: 196 секций + 417 страниц + 1340 заданий + 300 терминов, все
+// батчами по 5-20) сам по себе поднимает нагрузку на нестабильный
+// TLS-перехватывающий прокси этой машины и рвёт соединение — не размер
+// отдельного payload, а плотность запросов в единицу времени.
+const PAUSE_MS = 400
+async function insertBatched(table, rows, batchSize) {
+  for (let i = 0; i < rows.length; i += batchSize) {
+    const { error } = await withRetry(() => db.from(table).insert(rows.slice(i, i + batchSize)), `${table}@${i}`)
+    if (error) { console.error(`${table}@${i}:`, error.message); process.exit(1) }
+    await new Promise(r => setTimeout(r, PAUSE_MS))
+  }
 }
-for (let i = 0; i < problemRows.length; i += 40) {
-  const { error } = await withRetry(() => db.from('book_problems').insert(problemRows.slice(i, i + 40)), `book_problems@${i}`)
-  if (error) { console.error(`book_problems@${i}:`, error.message); process.exit(1) }
-}
+await insertBatched('book_sections', sectionRows, 20)
+// Дополнительная пауза при переключении на новую таблицу — на этой книге
+// (196 секций, вместо обычных 40-60) первый запрос к book_pages
+// систематически (6/6 прогонов) падал именно сразу после долгой серии
+// запросов к book_sections.
+await new Promise(r => setTimeout(r, 2000))
+await insertBatched('book_pages', pageRows, 5)
+await insertBatched('book_problems', problemRows, 20)
+if (indexTermRows.length > 0) await insertBatched('book_index_terms', indexTermRows, 50)
 console.log(`Готово. book_id = ${bookId}`)
 
 // ── Перезаливка картинок задач в Storage ─────────────────────────────────────
