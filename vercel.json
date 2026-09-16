@@ -5,5 +5,9 @@
       "main": true,
       "dev": true
     }
-  }
+  },
+  "crons": [
+    { "path": "/api/cron/homework-agent/propose", "schedule": "0 6 * * *" },
+    { "path": "/api/cron/homework-agent/build-homework", "schedule": "30 6 * * *" }
+  ]
 }
