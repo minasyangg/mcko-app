@@ -9,6 +9,7 @@ export type NotificationEventType =
   | 'attempt_checked'     // ученику: работа проверена (есть результат)
   | 'attempt_submitted'   // учителю: работа ждёт ручной проверки
   | 'attempt_auto_checked' // учителю: работа сдана и проверена автоматически
+  | 'homework_proposed'   // учителю: агент предложил тему для автосборки ДЗ
 
 export const NOTIFICATION_EVENTS: {
   type: NotificationEventType
@@ -43,5 +44,11 @@ export const NOTIFICATION_EVENTS: {
     audience: 'teacher',
     title: 'Работа сдана и проверена автоматически',
     description: 'Учитель, назначивший тест, получает сообщение с баллом, когда ученик сдал работу, не требующую ручной проверки.',
+  },
+  {
+    type: 'homework_proposed',
+    audience: 'teacher',
+    title: 'Агент предложил тему для ДЗ',
+    description: 'Учитель, включивший автосборку ДЗ для программы, получает сообщение с предложенной темой и диагнозом — для подтверждения или правки.',
   },
 ]
