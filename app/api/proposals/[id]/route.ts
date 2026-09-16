@@ -8,6 +8,9 @@ const patchSchema = z.object({
   action: z.enum(['confirm', 'reject']).optional(),
   final_title: z.string().trim().min(1).max(200).optional(),
   teacher_note: z.string().trim().max(2000).optional().nullable(),
+  // По умолчанию (не передано / false) — build.ts собирает только черновик,
+  // учитель проверяет и публикует сам. true — чекбокс «Опубликовать сразу».
+  publish_immediately: z.boolean().optional(),
 })
 
 type Params = { params: Promise<{ id: string }> }
@@ -35,7 +38,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.issues[0]?.message ?? 'Invalid body' }, { status: 400 })
   }
-  const { action, final_title, teacher_note } = parsed.data
+  const { action, final_title, teacher_note, publish_immediately } = parsed.data
 
   const { data: proposal } = await supabase
     .from('homework_proposals')
@@ -55,12 +58,14 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     updated_at: string
     final_title?: string
     teacher_note?: string | null
+    publish_immediately?: boolean
     status?: 'confirmed' | 'rejected'
     confirmed_at?: string
     confirmed_by?: string
   } = { updated_at: new Date().toISOString() }
   if (final_title !== undefined) patch.final_title = final_title
   if (teacher_note !== undefined) patch.teacher_note = teacher_note
+  if (publish_immediately !== undefined) patch.publish_immediately = publish_immediately
 
   if (action === 'reject') {
     patch.status = 'rejected'

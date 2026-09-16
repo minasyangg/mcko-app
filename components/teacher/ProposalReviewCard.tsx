@@ -22,6 +22,7 @@ interface Proposal {
   teacher_note: string | null
   expires_at: string
   test_id: string | null
+  assignment_id: string | null
   build_error: string | null
 }
 
@@ -29,7 +30,7 @@ const STATUS_LABEL: Record<ProposalStatus, { label: string; variant: 'default' |
   pending: { label: 'Ждёт подтверждения', variant: 'default' },
   confirmed: { label: 'Подтверждено, собирается…', variant: 'secondary' },
   building: { label: 'Собирается…', variant: 'secondary' },
-  built: { label: 'ДЗ собрано и назначено', variant: 'outline' },
+  built: { label: 'Собрано', variant: 'outline' }, // уточняется по assignment_id ниже — черновик или уже назначено
   rejected: { label: 'Пропущено', variant: 'outline' },
   expired: { label: 'Просрочено', variant: 'outline' },
   failed: { label: 'Не удалось собрать', variant: 'destructive' },
@@ -50,10 +51,15 @@ export function ProposalReviewCard({
   const router = useRouter()
   const [finalTitle, setFinalTitle] = useState(proposal.final_title ?? proposal.proposed_title)
   const [note, setNote] = useState(proposal.teacher_note ?? '')
+  const [publishImmediately, setPublishImmediately] = useState(false)
   const [busy, setBusy] = useState<'confirm' | 'reject' | null>(null)
 
   const editable = proposal.status === 'pending'
-  const status = STATUS_LABEL[proposal.status]
+  const status = proposal.status === 'built'
+    ? (proposal.assignment_id
+        ? { label: 'Опубликовано и назначено группе', variant: 'outline' as const }
+        : { label: 'Черновик готов — не опубликован', variant: 'secondary' as const })
+    : STATUS_LABEL[proposal.status]
 
   async function patch(body: Record<string, unknown>, busyKind: 'confirm' | 'reject') {
     setBusy(busyKind)
@@ -70,7 +76,7 @@ export function ProposalReviewCard({
       }
       if (busyKind === 'confirm') {
         if (json.build?.ok) {
-          toast.success('ДЗ собрано и назначено')
+          toast.success(json.build.published ? 'ДЗ собрано, опубликовано и назначено' : 'Черновик ДЗ собран — проверьте и опубликуйте вручную')
         } else {
           toast.error(json.build?.reason === 'shortfall'
             ? 'Не хватило заданий по теме — соберите ДЗ вручную'
@@ -86,7 +92,12 @@ export function ProposalReviewCard({
   }
 
   function handleConfirm() {
-    patch({ action: 'confirm', final_title: finalTitle.trim(), teacher_note: note.trim() || null }, 'confirm')
+    patch({
+      action: 'confirm',
+      final_title: finalTitle.trim(),
+      teacher_note: note.trim() || null,
+      publish_immediately: publishImmediately,
+    }, 'confirm')
   }
   function handleReject() {
     patch({ action: 'reject' }, 'reject')
@@ -134,12 +145,26 @@ export function ProposalReviewCard({
           />
         </div>
 
+        {editable && (
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              className="h-4 w-4 shrink-0"
+              checked={publishImmediately}
+              onChange={(e) => setPublishImmediately(e.target.checked)}
+            />
+            <span className="text-sm">
+              Опубликовать сразу — иначе ДЗ останется черновиком, вы опубликуете и назначите его сами
+            </span>
+          </label>
+        )}
+
         {proposal.status === 'failed' && proposal.build_error && (
           <p className="text-sm text-destructive">{proposal.build_error}</p>
         )}
         {proposal.status === 'built' && proposal.test_id && (
           <a href={`/teacher/tests/${proposal.test_id}`} className="text-sm text-primary underline">
-            Открыть собранный тест
+            {proposal.assignment_id ? 'Открыть собранный тест' : 'Открыть черновик и опубликовать'}
           </a>
         )}
       </CardContent>

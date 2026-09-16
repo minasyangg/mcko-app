@@ -8,7 +8,7 @@ import { pickProblems, type RuleConfig, type RuleSource } from '@/lib/homework-a
 type AdminClient = ReturnType<typeof createAdminClient>
 
 export type BuildResult =
-  | { ok: true; testId: string; assignmentId: string; taskCount: number; relaxations: string[] }
+  | { ok: true; testId: string; assignmentId: string | null; published: boolean; taskCount: number; relaxations: string[] }
   | { ok: false; reason: 'race' | 'shortfall' | 'error'; error?: string }
 
 /**
@@ -80,6 +80,7 @@ interface ProposalRow {
   proposed_title: string
   final_title: string | null
   rationale: unknown
+  publish_immediately: boolean
 }
 
 async function doBuild(admin: AdminClient, proposal: ProposalRow): Promise<BuildResult> {
@@ -197,6 +198,22 @@ async function doBuild(admin: AdminClient, proposal: ProposalRow): Promise<Build
     }
   }
 
+  // По умолчанию — черновик: учитель проверяет состав перед тем, как его
+  // увидит группа. Публикация и назначение — только по явному
+  // publish_immediately (чекбокс на странице подтверждения). Найдено при
+  // первом живом прогоне 2026-09-16: безусловная публикация не оставляла
+  // учителю шанса проверить состав до того, как ДЗ уже ушло ученикам.
+  if (!proposal.publish_immediately) {
+    return {
+      ok: true,
+      testId: test.id,
+      assignmentId: null,
+      published: false,
+      taskCount: picked.picked.length,
+      relaxations: picked.relaxations,
+    }
+  }
+
   const publishResult = await publishTestVersion(admin, version.id, proposal.teacher_id)
   if (!publishResult.ok) return { ok: false, reason: 'error', error: publishResult.error }
 
@@ -235,6 +252,7 @@ async function doBuild(admin: AdminClient, proposal: ProposalRow): Promise<Build
     ok: true,
     testId: test.id,
     assignmentId: assignment.id,
+    published: true,
     taskCount: picked.picked.length,
     relaxations: picked.relaxations,
   }

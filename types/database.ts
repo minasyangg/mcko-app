@@ -1466,6 +1466,7 @@ export type Database = {
           organization_id: string
           proposed_summary: string | null
           proposed_title: string
+          publish_immediately: boolean
           rationale: Json
           roadmap_id: string
           roadmap_topic_id: string | null
@@ -1492,6 +1493,7 @@ export type Database = {
           organization_id: string
           proposed_summary?: string | null
           proposed_title: string
+          publish_immediately?: boolean
           rationale?: Json
           roadmap_id: string
           roadmap_topic_id?: string | null
@@ -1518,6 +1520,7 @@ export type Database = {
           organization_id?: string
           proposed_summary?: string | null
           proposed_title?: string
+          publish_immediately?: boolean
           rationale?: Json
           roadmap_id?: string
           roadmap_topic_id?: string | null
