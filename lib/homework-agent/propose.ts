@@ -100,6 +100,20 @@ function isDueNow(weekdays: number[], sendAtLocal: string, timezone: string): bo
   return nowMinutes >= sendH * 60 + sendM
 }
 
+async function findRoadmapTopicByLibraryTopic(
+  admin: AdminClient,
+  roadmapId: string,
+  libraryTopicId: string
+): Promise<{ id: string } | null> {
+  const { data } = await admin
+    .from('roadmap_topics')
+    .select('id')
+    .eq('roadmap_id', roadmapId)
+    .eq('library_topic_id', libraryTopicId)
+    .maybeSingle()
+  return data
+}
+
 function localSlotDate(timezone: string): string {
   // en-CA даёт YYYY-MM-DD напрямую — единственный стандартный локаль-формат с этим порядком.
   return new Intl.DateTimeFormat('en-CA', { timeZone: timezone }).format(new Date())
@@ -137,12 +151,35 @@ async function proposeForRule(admin: AdminClient, rule: DueRule): Promise<Propos
   // roadmap_topics, соответствующая теме-победителю — нужен id именно
   // roadmap_topics (не library_topics) для homework_proposals.roadmap_topic_id
   // и дальнейшей сборки в build.ts (см. комментарий там же).
-  const { data: roadmapTopic } = await admin
-    .from('roadmap_topics')
-    .select('id')
-    .eq('roadmap_id', rule.roadmap_id)
-    .eq('library_topic_id', diagnosis.winner.libraryTopicId)
-    .maybeSingle()
+  //
+  // Диагностика (diagnose_roadmap_mistakes) часто находит тему на уровне
+  // РАЗДЕЛА кодификатора — там больше данных, т.к. задачи из PDF-тестов
+  // (exam_task_topic_map) размечены по разделу, а не подразделу (см.
+  // project_homework_agent). Банк задач (library_problems) при этом лежит
+  // почти всегда на уровне ПОДРАЗДЕЛА — прямого совпадения по
+  // library_topic_id может не быть, хотя тема программы явно про тот же
+  // материал. Если точного совпадения нет и победитель — раздел (parent_id
+  // is null), ищем среди тем программы любую, связанную с ЕГО подразделом
+  // (library_topics.parent_id = winner.id) — pick-problems.ts получит
+  // рабочий подраздел, где реально есть задачи, а не пустой раздел.
+  let roadmapTopic = await findRoadmapTopicByLibraryTopic(admin, rule.roadmap_id, diagnosis.winner.libraryTopicId)
+  if (!roadmapTopic) {
+    const { data: winnerTopic } = await admin
+      .from('library_topics')
+      .select('parent_id')
+      .eq('id', diagnosis.winner.libraryTopicId)
+      .single()
+    if (winnerTopic && winnerTopic.parent_id === null) {
+      const { data: subtopics } = await admin
+        .from('library_topics')
+        .select('id')
+        .eq('parent_id', diagnosis.winner.libraryTopicId)
+      for (const sub of subtopics ?? []) {
+        roadmapTopic = await findRoadmapTopicByLibraryTopic(admin, rule.roadmap_id, sub.id)
+        if (roadmapTopic) break
+      }
+    }
+  }
   if (!roadmapTopic) return { roadmapId: rule.roadmap_id, ruleId: rule.id, outcome: 'skipped_no_topic_link' }
 
   const initialStatus = rule.auto_confirm ? 'confirmed' : 'pending'
