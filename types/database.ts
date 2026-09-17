@@ -2428,6 +2428,7 @@ export type Database = {
           fgos_curriculum_id: string | null
           id: string
           library_topic_id: string | null
+          parent_id: string | null
           roadmap_id: string
           sort_order: number
           status: string
@@ -2439,6 +2440,7 @@ export type Database = {
           fgos_curriculum_id?: string | null
           id?: string
           library_topic_id?: string | null
+          parent_id?: string | null
           roadmap_id: string
           sort_order?: number
           status?: string
@@ -2450,6 +2452,7 @@ export type Database = {
           fgos_curriculum_id?: string | null
           id?: string
           library_topic_id?: string | null
+          parent_id?: string | null
           roadmap_id?: string
           sort_order?: number
           status?: string
@@ -2468,6 +2471,13 @@ export type Database = {
             columns: ["library_topic_id"]
             isOneToOne: false
             referencedRelation: "library_topics"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "roadmap_topics_parent_id_fkey"
+            columns: ["parent_id"]
+            isOneToOne: false
+            referencedRelation: "roadmap_topics"
             referencedColumns: ["id"]
           },
           {
