@@ -1,15 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createClient } from '@/lib/supabase/server'
-import { createAdminClient } from '@/lib/supabase/admin'
-import { buildHomework } from '@/lib/homework-agent/build'
 
 const patchSchema = z.object({
   action: z.enum(['confirm', 'reject']).optional(),
   final_title: z.string().trim().min(1).max(200).optional(),
   teacher_note: z.string().trim().max(2000).optional().nullable(),
-  // По умолчанию (не передано / false) — build.ts собирает только черновик,
-  // учитель проверяет и публикует сам. true — чекбокс «Опубликовать сразу».
+  // По умолчанию (не передано / false) — сборка (см. .claude/skills/
+  // homework-agent-build) собирает только черновик, учитель проверяет и
+  // публикует сам. true — чекбокс «Опубликовать сразу».
   publish_immediately: z.boolean().optional(),
 })
 
@@ -21,12 +20,14 @@ type Params = { params: Promise<{ id: string }> }
 // отдельная авторизация как в authorizeRoadmap не нужна, работаем через
 // RLS-клиент, не admin.
 //
-// action='confirm' сразу вызывает buildHomework — это MVP-путь подтверждения
-// со страницы сайта (см. project_homework_agent, этап 3 "inline-кнопки"
-// отдельно и позже, здесь только форма). buildHomework сама делает переход
-// confirmed→building атомарным, так что мы сначала честно переводим
-// pending→confirmed, потом билдим — если билд упадёт, статус останется
-// 'failed' с build_error, не повиснет в 'confirmed' без объяснения.
+// action='confirm' ТОЛЬКО переводит pending→confirmed — сборку теста
+// (bookкнижный источник без темы дал в первом живом прогоне 2026-09-16
+// набор заданий не по теме, см. project_homework_agent) теперь делает не
+// автоматический buildHomework() по SQL-фильтру, а сам учитель, вручную
+// попросив Claude Code собрать ДЗ для confirmed-предложения — Claude читает
+// текст каждого кандидата и отбирает подходящие по смыслу
+// (.claude/skills/homework-agent-build/SKILL.md). Эта ручка больше не
+// строит тест сама.
 export async function PATCH(request: NextRequest, { params }: Params) {
   const { id } = await params
   const supabase = await createClient()
@@ -78,11 +79,5 @@ export async function PATCH(request: NextRequest, { params }: Params) {
   const { error: updateError } = await supabase.from('homework_proposals').update(patch).eq('id', id)
   if (updateError) return NextResponse.json({ error: updateError.message }, { status: 500 })
 
-  if (action !== 'confirm') return NextResponse.json({ ok: true })
-
-  // Сборка — через admin-клиент (buildHomework сама читает правило,
-  // источники, group_members и т.д. без RLS-ограничений учителя).
-  const admin = createAdminClient()
-  const result = await buildHomework(admin, id)
-  return NextResponse.json({ ok: true, build: result })
+  return NextResponse.json({ ok: true })
 }

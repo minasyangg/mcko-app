@@ -28,7 +28,7 @@ interface Proposal {
 
 const STATUS_LABEL: Record<ProposalStatus, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' }> = {
   pending: { label: 'Ждёт подтверждения', variant: 'default' },
-  confirmed: { label: 'Подтверждено, собирается…', variant: 'secondary' },
+  confirmed: { label: 'Подтверждено — попросите Claude Code собрать ДЗ', variant: 'secondary' },
   building: { label: 'Собирается…', variant: 'secondary' },
   built: { label: 'Собрано', variant: 'outline' }, // уточняется по assignment_id ниже — черновик или уже назначено
   rejected: { label: 'Пропущено', variant: 'outline' },
@@ -38,9 +38,11 @@ const STATUS_LABEL: Record<ProposalStatus, { label: string; variant: 'default' |
 
 // MVP-путь подтверждения предложения агента (project_homework_agent, этап
 // 6-7 плана): без inline-кнопок в Telegram — учитель подтверждает/правит
-// прямо здесь. Confirm сразу запускает сборку (PATCH .../route.ts вызывает
-// buildHomework), поэтому кнопка после клика ведёт себя как "запускаю",
-// не "сохраняю на потом".
+// прямо здесь. Confirm только меняет статус на 'confirmed' — сборку теста
+// (текст каждого кандидата должен разобрать ИИ, не слепой SQL-фильтр по
+// теме — см. project_homework_agent, инцидент 2026-09-16 с книжным
+// источником) учитель запускает сам, вручную попросив Claude Code собрать
+// ДЗ для этой программы (.claude/skills/homework-agent-build).
 export function ProposalReviewCard({
   proposal, roadmapId, roadmapTitle,
 }: {
@@ -51,7 +53,6 @@ export function ProposalReviewCard({
   const router = useRouter()
   const [finalTitle, setFinalTitle] = useState(proposal.final_title ?? proposal.proposed_title)
   const [note, setNote] = useState(proposal.teacher_note ?? '')
-  const [publishImmediately, setPublishImmediately] = useState(false)
   const [busy, setBusy] = useState<'confirm' | 'reject' | null>(null)
 
   const editable = proposal.status === 'pending'
@@ -75,13 +76,7 @@ export function ProposalReviewCard({
         return
       }
       if (busyKind === 'confirm') {
-        if (json.build?.ok) {
-          toast.success(json.build.published ? 'ДЗ собрано, опубликовано и назначено' : 'Черновик ДЗ собран — проверьте и опубликуйте вручную')
-        } else {
-          toast.error(json.build?.reason === 'shortfall'
-            ? 'Не хватило заданий по теме — соберите ДЗ вручную'
-            : 'Не удалось собрать ДЗ — подробности в статусе ниже')
-        }
+        toast.success('Тема подтверждена — попросите Claude Code собрать ДЗ для этой программы')
       } else {
         toast.success('Предложение пропущено')
       }
@@ -96,7 +91,6 @@ export function ProposalReviewCard({
       action: 'confirm',
       final_title: finalTitle.trim(),
       teacher_note: note.trim() || null,
-      publish_immediately: publishImmediately,
     }, 'confirm')
   }
   function handleReject() {
@@ -145,18 +139,11 @@ export function ProposalReviewCard({
           />
         </div>
 
-        {editable && (
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input
-              type="checkbox"
-              className="h-4 w-4 shrink-0"
-              checked={publishImmediately}
-              onChange={(e) => setPublishImmediately(e.target.checked)}
-            />
-            <span className="text-sm">
-              Опубликовать сразу — иначе ДЗ останется черновиком, вы опубликуете и назначите его сами
-            </span>
-          </label>
+        {proposal.status === 'confirmed' && (
+          <p className="text-sm text-muted-foreground">
+            Тема подтверждена. Откройте Claude Code и попросите собрать ДЗ для программы «{roadmapTitle}» —
+            он проанализирует подходящие задания и создаст черновик теста.
+          </p>
         )}
 
         {proposal.status === 'failed' && proposal.build_error && (
@@ -173,7 +160,7 @@ export function ProposalReviewCard({
         <CardFooter className="gap-2">
           <Button onClick={handleConfirm} disabled={busy !== null || finalTitle.trim().length === 0}>
             <CheckCircle2 className="h-4 w-4 mr-1.5" />
-            {busy === 'confirm' ? 'Собираю…' : 'Подтвердить'}
+            {busy === 'confirm' ? 'Сохраняю…' : 'Подтвердить'}
           </Button>
           <Button variant="outline" onClick={handleReject} disabled={busy !== null}>
             <XCircle className="h-4 w-4 mr-1.5" />
