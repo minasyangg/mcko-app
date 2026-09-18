@@ -461,9 +461,10 @@ export function RoadmapEditor({ roadmap, topics, tests, students, memberIds, gro
         </div>
         {topics.length > 1 && (
           <p className="text-xs text-muted-foreground">
-            Перетащите тему или задание за <GripVertical className="inline h-3 w-3 align-text-bottom" /> — тему на
-            другую тему, чтобы сделать подтемой (или между темами, чтобы переставить порядок), задание — на тему,
-            чтобы перенести его туда.
+            Перетащите тему или задание за <GripVertical className="inline h-3 w-3 align-text-bottom" /> — наведите
+            на верх или низ другой темы, чтобы переставить рядом с ней (появится синяя полоска), или точно на
+            середину, чтобы сделать подтемой (строка подсветится целиком и появится подпись «станет подтемой»).
+            Задание — на любую тему, чтобы перенести его туда.
           </p>
         )}
 
@@ -763,7 +764,12 @@ function TopicTreeItem({
         if (drag.kind === 'item') { setIsItemDropTarget(true); return }
         const rect = e.currentTarget.getBoundingClientRect()
         const ratio = (e.clientY - rect.top) / rect.height
-        setDropZone(ratio < 0.25 ? 'before' : ratio > 0.75 ? 'after' : 'inside')
+        // Верх/низ — по 40% высоты каждая (переставить рядом, самое частое
+        // действие — щедрая зона, легко попасть). Середина — только 20%,
+        // узко и намеренно: «сделать подтемой» меняет структуру сильнее
+        // всего, случайное попадание сюда при простой перестановке — самая
+        // частая жалоба на нынешнюю версию (пороги были по 25%/50%/25%).
+        setDropZone(ratio < 0.4 ? 'before' : ratio > 0.6 ? 'after' : 'inside')
       }}
       onDragLeave={(e) => {
         // Игнорируем переходы между дочерними элементами внутри той же строки —
@@ -780,13 +786,22 @@ function TopicTreeItem({
         setIsItemDropTarget(false)
       }}
     >
-      {dropZone === 'before' && <div className="absolute left-0 right-0 top-0 h-0.5 bg-primary z-10" />}
-      {dropZone === 'after' && <div className="absolute left-0 right-0 bottom-0 h-0.5 bg-primary z-10" />}
+      {/* Индикатор вставки — толстая полоса на том же отступе глубины, что и
+          сама строка: показывает буквально, где появится тема после drop, а
+          не просто «где-то у края». Раньше была линия 0.5px без отступа —
+          на плотном списке терялась и не показывала, на каком уровне
+          вложенности встанет тема. */}
+      {dropZone === 'before' && (
+        <div className="absolute right-0 top-0 h-1 bg-primary rounded-full z-10" style={{ left: `${12 + depth * 18}px` }} />
+      )}
+      {dropZone === 'after' && (
+        <div className="absolute right-0 bottom-0 h-1 bg-primary rounded-full z-10" style={{ left: `${12 + depth * 18}px` }} />
+      )}
       <div
         className={cn(
           'group flex items-start gap-1.5 px-3 py-2 transition-colors',
           isDragSource && 'opacity-40',
-          (dropZone === 'inside' || isItemDropTarget) && 'bg-primary/10 ring-1 ring-inset ring-primary/40',
+          (dropZone === 'inside' || isItemDropTarget) && 'bg-primary/10 ring-2 ring-inset ring-primary',
         )}
         style={{ paddingLeft: `${12 + depth * 18}px` }}
       >
@@ -799,7 +814,7 @@ function TopicTreeItem({
           }}
           onDragEnd={() => { setDrag(null); setDropZone(null) }}
           className="mt-0.5 shrink-0 cursor-grab active:cursor-grabbing text-muted-foreground/40 hover:text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity"
-          title="Перетащите — на тему, чтобы сделать подтемой, между темами, чтобы переставить"
+          title="Перетащите: край темы — переставить рядом, середина — сделать подтемой"
         >
           <GripVertical className="h-3.5 w-3.5" />
         </span>
@@ -835,6 +850,15 @@ function TopicTreeItem({
           ) : (
             <div className="flex items-center gap-2">
               <span className={cn('truncate', depth === 0 ? 'font-medium' : 'text-sm')}>{node.title}</span>
+              {/* Явно проговаривает намерение drop вместо того, чтобы пользователь
+                  угадывал по подсветке фона/толщине полоски — прямая причина
+                  жалобы «не всегда понятно куда встанет тема». */}
+              {dropZone === 'inside' && drag?.kind === 'topic' && (
+                <span className="text-xs font-medium text-primary shrink-0">→ станет подтемой</span>
+              )}
+              {isItemDropTarget && (
+                <span className="text-xs font-medium text-primary shrink-0">→ задание переедет сюда</span>
+              )}
               <span className="flex gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
                 <button type="button" onClick={() => setRenaming(true)} title="Переименовать" className="text-muted-foreground hover:text-foreground">
                   <Pencil className="h-3 w-3" />
