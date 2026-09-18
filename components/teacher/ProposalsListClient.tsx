@@ -9,7 +9,7 @@ import { usePolling } from '@/lib/hooks/usePolling'
 
 type ProposalStatus = 'pending' | 'confirmed' | 'rejected' | 'expired' | 'building' | 'built' | 'failed'
 
-interface ProposalRow {
+export interface ProposalRow {
   id: string
   roadmap_id: string
   roadmap_title: string

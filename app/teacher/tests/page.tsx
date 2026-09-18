@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { TestsListClient, type TestRow } from '@/components/teacher/TestsListClient'
+import type { ProposalRow } from '@/components/teacher/ProposalsListClient'
 
 export default async function TestsPage() {
   const supabase = await createClient()
@@ -45,13 +46,35 @@ export default async function TestsPage() {
     owner_name: isAdmin ? (t.created_by ? ownerName.get(t.created_by) ?? '—' : '—') : null,
   }))
 
+  // Предложения ДЗ от агента автосборки — только у учителя (у него есть
+  // свои roadmap; админ — read-only «кабинет», не подтверждает предложения).
+  let proposals: ProposalRow[] = []
+  if (!isAdmin) {
+    const { data: proposalRows } = await supabase
+      .from('homework_proposals')
+      .select('id, roadmap_id, status, proposed_title, final_title, proposed_summary, expires_at, created_at, roadmaps!roadmap_id(title)')
+      .order('created_at', { ascending: false })
+      .limit(50)
+
+    proposals = (proposalRows ?? []).map(p => ({
+      id: p.id,
+      roadmap_id: p.roadmap_id,
+      roadmap_title: (p.roadmaps as unknown as { title: string } | null)?.title ?? '—',
+      status: p.status as ProposalRow['status'],
+      title: p.final_title ?? p.proposed_title,
+      proposed_summary: p.proposed_summary,
+      expires_at: p.expires_at,
+      created_at: p.created_at,
+    }))
+  }
+
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-semibold">Мои задания</h1>
         <p className="text-sm text-muted-foreground mt-1">Тесты и домашние задания</p>
       </div>
-      <TestsListClient rows={rows} isAdmin={isAdmin} teachers={teacherOptions} />
+      <TestsListClient rows={rows} isAdmin={isAdmin} teachers={teacherOptions} proposals={proposals} />
     </div>
   )
 }

@@ -23,15 +23,15 @@ interface NavItem {
 
 const navItems: NavItem[] = [
   { href: '/teacher', label: 'Дашборд', icon: BarChart2, exact: true },
-  // «Мои задания» — группа: собственные тесты/ДЗ и учебные программы.
-  // Программы раньше были отдельным пунктом меню, но по смыслу это тот же
-  // собственный учебный материал учителя, только сгруппированный по темам.
+  // «Мои задания» — группа: собственные тесты/ДЗ (включая вкладку
+  // «Предложения агента» внутри страницы) и учебные программы. Программы
+  // раньше были отдельным пунктом меню, но по смыслу это тот же собственный
+  // учебный материал учителя, только сгруппированный по темам.
   {
     href: '/teacher/tests', label: 'Мои задания', icon: BookOpen, teacherOnly: true,
     children: [
-      { href: '/teacher/tests',           label: 'Тесты/ДЗ' },
-      { href: '/teacher/tests/proposals', label: 'Предложения агента' },
-      { href: '/teacher/roadmaps',        label: 'Программы' },
+      { href: '/teacher/tests',    label: 'Тесты/ДЗ' },
+      { href: '/teacher/roadmaps', label: 'Программы' },
     ],
   },
   // У админа программ нет (они всегда чьи-то), поэтому для него — обычная ссылка
@@ -171,7 +171,7 @@ function NavGroup({ item, onLinkClick, childBadges }: { item: NavItem; onLinkCli
 }
 
 function NavList({ isAdmin, pendingRequests, monitorBadge, moderationBadge, proposalsBadge, onLinkClick }: { isAdmin: boolean; pendingRequests: number; monitorBadge: number; moderationBadge: number; proposalsBadge: number; onLinkClick?: () => void }) {
-  const childBadges = { '/teacher/tests/proposals': proposalsBadge }
+  const childBadges = { '/teacher/tests': proposalsBadge }
   return (
     <nav className="flex-1 py-2 space-y-0.5 overflow-y-auto">
       {navItems.filter(item => (!item.adminOnly || isAdmin) && (!item.teacherOnly || !isAdmin)).map((item) => (
