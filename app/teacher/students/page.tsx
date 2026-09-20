@@ -1,7 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { StudentsClient as StudentsTableClient } from '@/components/teacher/StudentsClient'
 import { Button } from '@/components/ui/button'
-import { Users, Plus, UsersRound, Share2 } from 'lucide-react'
+import { Users, Plus, UsersRound } from 'lucide-react'
 import Link from 'next/link'
 
 export default async function StudentsPage() {
@@ -63,14 +63,6 @@ export default async function StudentsPage() {
               Группы
             </Link>
           </Button>
-          {isAdmin && (
-            <Button asChild variant="outline">
-              <Link href="/teacher/students/share-permissions">
-                <Share2 className="h-4 w-4 mr-2" />
-                Шаринг работ
-              </Link>
-            </Button>
-          )}
           {isAdmin && (
             <Button asChild>
               <Link href="/teacher/students/new">

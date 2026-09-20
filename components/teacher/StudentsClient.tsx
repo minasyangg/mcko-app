@@ -19,7 +19,7 @@ import {
   AlertDialogHeader, AlertDialogMedia, AlertDialogTitle, AlertDialogTrigger,
 } from '@/components/ui/alert-dialog'
 import { ConfirmDeleteAction } from '@/components/shared/ConfirmDeleteAction'
-import { Pencil, Trash2, UserX, Eye, EyeOff, UserMinus, AlertTriangle } from 'lucide-react'
+import { Pencil, Trash2, UserX, Eye, EyeOff, UserMinus, AlertTriangle, Loader2 } from 'lucide-react'
 
 export interface StudentRow {
   id: string
@@ -65,6 +65,16 @@ export function StudentsClient({ students: initial, isAdmin = false, teachers = 
   const [showPwd, setShowPwd] = useState(false)
   const [saving, setSaving] = useState(false)
 
+  // Шаринг сданных работ (087_assignment_sharing) — рубильник + whitelist
+  // получателей для редактируемого ученика. Отдельное состояние, не часть
+  // editForm: сохраняется отдельными вызовами (share-settings/
+  // share-recipients), не общим PATCH /api/admin/students/[id].
+  const [shareLoading, setShareLoading] = useState(false)
+  const [shareEnabled, setShareEnabled] = useState(false)
+  const [shareTtl, setShareTtl] = useState('14')
+  const [shareRecipientIds, setShareRecipientIds] = useState<Set<string>>(new Set())
+  const [shareBusy, setShareBusy] = useState<string | null>(null) // 'enabled' | 'ttl' | teacherId
+
   // Диалог прикрепления учителей к ученику (M:N)
   const [teacherTarget, setTeacherTarget] = useState<StudentRow | null>(null)
   const [checkedTeachers, setCheckedTeachers] = useState<Set<string>>(new Set())
@@ -97,7 +107,7 @@ export function StudentsClient({ students: initial, isAdmin = false, teachers = 
     }
   }
 
-  function openEdit(s: StudentRow) {
+  async function openEdit(s: StudentRow) {
     setEditTarget(s)
     setEditForm({
       full_name: s.full_name,
@@ -108,6 +118,17 @@ export function StudentsClient({ students: initial, isAdmin = false, teachers = 
       parentTelegram: s.parent_telegram_username ?? '',
     })
     setShowPwd(false)
+
+    setShareLoading(true)
+    try {
+      const res = await fetch(`/api/admin/students/${s.id}/share-settings`)
+      const json = await res.json().catch(() => ({}))
+      setShareEnabled(json.enabled ?? false)
+      setShareTtl(String(json.default_ttl_days ?? 14))
+      setShareRecipientIds(new Set((json.recipients ?? []).map((r: { teacher_id: string }) => r.teacher_id)))
+    } finally {
+      setShareLoading(false)
+    }
   }
 
   const editTelegram = editForm.telegram.trim().replace(/^@/, '')
@@ -160,6 +181,71 @@ export function StudentsClient({ students: initial, isAdmin = false, teachers = 
       router.refresh()
     } finally {
       setSaving(false)
+    }
+  }
+
+  async function toggleShareEnabled() {
+    if (!editTarget) return
+    const next = !shareEnabled
+    setShareBusy('enabled')
+    try {
+      const res = await fetch(`/api/admin/students/${editTarget.id}/share-settings`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: next }),
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) { toast.error(json.error ?? 'Ошибка'); return }
+      setShareEnabled(next)
+      toast.success(next ? 'Шаринг разрешён' : 'Шаринг запрещён')
+    } finally {
+      setShareBusy(null)
+    }
+  }
+
+  async function saveShareTtl() {
+    if (!editTarget) return
+    const days = parseInt(shareTtl, 10)
+    if (!Number.isFinite(days) || days < 1 || days > 90) {
+      toast.error('Срок — целое число от 1 до 90 дней')
+      return
+    }
+    setShareBusy('ttl')
+    try {
+      const res = await fetch(`/api/admin/students/${editTarget.id}/share-settings`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: shareEnabled, default_ttl_days: days }),
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) { toast.error(json.error ?? 'Ошибка'); return }
+      toast.success('Срок действия обновлён')
+    } finally {
+      setShareBusy(null)
+    }
+  }
+
+  async function toggleShareRecipient(teacherId: string) {
+    if (!editTarget) return
+    const has = shareRecipientIds.has(teacherId)
+    setShareBusy(teacherId)
+    try {
+      const res = has
+        ? await fetch(`/api/admin/students/${editTarget.id}/share-recipients`, {
+            method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ teacher_id: teacherId }),
+          })
+        : await fetch(`/api/admin/students/${editTarget.id}/share-recipients`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ teacher_id: teacherId }),
+          })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) { toast.error(json.error ?? 'Ошибка'); return }
+      setShareRecipientIds(prev => {
+        const next = new Set(prev)
+        if (has) next.delete(teacherId); else next.add(teacherId)
+        return next
+      })
+    } finally {
+      setShareBusy(null)
     }
   }
 
@@ -487,6 +573,75 @@ export function StudentsClient({ students: initial, isAdmin = false, teachers = 
                     {showPwd ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </button>
                 </div>
+              </div>
+
+              {/* Шаринг сданных работ (087) — рубильник + TTL + whitelist
+                  получателей. Отдельный блок сохранений от editForm: каждое
+                  изменение уходит сразу, без общей кнопки «Сохранить». */}
+              <div className="space-y-2 border-t pt-3">
+                <div className="flex items-center justify-between gap-2">
+                  <Label className="text-sm">Шаринг работ с другими учителями</Label>
+                  <Button
+                    size="sm"
+                    variant={shareEnabled ? 'secondary' : 'outline'}
+                    className="h-7 px-2 text-[11px] shrink-0"
+                    disabled={shareLoading || shareBusy === 'enabled'}
+                    onClick={toggleShareEnabled}
+                  >
+                    {shareBusy === 'enabled'
+                      ? <Loader2 className="h-3 w-3 animate-spin" />
+                      : shareEnabled ? 'Разрешён' : 'Запрещён'}
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Ученик сам решает, с кем поделиться сданной работой — но только с учителями
+                  из списка ниже, и только если разрешено здесь.
+                </p>
+
+                {shareLoading ? (
+                  <div className="flex justify-center py-3"><Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /></div>
+                ) : (
+                  <>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-muted-foreground">Срок действия гранта, дней:</span>
+                      <Input
+                        type="number" min={1} max={90} className="h-7 w-20 text-xs"
+                        value={shareTtl}
+                        onChange={(e) => setShareTtl(e.target.value)}
+                        disabled={!shareEnabled}
+                      />
+                      <Button size="sm" variant="outline" className="h-7 px-2 text-[11px]"
+                        disabled={shareBusy === 'ttl' || !shareEnabled} onClick={saveShareTtl}>
+                        Сохранить
+                      </Button>
+                    </div>
+
+                    <div className="rounded-md border max-h-40 overflow-y-auto">
+                      {teachers.length === 0 ? (
+                        <p className="text-xs text-muted-foreground text-center py-3">Нет учителей</p>
+                      ) : (
+                        teachers.map(t => {
+                          const has = shareRecipientIds.has(t.id)
+                          const rowBusy = shareBusy === t.id
+                          return (
+                            <div key={t.id} className="flex items-center justify-between gap-2 px-2.5 py-1.5 border-b last:border-b-0 text-sm">
+                              <span className="truncate">{t.full_name}</span>
+                              <Button
+                                size="sm"
+                                variant={has ? 'secondary' : 'outline'}
+                                className="h-6 px-2 text-[11px] shrink-0"
+                                disabled={rowBusy || !shareEnabled}
+                                onClick={() => toggleShareRecipient(t.id)}
+                              >
+                                {rowBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : has ? 'В списке' : 'Добавить'}
+                              </Button>
+                            </div>
+                          )
+                        })
+                      )}
+                    </div>
+                  </>
+                )}
               </div>
             </div>
             <DialogFooter>
