@@ -7,10 +7,21 @@ import { SharedWithMeTable, type SharedRow } from '@/components/teacher/SharedWi
 // recipient") сам ограничивает выборку тем, что реально расшарено —
 // отдельный auth-фильтр в запросе не нужен, как и в остальных страницах
 // раздела учителя.
+//
+// Только teacher: у admin эта страница вводила в заблуждение — RLS-политика
+// "admin: read org" (давний инвариант проекта) даёт ему видеть ВСЕ активные
+// гранты всей организации, а не только расшаренные лично ему, и страница с
+// заголовком "Расшарено мне" читалась так, будто это именно его личные
+// расшаривания. Решение пользователя (2026-09-21): у admin — не список, а
+// плитка-счётчик на дашборде (см. app/teacher/page.tsx).
 export default async function SharedWithMePage() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
+
+  const { data: profile } = await supabase
+    .from('profiles').select('role').eq('id', user.id).single()
+  if (profile?.role === 'admin') redirect('/teacher')
 
   const { data: shares } = await supabase
     .from('assignment_shares')
@@ -72,7 +83,6 @@ export default async function SharedWithMePage() {
       sender_name: senderId ? (senderNameById.get(senderId) ?? '—') : '—',
       score: result?.final_score ?? null,
       max_score: result?.max_score ?? null,
-      shared_at: s.created_at,
       expires_at: s.expires_at,
     }
   })

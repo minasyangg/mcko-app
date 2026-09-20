@@ -21,7 +21,6 @@ export interface SharedRow {
   sender_name: string
   score: number | null
   max_score: number | null
-  shared_at: string
   expires_at: string
 }
 
@@ -94,7 +93,6 @@ export function SharedWithMeTable({ initialRows }: { initialRows: SharedRow[] })
               <th className="text-left px-4 py-3 font-medium">Тест</th>
               <th className="text-left px-4 py-3 font-medium">Учитель</th>
               <th className="text-left px-4 py-3 font-medium">Балл</th>
-              <th className="text-left px-4 py-3 font-medium">Поделились</th>
               <th className="text-left px-4 py-3 font-medium">Доступ до</th>
               <th className="px-4 py-3" />
             </tr>
@@ -114,7 +112,6 @@ export function SharedWithMeTable({ initialRows }: { initialRows: SharedRow[] })
                 <td className="px-4 py-3 text-muted-foreground">
                   {r.score != null && r.max_score != null ? `${r.score}/${r.max_score}` : '—'}
                 </td>
-                <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{formatDate(r.shared_at)}</td>
                 <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{formatDate(r.expires_at)}</td>
                 <td className="px-4 py-3">
                   <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => openAttempt(r.assignment_id)}>

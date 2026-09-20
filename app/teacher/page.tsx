@@ -1,6 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { BookOpen, Users, ClipboardList, MessageSquare, History } from 'lucide-react'
+import { BookOpen, Users, ClipboardList, MessageSquare, History, Share2 } from 'lucide-react'
 import Link from 'next/link'
 
 export default async function TeacherDashboard() {
@@ -19,6 +19,7 @@ export default async function TeacherDashboard() {
     { count: pendingRequests },
     { count: studentsCount },
     { count: loginsToday },
+    { count: shareLinksCount },
   ] = await Promise.all([
     supabase.from('tests').select('*', { count: 'exact', head: true }),
     supabase.from('attempts').select('*', { count: 'exact', head: true }).eq('status', 'in_progress'),
@@ -26,6 +27,15 @@ export default async function TeacherDashboard() {
     supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('role', 'student'),
     isAdmin
       ? supabase.from('login_events').select('*', { count: 'exact', head: true }).gte('created_at', dayAgo)
+      : Promise.resolve({ count: null }),
+    // Whitelist-связи «ученику разрешено делиться с этим учителем»
+    // (student_share_recipients, 087) — быстрый обзор «кто с кем может
+    // делиться» вместо отдельной страницы со списком всех активных
+    // расшариваний организации (та вводила в заблуждение — заголовком
+    // «Расшарено мне» показывала данные не лично admin'а, а всей
+    // организации, см. app/teacher/shared-with-me/page.tsx).
+    isAdmin
+      ? supabase.from('student_share_recipients').select('*', { count: 'exact', head: true })
       : Promise.resolve({ count: null }),
   ])
 
@@ -36,6 +46,7 @@ export default async function TeacherDashboard() {
     { label: 'Запросов решений', value: pendingRequests ?? 0, icon: MessageSquare, href: '/teacher/solution-requests' },
     // Журнал входов — только админу (карточка ведёт на /teacher/sessions)
     ...(isAdmin ? [{ label: 'Сессии за сутки', value: loginsToday ?? 0, icon: History, href: '/teacher/sessions' }] : []),
+    ...(isAdmin ? [{ label: 'Связей шаринга', value: shareLinksCount ?? 0, icon: Share2, href: '/teacher/users' }] : []),
   ]
 
   return (
