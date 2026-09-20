@@ -15,7 +15,11 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from '@/components/ui/alert-dialog'
-import { BookOpen, Search, Loader2, X, Trash2 } from 'lucide-react'
+import {
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+} from '@/components/ui/dialog'
+import { Label } from '@/components/ui/label'
+import { BookOpen, Search, Loader2, X, Trash2, Pencil, ChevronDown } from 'lucide-react'
 
 export interface CatalogBook {
   id: string
@@ -28,6 +32,7 @@ export interface CatalogBook {
   problems: number | null
   answers_matched: number | null
   can_delete: boolean
+  can_edit: boolean
 }
 
 interface ProblemHit {
@@ -69,6 +74,40 @@ export function BooksCatalog({ books: initialBooks }: { books: CatalogBook[] }) 
     }
   }
 
+  // ── Редактирование названия/автора ──
+  const [editingBook, setEditingBook] = useState<CatalogBook | null>(null)
+  const [editTitle, setEditTitle] = useState('')
+  const [editAuthors, setEditAuthors] = useState('')
+  const [savingEdit, setSavingEdit] = useState(false)
+
+  function openEdit(book: CatalogBook) {
+    setEditingBook(book)
+    setEditTitle(book.title)
+    setEditAuthors(book.authors ?? '')
+  }
+
+  async function handleSaveEdit() {
+    if (!editingBook) return
+    const title = editTitle.trim()
+    if (!title) { toast.error('Название не может быть пустым'); return }
+    setSavingEdit(true)
+    try {
+      const res = await fetch(`/api/books/${editingBook.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title, authors: editAuthors.trim() || null }),
+      })
+      const d = await res.json().catch(() => ({}))
+      if (!res.ok) { toast.error(d.error ?? 'Ошибка сохранения'); return }
+      setBooks(prev => prev.map(b => b.id === editingBook.id ? { ...b, title, authors: editAuthors.trim() || null } : b))
+      toast.success('Книга обновлена')
+      setEditingBook(null)
+      router.refresh()
+    } finally {
+      setSavingEdit(false)
+    }
+  }
+
   // ── Фильтры каталога ──
   const [subject, setSubject] = useState(ALL)
   const [grade, setGrade] = useState(ALL)
@@ -94,6 +133,26 @@ export function BooksCatalog({ books: initialBooks }: { books: CatalogBook[] }) 
   }, [books, subject, grade, author])
 
   const hasFilters = subject !== ALL || grade !== ALL || author.trim() !== ''
+
+  // Группировка по предмету — так книги сразу разложены по темам, без
+  // обязательного похода в фильтр (тот, при выбранном предмете, просто
+  // сузит список секций до одной).
+  const bySubject = useMemo(() => {
+    const groups = new Map<string, CatalogBook[]>()
+    for (const b of filtered) {
+      const arr = groups.get(b.subject) ?? []
+      arr.push(b)
+      groups.set(b.subject, arr)
+    }
+    return [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0], 'ru'))
+  }, [filtered])
+
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
+  const toggleCollapsed = (subj: string) => setCollapsed(prev => {
+    const next = new Set(prev)
+    if (next.has(subj)) next.delete(subj); else next.add(subj)
+    return next
+  })
 
   // ── Общий поиск по заданиям всех книг ──
   const [q, setQ] = useState('')
@@ -209,80 +268,136 @@ export function BooksCatalog({ books: initialBooks }: { books: CatalogBook[] }) 
               )}
             </div>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {filtered.map(book => (
-                <Link key={book.id} href={`/teacher/books/${book.id}`}>
-                  <Card className="h-full hover:border-primary/50 hover:shadow-sm transition-all cursor-pointer">
-                    <CardContent className="p-4 space-y-3">
-                      <div className="flex items-start justify-between gap-2">
-                        <BookOpen className="h-8 w-8 text-primary/70 shrink-0" />
-                        <div className="flex items-center gap-1 shrink-0">
-                          <Badge variant="outline" className="text-xs">
-                            {bookTypeLabel[book.book_type] ?? book.book_type}
-                          </Badge>
-                          {book.can_delete && (
-                            <AlertDialog>
-                              <AlertDialogTrigger asChild>
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  onClick={(e) => e.stopPropagation()}
-                                  disabled={deletingId === book.id}
-                                  title="Удалить книгу"
-                                  className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-                                >
-                                  {deletingId === book.id
-                                    ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                    : <Trash2 className="h-3.5 w-3.5" />}
-                                </Button>
-                              </AlertDialogTrigger>
-                              <AlertDialogContent onClick={(e) => e.stopPropagation()}>
-                                <AlertDialogHeader>
-                                  <AlertDialogTitle>Удалить книгу «{book.title}»?</AlertDialogTitle>
-                                  <AlertDialogDescription>
-                                    Книга со всеми разделами, страницами и заданиями будет удалена безвозвратно.
-                                    Задания, уже добавленные в тесты, там сохранятся.
-                                  </AlertDialogDescription>
-                                </AlertDialogHeader>
-                                <AlertDialogFooter>
-                                  <AlertDialogCancel>Отмена</AlertDialogCancel>
-                                  <AlertDialogAction
-                                    onClick={(e) => { e.preventDefault(); handleDelete(book) }}
-                                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                                  >
-                                    Удалить
-                                  </AlertDialogAction>
-                                </AlertDialogFooter>
-                              </AlertDialogContent>
-                            </AlertDialog>
-                          )}
-                        </div>
+            <div className="space-y-6">
+              {bySubject.map(([subj, subjBooks]) => {
+                const isCollapsed = collapsed.has(subj)
+                return (
+                  <div key={subj}>
+                    <button
+                      type="button"
+                      onClick={() => toggleCollapsed(subj)}
+                      className="flex items-center gap-2 w-full text-left mb-3 group"
+                    >
+                      <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${isCollapsed ? '-rotate-90' : ''}`} />
+                      <h2 className="text-base font-semibold group-hover:text-primary transition-colors">{subj}</h2>
+                      <span className="text-xs text-muted-foreground">{subjBooks.length}</span>
+                      <div className="flex-1 border-t ml-2" />
+                    </button>
+                    {!isCollapsed && (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {subjBooks.map(book => (
+                          <Link key={book.id} href={`/teacher/books/${book.id}`}>
+                            <Card className="h-full hover:border-primary/50 hover:shadow-sm transition-all cursor-pointer">
+                              <CardContent className="p-4 space-y-3">
+                                <div className="flex items-start justify-between gap-2">
+                                  <BookOpen className="h-8 w-8 text-primary/70 shrink-0" />
+                                  <div className="flex items-center gap-1 shrink-0">
+                                    <Badge variant="outline" className="text-xs">
+                                      {bookTypeLabel[book.book_type] ?? book.book_type}
+                                    </Badge>
+                                    {book.can_edit && (
+                                      <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); openEdit(book) }}
+                                        title="Редактировать название и автора"
+                                        className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
+                                      >
+                                        <Pencil className="h-3.5 w-3.5" />
+                                      </Button>
+                                    )}
+                                    {book.can_delete && (
+                                      <AlertDialog>
+                                        <AlertDialogTrigger asChild>
+                                          <Button
+                                            size="sm"
+                                            variant="ghost"
+                                            onClick={(e) => e.stopPropagation()}
+                                            disabled={deletingId === book.id}
+                                            title="Удалить книгу"
+                                            className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                                          >
+                                            {deletingId === book.id
+                                              ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                              : <Trash2 className="h-3.5 w-3.5" />}
+                                          </Button>
+                                        </AlertDialogTrigger>
+                                        <AlertDialogContent onClick={(e) => e.stopPropagation()}>
+                                          <AlertDialogHeader>
+                                            <AlertDialogTitle>Удалить книгу «{book.title}»?</AlertDialogTitle>
+                                            <AlertDialogDescription>
+                                              Книга со всеми разделами, страницами и заданиями будет удалена безвозвратно.
+                                              Задания, уже добавленные в тесты, там сохранятся.
+                                            </AlertDialogDescription>
+                                          </AlertDialogHeader>
+                                          <AlertDialogFooter>
+                                            <AlertDialogCancel>Отмена</AlertDialogCancel>
+                                            <AlertDialogAction
+                                              onClick={(e) => { e.preventDefault(); handleDelete(book) }}
+                                              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                            >
+                                              Удалить
+                                            </AlertDialogAction>
+                                          </AlertDialogFooter>
+                                        </AlertDialogContent>
+                                      </AlertDialog>
+                                    )}
+                                  </div>
+                                </div>
+                                <div>
+                                  <h3 className="font-medium leading-snug">{book.title}</h3>
+                                  {book.authors && (
+                                    <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{book.authors}</p>
+                                  )}
+                                </div>
+                                <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                                  {book.grade && <span>{book.grade} класс</span>}
+                                  {book.level && <span>{book.level}</span>}
+                                </div>
+                                <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground border-t pt-2">
+                                  {book.problems != null && <span>Заданий: <span className="font-medium text-foreground">{book.problems}</span></span>}
+                                  {book.answers_matched != null && book.answers_matched > 0 && (
+                                    <span>С ответами: <span className="font-medium text-foreground">{book.answers_matched}</span></span>
+                                  )}
+                                </div>
+                              </CardContent>
+                            </Card>
+                          </Link>
+                        ))}
                       </div>
-                      <div>
-                        <h2 className="font-medium leading-snug">{book.title}</h2>
-                        {book.authors && (
-                          <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{book.authors}</p>
-                        )}
-                      </div>
-                      <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
-                        <span>{book.subject}</span>
-                        {book.grade && <span>{book.grade} класс</span>}
-                        {book.level && <span>{book.level}</span>}
-                      </div>
-                      <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground border-t pt-2">
-                        {book.problems != null && <span>Заданий: <span className="font-medium text-foreground">{book.problems}</span></span>}
-                        {book.answers_matched != null && book.answers_matched > 0 && (
-                          <span>С ответами: <span className="font-medium text-foreground">{book.answers_matched}</span></span>
-                        )}
-                      </div>
-                    </CardContent>
-                  </Card>
-                </Link>
-              ))}
+                    )}
+                  </div>
+                )
+              })}
             </div>
           )}
         </>
       )}
+
+      <Dialog open={editingBook !== null} onOpenChange={(open) => { if (!open) setEditingBook(null) }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Редактировать книгу</DialogTitle>
+            <DialogDescription>Название и авторы, как они отображаются в каталоге.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="edit-book-title">Название</Label>
+              <Input id="edit-book-title" value={editTitle} onChange={(e) => setEditTitle(e.target.value)} maxLength={300} />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="edit-book-authors">Авторы</Label>
+              <Input id="edit-book-authors" value={editAuthors} onChange={(e) => setEditAuthors(e.target.value)} maxLength={300} placeholder="Необязательно" />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setEditingBook(null)} disabled={savingEdit}>Отмена</Button>
+            <Button onClick={handleSaveEdit} disabled={savingEdit}>
+              {savingEdit ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Сохранить'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

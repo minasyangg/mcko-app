@@ -14,9 +14,19 @@
 // внутри — напр. Атанасян «Геометрия. 7-9 классы»): --grade оставляем
 // пустым/не задаём, а границы задаём явно per-книга —
 //   --grade-by-chapter "7:1-5,8:6-9,9:10-15"
-// (номер главы = порядковый счётчик "Глава N" по документу, 1-based;
+//   --grade-by-paragraph "7:1-28,8:29-50,9:51-65"   # для книг без "Глава N"
+//                                                     # вовсе, где границы
+//                                                     # только по номеру §
+// (номер главы/параграфа = порядковый счётчик по документу, 1-based;
 // диапазоны включительно). grade проставляется на book_sections/
 // book_problems, не на books — см. миграцию 078.
+//
+// РАЗДЕЛИТЬ такую книгу на N отдельных записей books (не просто пометить
+// grade внутри одной) — --only-grade вместе с --grade-by-chapter/
+// --grade-by-paragraph, запускать N раз с разным --only-grade/--title:
+//   node scripts/book-import.mjs sbornik.json --grade-by-paragraph "7:1-28,8:29-50,9:51-65" --only-grade 7 --title "…7 класс"
+//   node scripts/book-import.mjs sbornik.json --grade-by-paragraph "7:1-28,8:29-50,9:51-65" --only-grade 8 --title "…8 класс"
+//   node scripts/book-import.mjs sbornik.json --grade-by-paragraph "7:1-28,8:29-50,9:51-65" --only-grade 9 --title "…9 класс"
 //
 // Исходный PDF книги (опционально, только для прямой записи в БД):
 //   --pdf <file.pdf>        # сжимается через scripts/compress-pdf.mjs и заливается
@@ -70,6 +80,30 @@ function parseGradeByChapter(spec) {
   })
 }
 const gradeByChapter = parseGradeByChapter(flag('grade-by-chapter'))
+// То же самое, но по номеру §-параграфа, а не главы — для книг без
+// обёртки "Глава N" (сборники, где все параграфы 1..65 идут плоским
+// root-level списком, напр. Перышкин «Сборник задач по физике. 7-9 кл»).
+function parseGradeByParagraph(spec) {
+  if (!spec) return null
+  return spec.split(',').map(part => {
+    const m = part.trim().match(/^(\d+)\s*:\s*(\d+)\s*-\s*(\d+)$/)
+    if (!m) { console.error(`--grade-by-paragraph: не разобрано "${part}", ожидался формат "7:1-28"`); process.exit(1) }
+    return { grade: m[1], from: parseInt(m[2]), to: parseInt(m[3]) }
+  })
+}
+const gradeByParagraph = parseGradeByParagraph(flag('grade-by-paragraph'))
+// Книга на несколько классов, которую нужно РАЗДЕЛИТЬ на отдельные книги в
+// БД (не просто расставить grade внутри одной) — используется вместе с
+// --grade-by-chapter/--grade-by-paragraph: тот расставляет grade каждой
+// секции, этот фильтрует итоговые задания только этим классом, остальные
+// в эту книгу не попадают вовсе. Запускать импорт нужно N раз (по разу на
+// класс) с одним и тем же --grade-by-paragraph, но разным --only-grade и
+// --title/--grade — так книга физически разделится на N записей books.
+const onlyGrade = flag('only-grade') ?? null
+if (onlyGrade && !gradeByChapter && !gradeByParagraph) {
+  console.error('--only-grade требует --grade-by-chapter или --grade-by-paragraph (иначе grade у секций не проставлен и книга выйдет пустой)')
+  process.exit(1)
+}
 const pdfFile = flag('pdf') ?? null
 const pdfNoCompress = args.includes('--pdf-no-compress')
 if (pdfFile && !fs.existsSync(pdfFile)) {
@@ -510,20 +544,53 @@ const isDidactic = (flag('type') ?? '') === 'didactic'
 // цеплять части «САМОСТОЯТЕЛЬНЫЕ РАБОТЫ») и «К-15 (…)» — заголовки работ
 // внимание: \b в JS не работает с кириллицей ([а-яё] ∉ \w) — границу слова
 // «работа» задаём негативным просмотром
-const WORK_RE = /^#{0,6}[ \t]*((?:Вводн[а-яё]+[ \t]+|Итогов[а-яё]+[ \t]+|Примерн[а-яё]+[ \t]+)?(Самостоятельн|Контрольн|Проверочн)[а-яё]*[ \t]+работа(?![а-яё])[^\n]*)/gim
+// "Самостоятельная\n\nработа" — колонтитул иногда попадает в OCR не отдельным
+// "header"-блоком (см. insertHeaderBlocksAt), а слитым в обычный text-блок с
+// переносом абзаца между прилагательным и "работа" (см. Кирик, стр.53/126:
+// эпиграф над колонтитулом занимает верх страницы, и оба слова расходятся по
+// разным параграфам markdown) — [ \t]+ (одна строка) не матчит перенос,
+// \s{1,4} — допускает пустую строку между ними, не более.
+const WORK_RE = /^#{0,6}[ \t]*((?:Вводн[а-яё]+[ \t]+|Итогов[а-яё]+[ \t]+|Примерн[а-яё]+[ \t]+)?(Самостоятельн|Контрольн|Проверочн)[а-яё]*\s{1,4}работа(?![а-яё])[^\n]*)/gim
 // «K-1 (Виленкин, п. 7)» — заголовок КР; бывает и обычной строкой без «#»,
 // поэтому требуем строку целиком: номер + необязательная скобочная пометка
 const KR_HEAD_RE = /^#{0,6}[ \t]*[KК][ \t]*[-–—][ \t]*(\d+)[ \t]*(\([^\n)]{0,80}\))?[ \t]*$/gm
 // Короткая форма «С-N. Тема» / «К-N (§...). Тема» на одной строке с темой
-// (Макарычев «Дидактические материалы», не требует слова «работа» вовсе).
-// Перед шифром печатается номер варианта римской цифрой — OCR искажает его
-// как что угодно (1, I, П, T, 7, И…) — съедаем произвольный короткий префикс
-// (не С/К/C, чтобы случайно не проглотить сам шифр работы); сам номер
-// варианта отсюда не берём (его даёт TOC-секция «Вариант N» или рестарт
-// нумерации 1.. внутри работы, см. didState.variant++).
-const SHORT_WORK_HEAD_RE = /^#{0,6}[ \t]*(?:[^\sСКCск\n]{1,3}[ \t]+)?([СКCск])[ \t]*[-–—.][ \t]*(\d+)[.)][ \t]*([^\n]{2,120})$/gm
+// (Макарычев «Дидактические материалы», не требует слова «работа» вовсе), а
+// также двухбуквенная «СР-N. Тема» (кириллица) / «CP-N. Тема» (латиница —
+// OCR иногда путает визуально идентичные С/C, Р/P) — «Самостоятельная
+// Работа», см. Громцева «Физика 8 класс»: там СР-N используется вместо
+// однобуквенного С-N всюду по книге. Перед шифром печатается номер варианта
+// римской цифрой — OCR искажает его как что угодно (1, I, П, T, 7, И…) —
+// съедаем произвольный короткий префикс (не С/К/C/P, чтобы случайно не
+// проглотить сам шифр работы); сам номер варианта отсюда не берём (его даёт
+// TOC-секция «Вариант N» или рестарт нумерации 1.. внутри работы, см.
+// didState.variant++).
+//
+// Оглавление печатает ЭТИ ЖЕ строки в сокращённом виде («CP-1. Тепловое
+// движение...... 6») на 1-2 страницах перед реальным текстом заданий —
+// PaddleOCR размечает TOC как block_label='content', но content НЕ входит в
+// markdown_ignore_labels, поэтому он всё равно остаётся в markdown.text и
+// ложно матчится тем же паттерном (см. Громцева «Физика 8 класс», где это
+// давало 48 фиктивных "работ" раньше первой настоящей — коллизии printedNo
+// с реальными заголовками дальше по документу рвали нумерацию у всех работ
+// после ~6-й). Строка оглавления узнаётся по отточию «.....N» в конце —
+// исключаем её негативным lookahead в самом хвосте.
+const SHORT_WORK_HEAD_RE = /^#{0,6}[ \t]*(?:[^\sСКCскPp\n]{1,3}[ \t]+)?([СC][РP]|[СКCск])[ \t]*[-–—.][ \t]*(\d+)[.)][ \t]*([^\n]{2,120})$/gm
+const TOC_LIKE_LINE_RE = /\.{2,}\s*\d{1,3}[ \t]*$/
 const KIND_BY_WORD = { 'самостоятельн': 'с', 'контрольн': 'р', 'проверочн': 'п' }
 const KIND_BY_LETTER = { с: 'с', к: 'р' } // сравнение по нижнему регистру (С/К/C и их OCR-варианты в верхнем/нижнем)
+// Заголовок работы, обёрнутый переносом на несколько строк ("CP-28. Тема...
+// \nпродолжение темы .....63"), не ловится TOC_LIKE_LINE_RE — отточие
+// оказывается на другой физической строке, чем начало заголовка (см.
+// Громцева, стр.4 оглавления). Общий признак страницы целиком — высокая
+// ДОЛЯ строк с отточием (обычный текст задания такого почти не содержит,
+// а TOC — почти весь), надёжнее одной строки.
+function isTocLikePage(markdown) {
+  const lines = markdown.split('\n').map(l => l.trim()).filter(Boolean)
+  if (lines.length < 4) return false
+  const tocLines = lines.filter(l => TOC_LIKE_LINE_RE.test(l)).length
+  return tocLines / lines.length >= 0.2
+}
 
 // Дидактические сборники (Макарычев «Дидактические материалы» и, вероятно,
 // не только) печатают заголовок каждого варианта/работы ("Вариант 3"/"K-2
@@ -541,15 +608,32 @@ if (isDidactic) {
 }
 
 const didacticWorks = [] // {page, at, title, kind, printedNo, no, globalIdx}
+// Раздел книги иногда открывается шмуцтитулом-анонсом — несколько заголовков
+// "Контрольная работа № N" подряд с кратким перечнем тем, БЕЗ единого
+// задания между ними (см. Кирик, стр.161: "Контрольная работа № 1 • Тема...
+// Контрольная работа № 2 • Тема..." и т.д.). Без фильтра эти 4 фиктивные
+// "работы" со своими, ПРАВИЛЬНЫМИ printedNo 1-4 конкурируют за те же номера
+// с настоящими работами дальше по документу — настоящие проигрывают
+// коллизию (usedKey ниже) и съезжают на случайные следующие номера.
+// Признак: >1 совпадения WORK_RE на одной физической странице — считаем всю
+// страницу анонсом целиком (сами работы никогда не печатаются по нескольку
+// на одну scan-страницу в этой книге).
 if (isDidactic) {
   for (const p of pages) {
+    if (isTocLikePage(p.markdown)) continue // страница оглавления — не искать здесь заголовки работ
     let m
+    const workMatchesOnPage = []
     WORK_RE.lastIndex = 0
     while ((m = WORK_RE.exec(p.markdown)) !== null) {
-      const title = m[1].trim()
+      if (TOC_LIKE_LINE_RE.test(m[1])) continue // строка оглавления («Контрольная работа .....30»)
+      workMatchesOnPage.push(m)
+    }
+    if (workMatchesOnPage.length > 1) continue // шмуцтитул-анонс, не реальные заголовки
+    for (const wm of workMatchesOnPage) {
+      const title = wm[1].trim()
       didacticWorks.push({
-        page: p.index, at: m.index, title,
-        kind: KIND_BY_WORD[m[2].toLowerCase()] ?? 'р',
+        page: p.index, at: wm.index, title,
+        kind: KIND_BY_WORD[wm[2].toLowerCase()] ?? 'р',
         printedNo: parseInt(title.match(/№\s*(\d+)/)?.[1] ?? '') || null,
       })
     }
@@ -563,6 +647,7 @@ if (isDidactic) {
     }
     SHORT_WORK_HEAD_RE.lastIndex = 0
     while ((m = SHORT_WORK_HEAD_RE.exec(p.markdown)) !== null) {
+      if (TOC_LIKE_LINE_RE.test(m[3])) continue // строка оглавления («Тема .....N»), не заголовок задания
       const kind = KIND_BY_LETTER[m[1].toLowerCase()] ?? 'с'
       // латиница "C" и кириллица "С" визуально идентичны, но разные символы —
       // нормализуем к кириллице, иначе заголовки той же работы на разных
@@ -602,6 +687,38 @@ if (isDidactic) {
     }
   }
   didacticWorks.sort((a, b) => a.page - b.page || a.at - b.at)
+
+  // Восстановление printedNo из оглавления для книг, где сам номер работы
+  // НЕ печатается в тексте задания вовсе — только в TOC (см. Кирик «Физика
+  // 8 кл. Разноуровневые работы»: колонтитул на каждой странице — голое
+  // "Самостоятельная работа" без номера и темы; тема есть только в doc_title
+  // рядом, но тоже без номера работы). Без этого шага WORK_RE находит
+  // одинаковый текст "Самостоятельная работа" у РАЗНЫХ работ, и дедупликация
+  // ниже (ключ — printedNo, а при его отсутствии — текст заголовка) схлопывает
+  // соседние работы (та, что окажется в пределах 6 страниц) в одну — реальный
+  // случай: СР-1 и СР-2 слились, а дальше ещё 6 работ подряд.
+  // TOC печатает "Самостоятельная работа № N" (или "Контрольная работа № N")
+  // ПОЛНЫМ текстом на своей строке — сопоставляем по ближайшей scan-странице.
+  const tocWorkNodes = toc
+    .map(n => {
+      const m = String(n.title ?? '').match(/(Самостоятельная|Контрольная)\s+работа\s*№\s*(\d+)/i)
+      if (!m) return null
+      const scanPage = n.scanStart ?? printedToScan(n.printedPage)
+      if (scanPage === null) return null
+      return { kind: m[1].toLowerCase() === 'самостоятельная' ? 'с' : 'р', no: parseInt(m[2]), scanPage }
+    })
+    .filter(Boolean)
+  if (tocWorkNodes.length > 0) {
+    for (const w of didacticWorks) {
+      if (w.printedNo !== null) continue
+      // ближайший TOC-узел ТОГО ЖЕ вида работы в пределах 3 страниц (работа
+      // может начинаться на следующей физической странице после заголовка TOC)
+      const candidates = tocWorkNodes
+        .filter(t => t.kind === w.kind && Math.abs(t.scanPage - w.page) <= 3)
+        .sort((a, b) => Math.abs(a.scanPage - w.page) - Math.abs(b.scanPage - w.page))
+      if (candidates.length > 0) w.printedNo = candidates[0].no
+    }
+  }
 
   // Одна работа печатает заголовок над каждым вариантом («K-1 …» ×4) —
   // повторы в пределах 6 страниц схлопываются в одну. Ключ — kind+printedNo
@@ -756,6 +873,41 @@ if (gradeByChapter) {
       // параграфом/пунктом — поднимаемся, пока не найдём chapter или root)
       let p = s.parent
       while (p && p.kind !== 'chapter') p = p.parent
+      gradeBySection.set(s, p ? gradeBySection.get(p) ?? null : null)
+    }
+    s.grade = gradeBySection.get(s) ?? null
+  }
+}
+
+// То же для книг без "Глава N" вовсе — параграфы идут плоским root-level
+// списком (--grade-by-paragraph). Номер параграфа надёжен (сквозная
+// нумерация 1..65 через весь документ), но kind не всегда 'paragraph':
+// если в тексте нет "§" (только "1. Название"), parseToc заводит такие
+// узлы как kind==='other' с number=null (см. ветку parseToc: без "§"
+// первый же пункт не находит родителя-paragraph и падает в else-ветку
+// "Предисловие/Ответы/..." — см. Перышкин «Сборник задач. 7-9 кл»,
+// где все 65 параграфов именно такие). Номер тогда достаём из начала
+// title регэкспом, а не из s.number.
+if (gradeByParagraph) {
+  const gradeByParagraphNo = (no) => gradeByParagraph.find(r => no >= r.from && no <= r.to)?.grade ?? null
+  const paragraphNumber = (s) => {
+    if (s.kind === 'paragraph') { const no = parseInt(String(s.number).replace(/\D/g, '')); return Number.isFinite(no) ? no : null }
+    // Тематический заголовок-разделитель без отточия слипается с номером
+    // следующего параграфа в одну TOC-строку ("ЗАКОНЫ ВЗАИМОДЕЙСТВИЯ И
+    // ДВИЖЕНИЯ ТЕЛ 51. Материальная точка…", см. parseToc: разделитель сам
+    // не заводит узел — see строка ~446/493) — ищем "N. " не только в самом
+    // начале строки, но и после такого префикса (граница слово→цифра).
+    if (s.kind === 'other') { const m = String(s.title ?? '').match(/(?:^|\s)(\d{1,3})\.\s/); return m ? parseInt(m[1]) : null }
+    return null
+  }
+  const gradeBySection = new Map()
+  for (const s of flatSections) {
+    const no = paragraphNumber(s)
+    if (no !== null) {
+      gradeBySection.set(s, gradeByParagraphNo(no))
+    } else {
+      let p = s.parent
+      while (p && paragraphNumber(p) === null) p = p.parent
       gradeBySection.set(s, p ? gradeBySection.get(p) ?? null : null)
     }
     s.grade = gradeBySection.get(s) ?? null
@@ -1023,6 +1175,12 @@ const DKR_HEAD_RE = /ДОМ[А-ЯЁ]+\s+КОНТРОЛЬН[А-ЯЁ]*\s+РАБО�
 // «Вариант 1» и его OCR-искажения: Бармант, Вармонят, Бермант, Варимят,
 // Bapuanm, Bapuann, Bapuuanm (латинская "B" вместо кириллической «В»)…
 const VARIANT_RE = /^#{0,6}\s*[БВB][а-яёa-z]{4,9}\s+(\d)\s*\.?\s*$/gim
+// «Задание N (0,5 балла)» — номер задания словом, а не голой «N.» (Кирик
+// «Физика 8 кл., Разноуровневые работы», контрольные работы на весь урок,
+// см. project_books_module: PLAIN_RE/PAREN_RE не матчат этот формат вовсе —
+// раздел контрольных работ выпадал из базы полностью). Скобка с баллами
+// опциональна и не участвует в номере.
+const TASK_LABEL_RE = /^#{0,6}[ \t]*Задание[ \t]+(\d{1,2})[ \t]*(\([^\n)]{0,20}\))?[ \t]*$/gim
 
 // Дидактика: «Вариант N» из печатного оглавления с диапазоном страниц —
 // зона со своей сквозной нумерацией (Чесноков: каждый вариант = полный
@@ -1113,6 +1271,139 @@ const scanMd = new Map()
   }
 }
 
+// Дидактика: составные задания нумеруют СВОИ внутренние подпункты/варианты
+// ответа тем же стилем «N.», что и сами задания варианта — styleLock (см.
+// фазу 1 ниже) их не отличает, если стиль совпадает, они читаются как начало
+// НОВОГО варианта (рестарт «num<=2 после lastNum>=3») и рвут счётчик на
+// середине книги. Два стабильных паттерна такого рода у Генденштейна:
+//  - «Дайте краткие ответы на вопросы задачи.»/«Приведите полное решение
+//    задачи.» → подпункты 1./2./3*./4*. до «Расчёты:»/«Решение:»;
+//  - «Установите соответствие … Ответ впишите в таблицу.» → варианты
+//    сопоставления 1./2./3.… до открывающего тега готовой <table>.
+// Маскируем оба в scanMd (та же техника, что QUESTIONS_HEAD_RE выше) — от
+// маркерной фразы до маркера конца, конец может быть на следующей странице
+// (insideMask переживает переход между страницами, тот же приём, что
+// insideQuestions). Основной текст (не scanMd) не трогаем — остаётся
+// читаемым в book_pages.
+if (isDidactic) {
+  // Окно ожидания "end" в начале следующей страницы при переносе маски через
+  // границу — БЕЗ окна insideMask ищет конец по ВСЕЙ следующей странице и
+  // рискует поймать одноимённый маркер уже СЛЕДУЮЩЕГО (чужого) задания —
+  // тогда весь текст между ними стирается вместе с его собственным номером.
+  // Окно у каждого паттерна своё, по типичному расстоянию до настоящего
+  // конца: бланк «Ответы: N.___» редко длиннее ~150 симв.; а таблица
+  // соответствия идёт СРАЗУ после «...таблицу.» без содержательного текста
+  // между ними — здесь окно короче, иначе ловится таблица уже следующего
+  // (не составного) задания, которая тоже нередко идёт где-то поблизости.
+  const maskPatterns = [
+    {
+      start: /Дайте краткие ответы на вопросы задачи\.|Приведите полное решение задачи\./g,
+      end: /[РрPp][ае][сc][чq][её][тm]ы?\s*:|[РрPp]ешение\s*:/,
+      carryWindow: 250,
+    },
+    {
+      // Таблица-ответ печатается не сразу за вопросом — она уходит в КОНЕЦ
+      // страницы/группы заданий, после ещё 1-2 последующих заданий (см.
+      // живой случай: «5. Установите соответствие...» → варианты А-Г →
+      // «6*.»/«7*.» текст ЦЕЛИКОМ → только потом <table> для задания 5).
+      // Значит "до ближайшей <table" маскирует и чужие задания между ними.
+      // Правильная граница — конец САМОГО списка вариантов сопоставления
+      // (Г./Γ. — последняя буква кириллического перечисления А/Б/В/Г,
+      // всегда 4 строки в этой книге, каждая "БУКВА. текст. цифра.")
+      // — маскируем только это перечисление, не идём до <table> вовсе.
+      //
+      // ИЗВЕСТНОЕ ОГРАНИЧЕНИЕ (не устранено, решили остановиться —
+      // см. project_books_module): когда буквенный список А-Г и числовой
+      // список вариантов сопоставления 1-5 печатаются РАЗДЕЛЬНО (не на
+      // одной строке "А. Текст. 1. Значение.", а отдельными блоками — см.
+      // Генденштейн «Физика 8», стр.5/16 сборника), эта граница отсекает
+      // слишком рано и оставляет числовой список немаскированным — тот
+      // читается как рестарт нумерации и рвёт счётчик варианта. Попытка
+      // расширить границу до "буква + опциональный числовой хвост, до
+      // ближайшего <table если по дороге нет чужого N*." неоднократно
+      // проверялась (2026-09-19) и каждый раз чинила часть случаев ценой
+      // регресса в других местах (число распознанных заданий падало с 157
+      // до 144-146 вместо роста) — итоговая цепочка причин у этого формата
+      // не единая на всю книгу, чинить точечно рискованно без более
+      // крупного рефакторинга самого маскирующего прохода.
+      start: /Установите соответствие[\s\S]{0,150}?[Тт]аблицу\.?\s*/g,
+      end: /[ГГΓ]\.\s*[^\n]*\n/,
+      carryWindow: 200,
+    },
+  ]
+  for (const { start, end, carryWindow } of maskPatterns) {
+    const matchEnd = typeof end === 'function' ? end : (text) => text.match(end)
+    let insideMask = false
+    for (const p of pages) {
+      let md = scanMd.get(p.index)
+      let searchFrom = 0
+      if (insideMask) {
+        const window = md.slice(0, carryWindow)
+        const endM = matchEnd(window)
+        const at = endM ? endM.index + endM[0].length : 0 // не нашли в окне → не переносим, закрываем без стирания
+        if (at > 0) md = ' '.repeat(at) + md.slice(at)
+        insideMask = false
+        searchFrom = at
+      }
+      let m
+      start.lastIndex = searchFrom
+      while ((m = start.exec(md)) !== null) {
+        const rest = md.slice(m.index)
+        const endM = matchEnd(rest)
+        const at = endM ? m.index + endM.index + endM[0].length : md.length
+        md = md.slice(0, m.index) + ' '.repeat(at - m.index) + md.slice(at)
+        insideMask = !endM
+        start.lastIndex = at
+      }
+      scanMd.set(p.index, md)
+    }
+  }
+
+  // «Расчёты:»/«Решение:» — конец рабочего поля, но следом (та же страница
+  // или следующая) идёт бланк «Ответы:/Omeem: 1. ___  2*. ___» с прочерками
+  // под каждый подпункт — тоже часть шаблона задания, не текст следующего.
+  // Отдельный проход, БЕЗ переноса состояния через границу страницы (в
+  // отличие от maskPatterns выше): бланк либо сразу за своим «Расчёты:»/
+  // «Решение:» на той же странице, либо ровно в НАЧАЛЕ следующей —
+  // сквозной end-поиск по всему следующему тексту (как у maskPatterns)
+  // однажды поймал чужое «Решение:» ГЛУБЖЕ в этой же странице (уже от
+  // следующего составного задания) и стёр текст между ними целиком.
+  // Бланк-паттерн сам по себе (без обязательного «Расчёты:»/«Решение:»
+  // перед ним) — на второй странице разрыва он идёт первым, оторванный от
+  // своего «Расчёты:»/«Решение:», которое осталось в хвосте предыдущей.
+  const ANSWER_BLANK_ONLY_RE = /(?:[ОоOo][тm][a-яa-z]*\s*:)?(?:\s*\d{1,2}\*?\.\s*_+\s*){1,4}/g
+  for (const p of pages) {
+    let md = scanMd.get(p.index)
+    // Бланк сразу после «Расчёты:»/«Решение:» на ЭТОЙ ЖЕ странице — ищем
+    // локально в пределах короткого окна после каждого вхождения, не
+    // сквозным match() по всему остатку страницы (тот однажды поймал
+    // «Решение:» уже следующего задания и стёр всё до него).
+    const endRe = /[РрPp][ае][сc][чq][её][тm]ы?\s*:|[РрPp]ешение\s*:/g
+    let em
+    while ((em = endRe.exec(md)) !== null) {
+      const windowStart = em.index + em[0].length
+      const window = md.slice(windowStart, windowStart + 200)
+      ANSWER_BLANK_ONLY_RE.lastIndex = 0
+      const bm = ANSWER_BLANK_ONLY_RE.exec(window)
+      if (bm && bm.index <= 3) {
+        md = md.slice(0, windowStart) + ' '.repeat(bm[0].length) + md.slice(windowStart + bm[0].length)
+      }
+      endRe.lastIndex = windowStart
+    }
+    scanMd.set(p.index, md)
+  }
+  // Бланк, оторванный переносом страницы (нет «Расчёты:»/«Решение:» перед
+  // ним на ЭТОЙ странице — оно осталось в хвосте предыдущей) — маскируем в
+  // самом НАЧАЛЕ страницы, если он там есть, независимо от состояния.
+  for (const p of pages) {
+    let md = scanMd.get(p.index)
+    ANSWER_BLANK_ONLY_RE.lastIndex = 0
+    const bm = ANSWER_BLANK_ONLY_RE.exec(md)
+    if (bm && bm.index === 0) md = ' '.repeat(bm[0].length) + md.slice(bm[0].length)
+    scanMd.set(p.index, md)
+  }
+}
+
 // Дидактические сборники не трогаем: задания короткие (разрывов почти нет),
 // а перенос текста сбил бы конечный автомат работ/вариантов в фазе 1.
 if (!isDidactic) {
@@ -1196,6 +1487,8 @@ for (const p of pages) {
     while ((m = PLAIN_RE.exec(scanText)) !== null) events.push({ at: m.index, type: 'task', style: '.', glyph: m[1] ?? null, num: parseInt(m[2]), star: m[3] || null })
     PAREN_RE.lastIndex = 0
     while ((m = PAREN_RE.exec(scanText)) !== null) events.push({ at: m.index, type: 'task', style: ')', glyph: null, num: parseInt(m[1]), star: /[*°]/.test(m[0]) ? '*' : null })
+    TASK_LABEL_RE.lastIndex = 0
+    while ((m = TASK_LABEL_RE.exec(scanText)) !== null) events.push({ at: m.index, type: 'task', style: 'label', glyph: null, num: parseInt(m[1]), star: null })
     events.sort((a, b) => a.at - b.at)
 
     for (const ev of events) {
@@ -1472,7 +1765,7 @@ for (let i = 0; i < problems.length - 1; i++) {
 
 // дубликаты номеров (unique constraint) — оставляем первое вхождение
 const seen = new Set()
-const uniqueProblems = []
+let uniqueProblems = []
 for (const pr of problems) {
   if (seen.has(pr.taskNumber)) { warnings.push(`дубль номера ${pr.taskNumber} (стр.${pr.pageIndex}) — пропущен`); continue }
   seen.add(pr.taskNumber)
@@ -1499,6 +1792,12 @@ for (const pr of uniqueProblems) {
   if (!pr.section) warnings.push(`задание ${pr.taskNumber} (стр.${pr.pageIndex}) не попало ни в один раздел`)
 }
 
+if (onlyGrade) {
+  const before = uniqueProblems.length
+  uniqueProblems = uniqueProblems.filter(pr => pr.section?.grade === onlyGrade)
+  warnings.push(`--only-grade ${onlyGrade}: из ${before} заданий оставлено ${uniqueProblems.length} (остальные — другие классы, в эту книгу не попадут)`)
+}
+
 // ── Ответы ───────────────────────────────────────────────────────────────────
 
 // Номера ответов в книге идут строго по возрастанию. Числа внутри самих
@@ -1506,6 +1805,7 @@ for (const pr of uniqueProblems) {
 // оставляя наибольшую возрастающую подпоследовательность номеров.
 function longestIncreasingByNum(items) {
   const n = items.length
+  if (n === 0) return []
   const dp = new Array(n).fill(1)
   const prev = new Array(n).fill(-1)
   let best = 0
@@ -1552,6 +1852,165 @@ function assignAnswer(taskNumber, rawAnswer) {
     pr.gradingMethod = 'manual'
   }
   answersFound++
+}
+
+// Дидактические сборники, где эталон печатается не текстом «8.1. …», а
+// HTML-таблицей «строка = вариант, столбцы = подпункты задания» — формат
+// PaddleOCR для книг Генденштейна и, вероятно, не только (см.
+// project_books_module, 2026-09-19): заголовок таблицы — colspan-группы
+// «Задание N» с подпунктами построчно под каждой ("1","2","3*","4*"), тело —
+// первая ячейка строки = номер варианта, остальные = ответ на этот подпункт.
+// Перед каждой таблицей — заголовок работы «Контрольная работа № N» (или
+// иное совпадение с WORK_RE/KR_HEAD_RE — переиспользуем didacticWorks,
+// сопоставленных по номеру, не по эксземпляру, т.к. заголовок в разделе
+// «Ответы» — это НЕ то же вхождение, что заголовок самой работы в тексте
+// заданий, у него нет своего didacticWorks-элемента).
+function parseDidacticAnswerTables(text) {
+  const workHeaderRe = /Контрольная работа\s*№\s*(\d+)/gi
+  const tableRe = /<table[^>]*>([\s\S]*?)<\/table>/gi
+  const rowRe = /<tr>([\s\S]*?)<\/tr>/gi
+  const cellRe = /<td[^>]*>([\s\S]*?)<\/td>/gi
+
+  // Индекс "at заголовка работы" → номер работы, для сопоставления с ближайшей
+  // ПРЕДШЕСТВУЮЩЕЙ таблицей (заголовок печатается прямо перед своей таблицей).
+  const workHeaders = []
+  let wm
+  while ((wm = workHeaderRe.exec(text)) !== null) workHeaders.push({ at: wm.index, no: parseInt(wm[1]) })
+
+  const stripHtml = (s) => s.replace(/<[^>]+>/g, ' ').replace(/\$\s*\^\{\{?\*\}?\}\s*\$/g, '*').replace(/\s+/g, ' ').trim()
+
+  let tm
+  while ((tm = tableRe.exec(text)) !== null) {
+    const tableAt = tm.index
+    const work = [...workHeaders].reverse().find(w => w.at <= tableAt)
+    if (!work) continue
+
+    const rows = []
+    let rm
+    rowRe.lastIndex = 0
+    while ((rm = rowRe.exec(tm[1])) !== null) {
+      const cells = []
+      let cm
+      cellRe.lastIndex = 0
+      while ((cm = cellRe.exec(rm[1])) !== null) cells.push(stripHtml(cm[1]))
+      rows.push(cells)
+    }
+    if (rows.length < 3) continue // заголовок(1-2 строки) + минимум 1 строка данных
+
+    // Строка 0: rowspan-заголовок («Номер варианта») + colspan-группы
+    // («Задание 8» ×4, «Задание 9» ×2) — рассчитываем span из исходного HTML
+    // (regex, не DOM: колво <td> в строке 0 меньше физического кол-ва
+    // столбцов, colspan восполняет разницу).
+    const headerRowHtml = (() => {
+      rowRe.lastIndex = 0
+      const first = rowRe.exec(tm[1])
+      return first ? first[1] : ''
+    })()
+    const headerCellsRaw = [...headerRowHtml.matchAll(/<td([^>]*)>([\s\S]*?)<\/td>/gi)]
+    const taskGroups = [] // [{taskNum, span}]
+    for (const [, attrs, content] of headerCellsRaw) {
+      const label = stripHtml(content)
+      const m2 = label.match(/Задание\s*(\d+)/i)
+      if (!m2) continue // первая ячейка «Номер варианта» (rowspan, не задание)
+      const span = parseInt(attrs.match(/colspan="?(\d+)"?/)?.[1] ?? '1')
+      taskGroups.push({ taskNum: m2[1], span })
+    }
+    if (taskGroups.length === 0) continue
+
+    // Строка 1: подпункты по столбцам ("1","2","3*","4*","1","2*") — плоский
+    // список длины = сумма span, режем по границам taskGroups.
+    const subLabels = rows[1]
+    const groupedLabels = []
+    let cursor = 0
+    for (const g of taskGroups) {
+      groupedLabels.push({ taskNum: g.taskNum, labels: subLabels.slice(cursor, cursor + g.span) })
+      cursor += g.span
+    }
+
+    // Строки данных (rows[2..]): первая ячейка — номер варианта, остальные
+    // выровнены с groupedLabels по тому же порядку столбцов. Собираем текст
+    // в уже поддерживаемом формате меток "N) значение" (см. LABEL_RE в
+    // scripts/lib/multi-part-answer.mjs — метка это ровно 1-2 цифры/буква,
+    // без "*"), а не отдельный {parts:} — так assignAnswer/composite-разбор
+    // при копировании в тест срабатывают без доработки где-либо ещё.
+    for (const row of rows.slice(2)) {
+      const variantNo = parseInt(row[0])
+      if (!Number.isFinite(variantNo)) continue
+      let col = 1
+      for (const g of groupedLabels) {
+        const piecesText = []
+        for (const label of g.labels) {
+          const raw = (row[col] ?? '').trim()
+          const bareLabel = label.replace(/\s+/g, '').replace(/\*$/, '')
+          if (raw && bareLabel) piecesText.push(`${bareLabel}) ${raw}`)
+          col++
+        }
+        if (piecesText.length > 0) {
+          assignAnswer(`р${work.no}.${variantNo}.${g.taskNum}`, piecesText.join('; '))
+        }
+      }
+    }
+  }
+}
+
+// Второй формат HTML-таблиц ответов у дидактических сборников (Громцева
+// «Контрольные и самостоятельные работы по физике» — см. project_books_module,
+// 2026-09-19): в отличие от parseDidacticAnswerTables (там строка=вариант,
+// colspan-группы=задание+подпункты), здесь строка=ВАРИАНТ, простой столбец
+// (без colspan) = НОМЕР ЗАДАНИЯ; ответы не составные (без "N) значение").
+// Якорь перед таблицей — заголовок работы, двух видов:
+//  - «СР-N. Тема» / «CP-N. Тема» (кириллица/латиница вперемешку из-за OCR,
+//    см. SHORT_WORK_HEAD_RE) — номер работы берём прямо из N;
+//  - «Контрольная работа»/«Контрольная работа «Тема»» БЕЗ номера — как и в
+//    основном парсере (didacticWorks: printedNo=null для этой формы), номер
+//    назначается порядковым счётчиком по появлению, 1-based.
+function parseGromtsevaAnswerTables(text) {
+  const srHeaderRe = /[СC][РP][ \t]*[-–—.][ \t]*(\d+)/g
+  const krHeaderRe = /Контрольная работа/gi
+  const tableRe = /<table[^>]*>([\s\S]*?)<\/table>/gi
+  const rowRe = /<tr>([\s\S]*?)<\/tr>/gi
+  const cellRe = /<td[^>]*>([\s\S]*?)<\/td>/gi
+  const stripHtml = (s) => s.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
+
+  const headers = []
+  let m
+  while ((m = srHeaderRe.exec(text)) !== null) headers.push({ at: m.index, kind: 'с', no: parseInt(m[1]) })
+  let krIdx = 0
+  while ((m = krHeaderRe.exec(text)) !== null) { krIdx++; headers.push({ at: m.index, kind: 'р', no: krIdx }) }
+  headers.sort((a, b) => a.at - b.at)
+
+  let tm
+  while ((tm = tableRe.exec(text)) !== null) {
+    const tableAt = tm.index
+    const work = [...headers].reverse().find(h => h.at <= tableAt)
+    if (!work) continue
+
+    const rows = []
+    let rm
+    rowRe.lastIndex = 0
+    while ((rm = rowRe.exec(tm[1])) !== null) {
+      const cells = []
+      let cm
+      cellRe.lastIndex = 0
+      while ((cm = cellRe.exec(rm[1])) !== null) cells.push(stripHtml(cm[1]))
+      rows.push(cells)
+    }
+    if (rows.length < 2) continue // заголовок + минимум 1 строка данных
+
+    // Строка 0: первая ячейка — надпись угла («№ задания / № варианта»),
+    // остальные — номера заданий по порядку столбцов.
+    const taskNumbers = rows[0].slice(1)
+    for (const row of rows.slice(1)) {
+      const variantNo = parseInt(row[0])
+      if (!Number.isFinite(variantNo)) continue
+      for (let col = 0; col < taskNumbers.length; col++) {
+        const taskNo = parseInt(taskNumbers[col])
+        const raw = (row[col + 1] ?? '').trim()
+        if (!Number.isFinite(taskNo) || !raw) continue
+        assignAnswer(`${work.kind}${work.no}.${variantNo}.${taskNo}`, raw)
+      }
+    }
+  }
 }
 
 // Парсинг блока ответов: candidates → LIS (номера в книге строго возрастают,
@@ -1618,6 +2077,17 @@ if (answersStart !== null) {
     .replace(/^#{1,6}\s.*$/gm, ' ')                 // заголовки (ОТВЕТЫ, Глава N)
     // "К параграфу 5." / "K параграфу 5." (OCR: латинская K) / "К главе 3."
     .replace(/[КK]\s+(параграфу|дополнительным упражнениям|главе)[^.]*\./gi, ' ')
+
+  // Таблицы ответов (см. parseDidacticAnswerTables/parseGromtsevaAnswerTables)
+  // — на СЫРОМ тексте, HTML-теги нужны целиком; только для дидактических
+  // сборников, где встречается этот формат. Оба парсера безопасно идут друг
+  // за другом: их якоря не пересекаются ("Контрольная работа № N" с номером
+  // vs "СР-N"/"CP-N" и "Контрольная работа" без номера), а assignAnswer сам
+  // пропускает задания, уже получившие ответ. Перед обычным
+  // parseAnswersBlock — тот на HTML-тегах внутри ячеек ничего не найдёт для
+  // уже назначенных taskNumber, но лучше не тратить его проходом по
+  // огромному <table>-блоку, если тот уже разобран целиком.
+  if (isDidactic) { parseDidacticAnswerTables(text); parseGromtsevaAnswerTables(text) }
 
   parseAnswersBlock(clean(text), scheme)
   if (repetitionText && hasRepetitionSubsections) {
@@ -1732,7 +2202,7 @@ const meta = {
   title: flag('title') ?? path.basename(file, '.json'),
   authors: flag('authors') ?? null,
   subject: flag('subject') ?? 'Математика',
-  grade: flag('grade') ?? null,
+  grade: flag('grade') ?? onlyGrade,
   level: flag('level') ?? null,
   bookType: flag('type') ?? 'textbook',
   publisher: flag('publisher') ?? null,
@@ -2029,7 +2499,16 @@ const PAUSE_MS = 400
 async function insertBatched(table, rows, batchSize) {
   for (let i = 0; i < rows.length; i += batchSize) {
     const { error } = await withRetry(() => db.from(table).insert(rows.slice(i, i + batchSize)), `${table}@${i}`)
-    if (error) { console.error(`${table}@${i}:`, error.message); process.exit(1) }
+    // "fetch failed" на этой машине (TLS-перехватывающий прокси) иногда
+    // означает, что запрос НА САМОМ ДЕЛЕ прошёл на сервере, но ответ не
+    // долетел клиенту — withRetry тогда повторяет тот же insert и natural-но
+    // бьётся о unique constraint. Дублирующий ключ здесь означает «эта партия
+    // уже вставлена предыдущей попыткой», не настоящую ошибку данных —
+    // считаем идемпотентным успехом и продолжаем со следующего батча, вместо
+    // падения всего импорта на середине (живой случай: book_pages@5 стабильно
+    // рвал прогон, оставляя книгу в БД наполовину без единого задания).
+    if (error && error.code !== '23505') { console.error(`${table}@${i}:`, error.message); process.exit(1) }
+    if (error) console.warn(`  ${table}@${i}: уже вставлено предыдущей попыткой (duplicate key), пропускаю`)
     await new Promise(r => setTimeout(r, PAUSE_MS))
   }
 }
