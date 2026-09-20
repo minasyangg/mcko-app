@@ -101,11 +101,13 @@ function AssignmentCard({ a }: { a: AssignmentCardData }) {
 
         <div className="pt-2 space-y-2">
           {isDone && (
-            <Button asChild variant="outline" size="sm" className="w-full">
-              <Link href={`/student/attempt/${a.assignment_id}/result`}>Посмотреть результат</Link>
-            </Button>
+            <div className="flex items-center gap-1.5">
+              <Button asChild variant="outline" size="sm" className="flex-1">
+                <Link href={`/student/attempt/${a.assignment_id}/result`}>Посмотреть результат</Link>
+              </Button>
+              <ShareAssignmentDialog assignmentId={a.assignment_id} testTitle={a.test_title} compact />
+            </div>
           )}
-          {isDone && <ShareAssignmentDialog assignmentId={a.assignment_id} testTitle={a.test_title} />}
           {isDone && canStart ? (
             <Button asChild size="sm" className="w-full">
               <Link href={`/student/attempt/${a.assignment_id}`}>Пройти ещё раз</Link>

@@ -18,9 +18,12 @@ interface ActiveShare { id: string; teacher_id: string; teacher_name: string; ex
 // Список получателей и уже активные гранты подгружаются лениво при открытии
 // диалога — не на каждой карточке списка, только когда ученик реально нажал
 // "Поделиться".
-export function ShareAssignmentDialog({ assignmentId, testTitle }: {
+export function ShareAssignmentDialog({ assignmentId, testTitle, compact = false }: {
   assignmentId: string
   testTitle: string
+  /** Иконка без текста и подписи, для плотных списков (RoadmapTimeline) —
+   *  вместо полноразмерной кнопки на всю ширину карточки. */
+  compact?: boolean
 }) {
   const router = useRouter()
   const [open, setOpen] = useState(false)
@@ -92,10 +95,15 @@ export function ShareAssignmentDialog({ assignmentId, testTitle }: {
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
-        <Button variant="outline" size="sm" className="w-full">
-          <Share2 className="h-3.5 w-3.5 mr-1.5" />
-          Поделиться
-        </Button>
+        {compact ? (
+          <Button variant="outline" size="sm" className="h-7 w-7 p-0 shrink-0" title="Поделиться работой">
+            <Share2 className="h-3.5 w-3.5" />
+          </Button>
+        ) : (
+          <Button variant="outline" size="sm" className="w-full" title="Поделиться работой">
+            <Share2 className="h-3.5 w-3.5" />
+          </Button>
+        )}
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
