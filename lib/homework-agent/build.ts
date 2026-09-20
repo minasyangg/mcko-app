@@ -1,29 +1,33 @@
-import type { createAdminClient } from '@/lib/supabase/admin'
-import { addBookProblemToVersion, addLibraryProblemToVersion } from '@/lib/tests/add-problem-to-version'
-import { publishTestVersion } from '@/lib/tests/publish'
-import { deleteAssignmentsDeep } from '@/lib/assignments/cleanup'
-import { notifyAssignmentCreated } from '@/lib/notifications/send'
-import { pickProblems, type RuleConfig, type RuleSource } from '@/lib/homework-agent/pick-problems'
-
-type AdminClient = ReturnType<typeof createAdminClient>
-
-export type BuildResult =
-  | { ok: true; testId: string; assignmentId: string | null; published: boolean; taskCount: number; relaxations: string[] }
-  | { ok: false; reason: 'race' | 'shortfall' | 'error'; error?: string }
-
 /**
- * Фаза 2 двухфазного флоу (см. project_homework_agent): собирает и
- * назначает ДЗ по уже ПОДТВЕРЖДЁННОМУ предложению — подбор заданий
- * (pick-problems.ts), draft-тест, публикация (lib/tests/publish.ts),
- * назначение в теме программы (тот же insert, что и ручная привязка
- * в app/api/roadmaps/[id]/topics/[topicId]/items/route.ts).
+ * ────────────────────────────────────────────────────────────────────────
+ * СПРАВОЧНЫЙ ФАЙЛ — НЕ ИСПОЛНЯЕТСЯ, НИОТКУДА НЕ ИМПОРТИРУЕТСЯ.
+ * ────────────────────────────────────────────────────────────────────────
  *
- * Вызывается и из callback-обработчика Telegram (сразу после подтверждения),
- * и из cron-роута build (подбирает то, что подтверждено через страницу
- * сайта, и то, что не подхватил callback) — оба пути должны быть безопасны
- * при повторном вызове одного proposalId, поэтому первый шаг — атомарный
- * захват через переход статуса confirmed → building.
+ * Автоматическая сборка ДЗ на сервере удалена (2026-09-20, по решению
+ * пользователя): ДЗ собирает Claude Code скиллом
+ * .claude/skills/homework-agent-build, читая текст каждого кандидата и
+ * отбирая задания по смыслу — слепой SQL-фильтр по теме в первом живом
+ * прогоне (2026-09-16) собрал ДЗ из посторонних разделов. Вместе с cron
+ * (app/api/cron/homework-agent/*) удалены propose.ts, pick-problems.ts,
+ * format-message.ts.
+ *
+ * Этот файл оставлен НАМЕРЕННО и только как образец структуры для скилла:
+ * какие таблицы и в каком порядке заполняются при сборке ДЗ (tests →
+ * test_versions → test_tasks/task_answer_keys → publish → assignments),
+ * с каким набором колонок. SKILL.md ссылается на него как на эталон
+ * SQL-эквивалента. Живые реализации вставки задания и публикации —
+ * lib/tests/add-problem-to-version.ts и lib/tests/publish.ts, они
+ * используются HTTP-роутами и актуальны.
+ *
+ * Код ниже приведён как он работал на момент удаления автосборки. Он
+ * ссылается на удалённый pickProblems — это осознанно: описание того,
+ * ЧТО подставить на его место, есть в SKILL.md (шаги 3–4, смысловой
+ * отбор). Не восстанавливать этот путь, не импортировать отсюда ничего.
+ *
+ * @fileoverview Образец структуры сборки ДЗ. Не исполняемый код.
  */
+/* eslint-disable */
+// @ts-nocheck
 export async function buildHomework(
   admin: AdminClient,
   proposalId: string

@@ -52,9 +52,24 @@ export default async function TestsPage() {
   if (!isAdmin) {
     const { data: proposalRows } = await supabase
       .from('homework_proposals')
-      .select('id, roadmap_id, status, proposed_title, final_title, proposed_summary, expires_at, created_at, roadmaps!roadmap_id(title)')
+      .select('id, roadmap_id, status, proposed_title, final_title, proposed_summary, expires_at, created_at, updated_at, test_id, assignment_id, roadmaps!roadmap_id(title)')
       .order('created_at', { ascending: false })
       .limit(50)
+
+    // Число заданий собранного ДЗ — для подписи «8 заданий» в карточке.
+    // Одним запросом на все тесты сразу, не по запросу на карточку.
+    const testIds = (proposalRows ?? []).map(p => p.test_id).filter((id): id is string => !!id)
+    const taskCountByTest = new Map<string, number>()
+    if (testIds.length > 0) {
+      const { data: taskRows } = await supabase
+        .from('test_tasks')
+        .select('id, test_versions!inner(test_id)')
+        .in('test_versions.test_id', testIds)
+      for (const t of taskRows ?? []) {
+        const testId = (t.test_versions as unknown as { test_id: string } | null)?.test_id
+        if (testId) taskCountByTest.set(testId, (taskCountByTest.get(testId) ?? 0) + 1)
+      }
+    }
 
     proposals = (proposalRows ?? []).map(p => ({
       id: p.id,
@@ -65,6 +80,10 @@ export default async function TestsPage() {
       proposed_summary: p.proposed_summary,
       expires_at: p.expires_at,
       created_at: p.created_at,
+      built_at: p.updated_at,
+      test_id: p.test_id,
+      assignment_id: p.assignment_id,
+      task_count: p.test_id ? taskCountByTest.get(p.test_id) ?? null : null,
     }))
   }
 

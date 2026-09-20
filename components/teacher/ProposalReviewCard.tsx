@@ -150,9 +150,16 @@ export function ProposalReviewCard({
           <p className="text-sm text-destructive">{proposal.build_error}</p>
         )}
         {proposal.status === 'built' && proposal.test_id && (
-          <a href={`/teacher/tests/${proposal.test_id}`} className="text-sm text-primary underline">
-            {proposal.assignment_id ? 'Открыть собранный тест' : 'Открыть черновик и опубликовать'}
-          </a>
+          <div className="rounded-md border p-3 space-y-1">
+            <a href={`/teacher/tests/${proposal.test_id}`} className="text-sm text-primary underline font-medium">
+              {proposal.assignment_id ? 'Открыть ДЗ' : 'Открыть черновик и опубликовать'}
+            </a>
+            <p className="text-xs text-muted-foreground">
+              {proposal.assignment_id
+                ? 'ДЗ опубликовано и назначено группе.'
+                : 'ДЗ собрано как черновик — ученики его пока не видят. Проверьте состав и опубликуйте.'}
+            </p>
+          </div>
         )}
       </CardContent>
 
