@@ -622,6 +622,54 @@ export type Database = {
           },
         ]
       }
+      book_index_terms: {
+        Row: {
+          book_id: string
+          book_section_id: string | null
+          created_at: string
+          id: string
+          printed_pages: number[]
+          search_vector: unknown
+          sort_order: number
+          term: string
+        }
+        Insert: {
+          book_id: string
+          book_section_id?: string | null
+          created_at?: string
+          id?: string
+          printed_pages?: number[]
+          search_vector?: unknown
+          sort_order?: number
+          term: string
+        }
+        Update: {
+          book_id?: string
+          book_section_id?: string | null
+          created_at?: string
+          id?: string
+          printed_pages?: number[]
+          search_vector?: unknown
+          sort_order?: number
+          term?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "book_index_terms_book_id_fkey"
+            columns: ["book_id"]
+            isOneToOne: false
+            referencedRelation: "books"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "book_index_terms_book_section_id_fkey"
+            columns: ["book_section_id"]
+            isOneToOne: false
+            referencedRelation: "book_sections"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       book_pages: {
         Row: {
           book_id: string
@@ -661,6 +709,7 @@ export type Database = {
           correct_answer: Json | null
           created_at: string | null
           difficulty: string
+          grade: string | null
           grading_method: string
           has_images: boolean
           id: string
@@ -683,6 +732,7 @@ export type Database = {
           correct_answer?: Json | null
           created_at?: string | null
           difficulty?: string
+          grade?: string | null
           grading_method?: string
           has_images?: boolean
           id?: string
@@ -705,6 +755,7 @@ export type Database = {
           correct_answer?: Json | null
           created_at?: string | null
           difficulty?: string
+          grade?: string | null
           grading_method?: string
           has_images?: boolean
           id?: string
@@ -742,6 +793,7 @@ export type Database = {
         Row: {
           book_id: string
           created_at: string | null
+          grade: string | null
           id: string
           kind: string
           number: string | null
@@ -754,6 +806,7 @@ export type Database = {
         Insert: {
           book_id: string
           created_at?: string | null
+          grade?: string | null
           id?: string
           kind?: string
           number?: string | null
@@ -766,6 +819,7 @@ export type Database = {
         Update: {
           book_id?: string
           created_at?: string | null
+          grade?: string | null
           id?: string
           kind?: string
           number?: string | null
@@ -1174,6 +1228,110 @@ export type Database = {
           },
         ]
       }
+      exam_task_topic_map: {
+        Row: {
+          created_at: string
+          exam_type: string
+          fgos_grade: string | null
+          fipi_code: string | null
+          id: string
+          library_topic_id: string
+          subject: string
+          task_number: number
+          weight: number
+        }
+        Insert: {
+          created_at?: string
+          exam_type: string
+          fgos_grade?: string | null
+          fipi_code?: string | null
+          id?: string
+          library_topic_id: string
+          subject: string
+          task_number: number
+          weight?: number
+        }
+        Update: {
+          created_at?: string
+          exam_type?: string
+          fgos_grade?: string | null
+          fipi_code?: string | null
+          id?: string
+          library_topic_id?: string
+          subject?: string
+          task_number?: number
+          weight?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "exam_task_topic_map_library_topic_id_fkey"
+            columns: ["library_topic_id"]
+            isOneToOne: false
+            referencedRelation: "library_topics"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      fgos_curriculum: {
+        Row: {
+          created_at: string
+          fipi_code: string | null
+          grade: string
+          hours: number | null
+          id: string
+          level: string
+          library_topic_id: string | null
+          parent_id: string | null
+          sort_order: number
+          source: string | null
+          subject: string
+          title: string
+        }
+        Insert: {
+          created_at?: string
+          fipi_code?: string | null
+          grade: string
+          hours?: number | null
+          id?: string
+          level?: string
+          library_topic_id?: string | null
+          parent_id?: string | null
+          sort_order: number
+          source?: string | null
+          subject: string
+          title: string
+        }
+        Update: {
+          created_at?: string
+          fipi_code?: string | null
+          grade?: string
+          hours?: number | null
+          id?: string
+          level?: string
+          library_topic_id?: string | null
+          parent_id?: string | null
+          sort_order?: number
+          source?: string | null
+          subject?: string
+          title?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fgos_curriculum_library_topic_id_fkey"
+            columns: ["library_topic_id"]
+            isOneToOne: false
+            referencedRelation: "library_topics"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fgos_curriculum_parent_id_fkey"
+            columns: ["parent_id"]
+            isOneToOne: false
+            referencedRelation: "fgos_curriculum"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       grade_promotions: {
         Row: {
           graduated_count: number
@@ -1290,6 +1448,161 @@ export type Database = {
             columns: ["roadmap_id"]
             isOneToOne: false
             referencedRelation: "roadmaps"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      homework_proposals: {
+        Row: {
+          action_token: string
+          assignment_id: string | null
+          build_error: string | null
+          confirmed_at: string | null
+          confirmed_by: string | null
+          created_at: string
+          expires_at: string
+          final_title: string | null
+          id: string
+          organization_id: string
+          proposed_summary: string | null
+          proposed_title: string
+          publish_immediately: boolean
+          rationale: Json
+          roadmap_id: string
+          roadmap_topic_id: string | null
+          rule_id: string | null
+          slot_date: string
+          status: string
+          teacher_id: string
+          teacher_note: string | null
+          telegram_chat_id: number | null
+          telegram_message_id: number | null
+          test_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          action_token?: string
+          assignment_id?: string | null
+          build_error?: string | null
+          confirmed_at?: string | null
+          confirmed_by?: string | null
+          created_at?: string
+          expires_at: string
+          final_title?: string | null
+          id?: string
+          organization_id: string
+          proposed_summary?: string | null
+          proposed_title: string
+          publish_immediately?: boolean
+          rationale?: Json
+          roadmap_id: string
+          roadmap_topic_id?: string | null
+          rule_id?: string | null
+          slot_date: string
+          status?: string
+          teacher_id: string
+          teacher_note?: string | null
+          telegram_chat_id?: number | null
+          telegram_message_id?: number | null
+          test_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          action_token?: string
+          assignment_id?: string | null
+          build_error?: string | null
+          confirmed_at?: string | null
+          confirmed_by?: string | null
+          created_at?: string
+          expires_at?: string
+          final_title?: string | null
+          id?: string
+          organization_id?: string
+          proposed_summary?: string | null
+          proposed_title?: string
+          publish_immediately?: boolean
+          rationale?: Json
+          roadmap_id?: string
+          roadmap_topic_id?: string | null
+          rule_id?: string | null
+          slot_date?: string
+          status?: string
+          teacher_id?: string
+          teacher_note?: string | null
+          telegram_chat_id?: number | null
+          telegram_message_id?: number | null
+          test_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "homework_proposals_assignment_id_fkey"
+            columns: ["assignment_id"]
+            isOneToOne: false
+            referencedRelation: "assigned_problems"
+            referencedColumns: ["assignment_id"]
+          },
+          {
+            foreignKeyName: "homework_proposals_assignment_id_fkey"
+            columns: ["assignment_id"]
+            isOneToOne: false
+            referencedRelation: "assignments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "homework_proposals_confirmed_by_fkey"
+            columns: ["confirmed_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "homework_proposals_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "homework_proposals_roadmap_id_fkey"
+            columns: ["roadmap_id"]
+            isOneToOne: false
+            referencedRelation: "roadmaps"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "homework_proposals_roadmap_topic_id_fkey"
+            columns: ["roadmap_topic_id"]
+            isOneToOne: false
+            referencedRelation: "roadmap_topics"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "homework_proposals_rule_id_fkey"
+            columns: ["rule_id"]
+            isOneToOne: false
+            referencedRelation: "roadmap_agent_rules"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "homework_proposals_teacher_id_fkey"
+            columns: ["teacher_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "homework_proposals_test_id_fkey"
+            columns: ["test_id"]
+            isOneToOne: false
+            referencedRelation: "assigned_problems"
+            referencedColumns: ["test_id"]
+          },
+          {
+            foreignKeyName: "homework_proposals_test_id_fkey"
+            columns: ["test_id"]
+            isOneToOne: false
+            referencedRelation: "tests"
             referencedColumns: ["id"]
           },
         ]
@@ -1917,6 +2230,164 @@ export type Database = {
           },
         ]
       }
+      roadmap_agent_rule_sources: {
+        Row: {
+          book_id: string | null
+          created_at: string
+          exam_type: string | null
+          grade: string | null
+          id: string
+          library_topic_id: string | null
+          rule_id: string
+          source_kind: string
+          subject: string | null
+          target_count: number | null
+          weight: number
+        }
+        Insert: {
+          book_id?: string | null
+          created_at?: string
+          exam_type?: string | null
+          grade?: string | null
+          id?: string
+          library_topic_id?: string | null
+          rule_id: string
+          source_kind: string
+          subject?: string | null
+          target_count?: number | null
+          weight?: number
+        }
+        Update: {
+          book_id?: string | null
+          created_at?: string
+          exam_type?: string | null
+          grade?: string | null
+          id?: string
+          library_topic_id?: string | null
+          rule_id?: string
+          source_kind?: string
+          subject?: string | null
+          target_count?: number | null
+          weight?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "roadmap_agent_rule_sources_book_id_fkey"
+            columns: ["book_id"]
+            isOneToOne: false
+            referencedRelation: "books"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "roadmap_agent_rule_sources_library_topic_id_fkey"
+            columns: ["library_topic_id"]
+            isOneToOne: false
+            referencedRelation: "library_topics"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "roadmap_agent_rule_sources_rule_id_fkey"
+            columns: ["rule_id"]
+            isOneToOne: false
+            referencedRelation: "roadmap_agent_rules"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      roadmap_agent_rules: {
+        Row: {
+          allow_images: boolean
+          auto_confirm: boolean
+          auto_grant_access: boolean
+          confirm_timeout_hours: number
+          created_at: string
+          created_by: string | null
+          difficulty: string
+          due_in_days: number
+          enabled: boolean
+          id: string
+          mistakes_lookback_days: number
+          mistakes_pct: number
+          notes: string | null
+          organization_id: string
+          require_answer: boolean
+          roadmap_id: string
+          send_at_local: string
+          task_count: number
+          timezone: string
+          updated_at: string
+          weekdays: number[]
+        }
+        Insert: {
+          allow_images?: boolean
+          auto_confirm?: boolean
+          auto_grant_access?: boolean
+          confirm_timeout_hours?: number
+          created_at?: string
+          created_by?: string | null
+          difficulty?: string
+          due_in_days?: number
+          enabled?: boolean
+          id?: string
+          mistakes_lookback_days?: number
+          mistakes_pct?: number
+          notes?: string | null
+          organization_id: string
+          require_answer?: boolean
+          roadmap_id: string
+          send_at_local?: string
+          task_count?: number
+          timezone?: string
+          updated_at?: string
+          weekdays?: number[]
+        }
+        Update: {
+          allow_images?: boolean
+          auto_confirm?: boolean
+          auto_grant_access?: boolean
+          confirm_timeout_hours?: number
+          created_at?: string
+          created_by?: string | null
+          difficulty?: string
+          due_in_days?: number
+          enabled?: boolean
+          id?: string
+          mistakes_lookback_days?: number
+          mistakes_pct?: number
+          notes?: string | null
+          organization_id?: string
+          require_answer?: boolean
+          roadmap_id?: string
+          send_at_local?: string
+          task_count?: number
+          timezone?: string
+          updated_at?: string
+          weekdays?: number[]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "roadmap_agent_rules_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "roadmap_agent_rules_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "roadmap_agent_rules_roadmap_id_fkey"
+            columns: ["roadmap_id"]
+            isOneToOne: true
+            referencedRelation: "roadmaps"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       roadmap_source_groups: {
         Row: {
           added_at: string | null
@@ -1954,28 +2425,61 @@ export type Database = {
         Row: {
           created_at: string | null
           description: string | null
+          fgos_curriculum_id: string | null
           id: string
+          library_topic_id: string | null
+          parent_id: string | null
           roadmap_id: string
           sort_order: number
+          status: string
           title: string
         }
         Insert: {
           created_at?: string | null
           description?: string | null
+          fgos_curriculum_id?: string | null
           id?: string
+          library_topic_id?: string | null
+          parent_id?: string | null
           roadmap_id: string
           sort_order?: number
+          status?: string
           title: string
         }
         Update: {
           created_at?: string | null
           description?: string | null
+          fgos_curriculum_id?: string | null
           id?: string
+          library_topic_id?: string | null
+          parent_id?: string | null
           roadmap_id?: string
           sort_order?: number
+          status?: string
           title?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "roadmap_topics_fgos_curriculum_id_fkey"
+            columns: ["fgos_curriculum_id"]
+            isOneToOne: false
+            referencedRelation: "fgos_curriculum"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "roadmap_topics_library_topic_id_fkey"
+            columns: ["library_topic_id"]
+            isOneToOne: false
+            referencedRelation: "library_topics"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "roadmap_topics_parent_id_fkey"
+            columns: ["parent_id"]
+            isOneToOne: false
+            referencedRelation: "roadmap_topics"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "roadmap_topics_roadmap_id_fkey"
             columns: ["roadmap_id"]
@@ -2972,6 +3476,18 @@ export type Database = {
       delete_student_cascade: {
         Args: { target_student_id: string }
         Returns: Json
+      }
+      diagnose_roadmap_mistakes: {
+        Args: { p_lookback_days?: number; p_roadmap_id: string }
+        Returns: {
+          err_pct: number
+          fgos_grade: string
+          fipi_code: string
+          library_topic_id: string
+          topic_name: string
+          total: number
+          wrong: number
+        }[]
       }
       doska_board_in_auth_org: {
         Args: { p_board_id: string }

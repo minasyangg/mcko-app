@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button'
 import { SearchableSelect } from '@/components/shared/SearchableSelect'
 import { Plus, BookOpen, PencilLine } from 'lucide-react'
 import { DeleteTestButton } from '@/components/teacher/DeleteTestButton'
+import { ProposalsListClient, type ProposalRow } from '@/components/teacher/ProposalsListClient'
 import { cn } from '@/lib/utils'
 
 export interface TestRow {
@@ -40,7 +41,7 @@ const statusVariant: Record<string, 'secondary' | 'default' | 'outline' | 'destr
   archived: 'outline',
 }
 
-type Tab = 'test' | 'homework'
+type Tab = 'test' | 'homework' | 'proposals'
 
 // showExamType=false — вкладка ДЗ: у домашних заданий нет типа экзамена
 // showOwner=true — админ видит тесты всех учителей, показываем автора
@@ -130,11 +131,13 @@ function TestsTable({
 // автопроверка) и «Домашние задания» (баллы задаёт сам учитель при
 // составлении/назначении). Механика прохождения общая, kind — маркер.
 export function TestsListClient({
-  rows, isAdmin = false, teachers = [],
+  rows, isAdmin = false, teachers = [], proposals = [],
 }: {
   rows: TestRow[]
   isAdmin?: boolean
   teachers?: { id: string; full_name: string }[]
+  /** Предложения ДЗ от агента автосборки — только у учителя (см. ProposalsListClient) */
+  proposals?: ProposalRow[]
 }) {
   const [tab, setTab] = useState<Tab>('test')
   // фильтр по учителю — только у админа (видит тесты всех)
@@ -163,16 +166,21 @@ export function TestsListClient({
 
   const tests = filtered.filter(r => r.kind !== 'homework')
   const homework = filtered.filter(r => r.kind === 'homework')
-  const current = tab === 'test' ? tests : homework
+  const current = tab === 'test' ? tests : tab === 'homework' ? homework : []
 
   // По 15 строк на вкладку, возврат к первым 15 — при смене вкладки
   // «Тесты»/«Домашние задания» или фильтра по учителю
   const { visible: pagedCurrent, hasMore, loadMore, total, showing } =
     usePagination(current, 15, 15, `${tab}|${filterTeacher}`)
 
+  const pendingProposals = proposals.filter(p => p.status === 'pending').length
+
   const tabs: { key: Tab; label: string; count: number }[] = [
     { key: 'test', label: 'Тесты', count: tests.length },
     { key: 'homework', label: 'Домашние задания', count: homework.length },
+    // Предложения ДЗ от агента автосборки — бейдж считает только «ждут решения»,
+    // не все записи (иначе «собрано»/«просрочено» из прошлого раздували бы счётчик)
+    { key: 'proposals', label: 'Предложения агента', count: pendingProposals },
   ]
 
   return (
@@ -199,67 +207,80 @@ export function TestsListClient({
             </button>
           ))}
         </div>
-        <Button asChild>
-          <Link href={`/teacher/tests/new?kind=${tab}`}>
-            <Plus className="h-4 w-4 mr-2" />
-            {tab === 'test' ? 'Создать тест' : 'Создать задание'}
-          </Link>
-        </Button>
-      </div>
-
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-xs text-muted-foreground max-w-2xl">
-          {tab === 'test'
-            ? 'Тесты имеют тип, разбаловку и критерии, привязанные к правилам оценивания — проверяются автоматически по правилам.'
-            : 'Домашнее задание собирается из готовых заданий книг или библиотеки задач; баллы задаёт сам учитель.'}
-        </p>
-        {/* Фильтр по учителю — только админу (видит все тесты организации) */}
-        {isAdmin && teachers.length > 1 && (
-          <div className="w-56 shrink-0">
-            <SearchableSelect
-              options={teachers.map(t => ({ value: t.id, label: t.full_name }))}
-              value={filterTeacher === 'all' ? '' : filterTeacher}
-              onChange={(v) => setFilterTeacher(v || 'all')}
-              placeholder="Все учителя"
-              recentCount={0}
-            />
-          </div>
-        )}
-      </div>
-
-      {current.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-16 text-center text-muted-foreground gap-3">
-          {tab === 'test' ? <BookOpen className="h-10 w-10 opacity-40" /> : <PencilLine className="h-10 w-10 opacity-40" />}
-          <p>{tab === 'test' ? 'Нет тестов. Создайте первый тест.' : 'Нет домашних заданий. Создайте первое.'}</p>
-          <Button asChild variant="outline">
+        {tab !== 'proposals' && (
+          <Button asChild>
             <Link href={`/teacher/tests/new?kind=${tab}`}>
+              <Plus className="h-4 w-4 mr-2" />
               {tab === 'test' ? 'Создать тест' : 'Создать задание'}
             </Link>
           </Button>
-        </div>
+        )}
+      </div>
+
+      {tab === 'proposals' ? (
+        <>
+          <p className="text-xs text-muted-foreground max-w-2xl">
+            Автоматически собранные темы ДЗ — подтвердите или отредактируйте перед публикацией.
+          </p>
+          <ProposalsListClient initialProposals={proposals} />
+        </>
       ) : (
-        <div className="space-y-3">
-          <BulkDeleteTestsBar
-            selectedIds={[...selected]}
-            onClear={() => setSelected(new Set())}
-            label={tab === 'homework' ? 'ДЗ' : 'тест'}
-          />
-          <TestsTable
-            rows={pagedCurrent}
-            showExamType={tab === 'test'}
-            showOwner={isAdmin}
-            selected={selected}
-            onToggle={toggle}
-            onToggleAll={toggleAll}
-          />
-          <LoadMoreControl
-            hasMore={hasMore}
-            loadMore={loadMore}
-            remaining={total - showing}
-            step={15}
-            totalLabel={total > 15 ? `Показано всего ${total}` : undefined}
-          />
-        </div>
+        <>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-xs text-muted-foreground max-w-2xl">
+              {tab === 'test'
+                ? 'Тесты имеют тип, разбаловку и критерии, привязанные к правилам оценивания — проверяются автоматически по правилам.'
+                : 'Домашнее задание собирается из готовых заданий книг или библиотеки задач; баллы задаёт сам учитель.'}
+            </p>
+            {/* Фильтр по учителю — только админу (видит все тесты организации) */}
+            {isAdmin && teachers.length > 1 && (
+              <div className="w-56 shrink-0">
+                <SearchableSelect
+                  options={teachers.map(t => ({ value: t.id, label: t.full_name }))}
+                  value={filterTeacher === 'all' ? '' : filterTeacher}
+                  onChange={(v) => setFilterTeacher(v || 'all')}
+                  placeholder="Все учителя"
+                  recentCount={0}
+                />
+              </div>
+            )}
+          </div>
+
+          {current.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-16 text-center text-muted-foreground gap-3">
+              {tab === 'test' ? <BookOpen className="h-10 w-10 opacity-40" /> : <PencilLine className="h-10 w-10 opacity-40" />}
+              <p>{tab === 'test' ? 'Нет тестов. Создайте первый тест.' : 'Нет домашних заданий. Создайте первое.'}</p>
+              <Button asChild variant="outline">
+                <Link href={`/teacher/tests/new?kind=${tab}`}>
+                  {tab === 'test' ? 'Создать тест' : 'Создать задание'}
+                </Link>
+              </Button>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <BulkDeleteTestsBar
+                selectedIds={[...selected]}
+                onClear={() => setSelected(new Set())}
+                label={tab === 'homework' ? 'ДЗ' : 'тест'}
+              />
+              <TestsTable
+                rows={pagedCurrent}
+                showExamType={tab === 'test'}
+                showOwner={isAdmin}
+                selected={selected}
+                onToggle={toggle}
+                onToggleAll={toggleAll}
+              />
+              <LoadMoreControl
+                hasMore={hasMore}
+                loadMore={loadMore}
+                remaining={total - showing}
+                step={15}
+                totalLabel={total > 15 ? `Показано всего ${total}` : undefined}
+              />
+            </div>
+          )}
+        </>
       )}
     </>
   )

@@ -23,9 +23,10 @@ interface NavItem {
 
 const navItems: NavItem[] = [
   { href: '/teacher', label: 'Дашборд', icon: BarChart2, exact: true },
-  // «Мои задания» — группа: собственные тесты/ДЗ и учебные программы.
-  // Программы раньше были отдельным пунктом меню, но по смыслу это тот же
-  // собственный учебный материал учителя, только сгруппированный по темам.
+  // «Мои задания» — группа: собственные тесты/ДЗ (включая вкладку
+  // «Предложения агента» внутри страницы) и учебные программы. Программы
+  // раньше были отдельным пунктом меню, но по смыслу это тот же собственный
+  // учебный материал учителя, только сгруппированный по темам.
   {
     href: '/teacher/tests', label: 'Мои задания', icon: BookOpen, teacherOnly: true,
     children: [
@@ -119,7 +120,7 @@ function NavLink({
 // Раскрывающаяся группа пунктов («Библиотека» → ОГЭ/ЕГЭ, Книги). Открыта,
 // пока активен любой из её подпунктов, — чтобы после перехода раздел не
 // схлопывался и было видно, где ты находишься.
-function NavGroup({ item, onLinkClick }: { item: NavItem; onLinkClick?: () => void }) {
+function NavGroup({ item, onLinkClick, childBadges }: { item: NavItem; onLinkClick?: () => void; childBadges?: Record<string, number> }) {
   const pathname = usePathname()
   const children = item.children ?? []
   const childActive = children.some(c => pathname.startsWith(c.href))
@@ -132,6 +133,9 @@ function NavGroup({ item, onLinkClick }: { item: NavItem; onLinkClick?: () => vo
   const setOpen = (v: boolean) => setManualOpen(v)
 
   const Icon = item.icon
+  // Сумма бейджей детей — чтобы «есть новое» было видно и на свёрнутой
+  // группе, не только внутри раскрытого списка.
+  const groupBadge = children.reduce((sum, c) => sum + (childBadges?.[c.href] ?? 0), 0)
   return (
     <div>
       <button
@@ -139,7 +143,7 @@ function NavGroup({ item, onLinkClick }: { item: NavItem; onLinkClick?: () => vo
         onClick={() => setOpen(!open)}
         aria-expanded={open}
         className={cn(
-          'flex w-full items-center gap-2.5 px-3 py-2 text-sm rounded-md mx-2 transition-colors',
+          'flex w-full items-center gap-2.5 px-3 py-2 text-sm rounded-md mx-2 transition-colors relative',
           'w-[calc(100%-1rem)]',
           childActive
             ? 'text-primary font-medium'
@@ -148,12 +152,17 @@ function NavGroup({ item, onLinkClick }: { item: NavItem; onLinkClick?: () => vo
       >
         {Icon && <Icon className="h-4 w-4 shrink-0" />}
         <span className="truncate">{item.label}</span>
-        <ChevronDown className={cn('ml-auto h-3.5 w-3.5 shrink-0 transition-transform', open && 'rotate-180')} />
+        {!open && groupBadge > 0 && (
+          <span className="ml-auto inline-flex items-center justify-center rounded-full min-w-4.5 h-4.5 px-1 text-[11px] font-semibold leading-none shrink-0 bg-destructive text-destructive-foreground">
+            {groupBadge}
+          </span>
+        )}
+        <ChevronDown className={cn('h-3.5 w-3.5 shrink-0 transition-transform', open && 'rotate-180', groupBadge === 0 || open ? 'ml-auto' : '')} />
       </button>
       {open && (
         <div className="mt-0.5 space-y-0.5 pl-4">
           {children.map(c => (
-            <NavLink key={c.href} href={c.href} label={c.label} icon={c.icon} onClick={onLinkClick} />
+            <NavLink key={c.href} href={c.href} label={c.label} icon={c.icon} badge={childBadges?.[c.href]} onClick={onLinkClick} />
           ))}
         </div>
       )}
@@ -161,12 +170,13 @@ function NavGroup({ item, onLinkClick }: { item: NavItem; onLinkClick?: () => vo
   )
 }
 
-function NavList({ isAdmin, pendingRequests, monitorBadge, moderationBadge, onLinkClick }: { isAdmin: boolean; pendingRequests: number; monitorBadge: number; moderationBadge: number; onLinkClick?: () => void }) {
+function NavList({ isAdmin, pendingRequests, monitorBadge, moderationBadge, proposalsBadge, onLinkClick }: { isAdmin: boolean; pendingRequests: number; monitorBadge: number; moderationBadge: number; proposalsBadge: number; onLinkClick?: () => void }) {
+  const childBadges = { '/teacher/tests': proposalsBadge }
   return (
     <nav className="flex-1 py-2 space-y-0.5 overflow-y-auto">
       {navItems.filter(item => (!item.adminOnly || isAdmin) && (!item.teacherOnly || !isAdmin)).map((item) => (
         item.children ? (
-          <NavGroup key={item.href} item={item} onLinkClick={onLinkClick} />
+          <NavGroup key={item.href} item={item} onLinkClick={onLinkClick} childBadges={childBadges} />
         ) : (
           <NavLink
             key={item.href}
@@ -202,6 +212,9 @@ export function TeacherNav({ fullName, isAdmin = false, pendingRequests }: Props
   // Заявки на модерацию — счётчик над «Пользователями», чтобы новая
   // регистрация не потерялась, пока админ не заглянул в раздел. Только admin.
   const moderationBadge = useLiveCount('/api/admin/moderation/pending-count', { enabled: isAdmin })
+  // Предложения ДЗ от агента автосборки, ждущие решения — только teacher
+  // (у них есть свои roadmap; admin — read-only «кабинет», не подтверждает).
+  const proposalsBadge = useLiveCount('/api/teacher/proposals/pending-count', { enabled: !isAdmin })
 
   return (
     <>
@@ -210,7 +223,7 @@ export function TeacherNav({ fullName, isAdmin = false, pendingRequests }: Props
         <div className="h-14 flex items-center px-4 border-b shrink-0">
           <span className="font-semibold text-sm">ExamPlatform</span>
         </div>
-        <NavList isAdmin={isAdmin} pendingRequests={pendingRequests} monitorBadge={monitorBadge} moderationBadge={moderationBadge} />
+        <NavList isAdmin={isAdmin} pendingRequests={pendingRequests} monitorBadge={monitorBadge} moderationBadge={moderationBadge} proposalsBadge={proposalsBadge} />
         <div className="p-4 border-t space-y-1 shrink-0">
           <div className="flex items-center justify-between gap-2">
             <p className="text-xs text-muted-foreground truncate">{fullName}</p>
@@ -264,6 +277,7 @@ export function TeacherNav({ fullName, isAdmin = false, pendingRequests }: Props
               pendingRequests={pendingRequests}
               monitorBadge={monitorBadge}
               moderationBadge={moderationBadge}
+              proposalsBadge={proposalsBadge}
               onLinkClick={() => setMobileOpen(false)}
             />
             <div className="p-4 border-t space-y-1 shrink-0">

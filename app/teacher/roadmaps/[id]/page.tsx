@@ -17,7 +17,7 @@ export default async function RoadmapEditPage({ params }: { params: Promise<{ id
   if (!roadmap) notFound()
 
   const [{ data: topics }, { data: itemRows }, { data: tests }, { data: links }, { data: members }, { data: sourceGroups }] = await Promise.all([
-    supabase.from('roadmap_topics').select('id, title, description, sort_order').eq('roadmap_id', id).order('sort_order'),
+    supabase.from('roadmap_topics').select('id, title, description, sort_order, parent_id').eq('roadmap_id', id).order('sort_order'),
     supabase.from('assignments')
       .select('id, roadmap_topic_id, kind, max_attempts, ends_at, test_versions!test_version_id(tests!test_id(title))')
       .eq('group_id', roadmap.group_id || '').not('roadmap_topic_id', 'is', null),
@@ -71,7 +71,7 @@ export default async function RoadmapEditPage({ params }: { params: Promise<{ id
   }
 
   const editorTopics: EditorTopic[] = (topics ?? []).map(t => ({
-    id: t.id, title: t.title, description: t.description, sort_order: t.sort_order,
+    id: t.id, title: t.title, description: t.description, sort_order: t.sort_order, parent_id: t.parent_id,
     items: itemsByTopic.get(t.id) ?? [],
   }))
 

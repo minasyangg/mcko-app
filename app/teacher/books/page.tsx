@@ -33,13 +33,14 @@ export default async function BooksPage() {
   const statsByBook = new Map((problemStats ?? []).map(s => [s.book_id, s]))
 
   let deletableIds = new Set<string>()
+  let editableIds = new Set<string>()
   if (!isAdmin) {
     const { data: grants } = await supabase
       .from('book_editors')
-      .select('book_id')
+      .select('book_id, can_delete')
       .eq('teacher_id', user.id)
-      .eq('can_delete', true)
-    deletableIds = new Set((grants ?? []).map(g => g.book_id))
+    editableIds = new Set((grants ?? []).map(g => g.book_id))
+    deletableIds = new Set((grants ?? []).filter(g => g.can_delete).map(g => g.book_id))
   }
 
   const catalog: CatalogBook[] = (books ?? []).map(b => {
@@ -55,6 +56,7 @@ export default async function BooksPage() {
       problems: stats?.total ?? null,
       answers_matched: stats?.answered ?? null,
       can_delete: isAdmin || b.created_by === user.id || deletableIds.has(b.id),
+      can_edit: isAdmin || b.created_by === user.id || editableIds.has(b.id),
     }
   })
 

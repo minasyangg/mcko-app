@@ -20,15 +20,37 @@ import { EditRoadmapDialog } from '@/components/teacher/EditRoadmapDialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { SearchableSelect } from '@/components/shared/SearchableSelect'
 import {
-  ArrowLeft, Plus, Trash2, ChevronUp, ChevronDown, Users, Loader2, X, GripVertical, AlertTriangle, Search,
+  ArrowLeft, Plus, Trash2, Pencil, Check, ChevronRight, ChevronDown as ChevronDownIcon,
+  Users, Loader2, X, AlertTriangle, Search, GripVertical,
 } from 'lucide-react'
+import { cn } from '@/lib/utils'
 
 export interface EditorTopic {
   id: string
   title: string
   description: string | null
   sort_order: number
+  parent_id: string | null
   items: { assignment_id: string; test_title: string; kind: 'homework' | 'test'; max_attempts: number; ends_at: string | null }[]
+}
+
+interface TopicNode extends EditorTopic {
+  children: TopicNode[]
+}
+
+// Дерево из плоского списка — тот же приём, что buildTree в BookReader.tsx
+// (components/teacher/BookReader.tsx), переиспользован без изменений логики,
+// только на другом типе узла.
+function buildTopicTree(topics: EditorTopic[]): TopicNode[] {
+  const byId = new Map<string, TopicNode>()
+  for (const t of topics) byId.set(t.id, { ...t, children: [] })
+  const roots: TopicNode[] = []
+  for (const t of topics) {
+    const node = byId.get(t.id) as TopicNode
+    if (t.parent_id && byId.has(t.parent_id)) (byId.get(t.parent_id) as TopicNode).children.push(node)
+    else roots.push(node)
+  }
+  return roots
 }
 interface TestOption { id: string; title: string }
 interface StudentOption { id: string; full_name: string; grade: string | null }
@@ -168,48 +190,121 @@ export function RoadmapEditor({ roadmap, topics, tests, students, memberIds, gro
     } finally { setBusy(false) }
   }
 
-  // — Темы —
+  // — Темы (дерево) —
   const [newTopic, setNewTopic] = useState('')
-  async function addTopic() {
-    if (newTopic.trim().length < 1) return
+  const topicTree = buildTopicTree(topics)
+  // Перетаскиваемый объект — тема (кладётся до/после/внутрь другой темы) или
+  // ДЗ-карточка (кладётся только внутрь темы, меняя её привязку). Общий на
+  // весь редактор стейт, не локальный на узел, — иначе соседние узлы не
+  // узнали бы, что где-то идёт перетаскивание.
+  const [drag, setDrag] = useState<{ id: string; kind: 'topic' | 'item' } | null>(null)
+
+  // parentId=null — новая тема верхнего уровня (как раньше, инпут внизу
+  // страницы); иначе — дочерняя тема/деталь под конкретным узлом дерева
+  // (кнопка «+ подтема» на каждом узле, см. TopicTreeItem).
+  async function addTopicUnder(parentId: string | null, title: string) {
+    if (title.trim().length < 1) return
     setBusy(true)
     try {
       const res = await fetch(`/api/roadmaps/${roadmap.id}/topics`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title: newTopic.trim() }),
+        body: JSON.stringify({ title: title.trim(), parent_id: parentId }),
       })
       const json = await res.json().catch(() => ({}))
       if (!res.ok) { toast.error(json.error ?? 'Ошибка'); return }
-      setNewTopic('')
       router.refresh()
     } finally { setBusy(false) }
+  }
+
+  async function renameTopic(topicId: string, title: string) {
+    const res = await fetch(`/api/roadmaps/${roadmap.id}/topics/${topicId}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title }),
+    })
+    const json = await res.json().catch(() => ({}))
+    if (!res.ok) { toast.error(json.error ?? 'Ошибка сохранения'); return false }
+    router.refresh()
+    return true
   }
 
   async function deleteTopic(topicId: string) {
     const res = await fetch(`/api/roadmaps/${roadmap.id}/topics/${topicId}`, { method: 'DELETE' })
-    if (!res.ok) { const j = await res.json().catch(() => ({})); toast.error(j.error ?? 'Ошибка'); return }
-    toast.success('Тема удалена')
+    const json = await res.json().catch(() => ({}))
+    if (!res.ok) { toast.error(json.error ?? 'Ошибка'); return false }
+    toast.success(
+      json.deleted_topics > 1 ? `Удалено тем: ${json.deleted_topics} (тема и её подтемы)` : 'Тема удалена'
+    )
+    router.refresh()
+    return true
+  }
+
+  // Перетаскивание узла (HTML5 DnD, только десктоп — см. TopicTreeItem):
+  // newParentId — куда переносим (null — корень уровня), orderedIds — полный
+  // порядок id внутри ЭТОГО уровня после переноса, включая сам movedId.
+  // Один запрос проставляет и parent_id перемещённого узла, и sort_order
+  // всем siblings уровня — см. app/api/roadmaps/[id]/topics/reorder/route.ts.
+  async function moveTopic(movedId: string, newParentId: string | null, orderedIds: string[]) {
+    const res = await fetch(`/api/roadmaps/${roadmap.id}/topics/reorder`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ moved_id: movedId, new_parent_id: newParentId, ordered_ids: orderedIds }),
+    })
+    const json = await res.json().catch(() => ({}))
+    if (!res.ok) { toast.error(json.error ?? 'Не удалось переместить тему'); router.refresh(); return }
     router.refresh()
   }
 
-  async function moveTopic(index: number, dir: -1 | 1) {
-    const a = topics[index]
-    const b = topics[index + dir]
-    if (!a || !b) return
-    setBusy(true)
-    try {
-      await Promise.all([
-        fetch(`/api/roadmaps/${roadmap.id}/topics/${a.id}`, {
-          method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ sort_order: b.sort_order }),
-        }),
-        fetch(`/api/roadmaps/${roadmap.id}/topics/${b.id}`, {
-          method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ sort_order: a.sort_order }),
-        }),
-      ])
-      router.refresh()
-    } finally { setBusy(false) }
+  // Собирает целевой уровень и решает, куда именно попадает перетаскиваемый
+  // узел, и зовёт moveTopic. mode: 'before'/'after' — переставить рядом с
+  // targetId в его же родителе, 'inside' — стать последним ребёнком targetId.
+  function handleTopicDrop(draggedId: string, targetId: string, mode: 'before' | 'after' | 'inside') {
+    if (draggedId === targetId) return
+    const target = topics.find(t => t.id === targetId)
+    if (!target) return
+
+    const newParentId = mode === 'inside' ? targetId : target.parent_id
+    // Нельзя перетащить узел в собственное поддерево — сервер тоже проверяет
+    // это (409), но локально стоит не отправлять заведомо неверный запрос.
+    const draggedSubtree = new Set<string>([draggedId])
+    let grew = true
+    while (grew) {
+      grew = false
+      for (const t of topics) {
+        if (t.parent_id && draggedSubtree.has(t.parent_id) && !draggedSubtree.has(t.id)) {
+          draggedSubtree.add(t.id); grew = true
+        }
+      }
+    }
+    if (draggedSubtree.has(newParentId ?? '')) return
+
+    const siblingIds = topics
+      .filter(t => t.id !== draggedId && (t.parent_id ?? null) === (newParentId ?? null))
+      .sort((a, b) => a.sort_order - b.sort_order)
+      .map(t => t.id)
+
+    let orderedIds: string[]
+    if (mode === 'inside') {
+      orderedIds = [...siblingIds, draggedId]
+    } else {
+      const idx = siblingIds.indexOf(targetId)
+      const insertAt = mode === 'before' ? idx : idx + 1
+      orderedIds = [...siblingIds.slice(0, insertAt), draggedId, ...siblingIds.slice(insertAt)]
+    }
+    moveTopic(draggedId, newParentId, orderedIds)
+  }
+
+  // Перенос уже привязанного ДЗ/теста в другую тему (drag-and-drop карточки
+  // задания на узел темы). Меняет только assignments.roadmap_topic_id —
+  // попытки учеников привязаны к assignment_id, не к теме, поэтому результаты
+  // не затрагиваются. См. app/api/roadmaps/[id]/assignments/[assignmentId]/topic.
+  async function moveItemToTopic(assignmentId: string, topicId: string) {
+    const res = await fetch(`/api/roadmaps/${roadmap.id}/assignments/${assignmentId}/topic`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ topic_id: topicId }),
+    })
+    const json = await res.json().catch(() => ({}))
+    if (!res.ok) { toast.error(json.error ?? 'Не удалось перенести задание'); return }
+    toast.success('Задание перенесено в другую тему')
+    router.refresh()
   }
 
   // — Привязка задания к теме —
@@ -344,7 +439,9 @@ export function RoadmapEditor({ roadmap, topics, tests, students, memberIds, gro
         </Button>
       </div>
 
-      {/* Темы */}
+      {/* Темы — дерево (глава → подтема → деталь), любой узел можно
+          переименовать, удалить (с поддеревом) или дополнить дочерней темой
+          и заданиями. */}
       <div className="space-y-3">
         <h2 className="text-sm font-medium text-muted-foreground">Темы и задания</h2>
 
@@ -352,71 +449,31 @@ export function RoadmapEditor({ roadmap, topics, tests, students, memberIds, gro
           <p className="text-sm text-muted-foreground py-4">Добавьте первую тему ниже.</p>
         )}
 
-        {topics.map((t, i) => (
-          <div key={t.id} className="rounded-md border">
-            <div className="flex items-center gap-2 px-3 py-2.5 border-b bg-muted/30">
-              <GripVertical className="h-4 w-4 text-muted-foreground shrink-0" />
-              <span className="font-medium flex-1 truncate">{i + 1}. {t.title}</span>
-              <Button size="icon" variant="ghost" className="h-7 w-7" disabled={i === 0 || busy} onClick={() => moveTopic(i, -1)}>
-                <ChevronUp className="h-4 w-4" />
-              </Button>
-              <Button size="icon" variant="ghost" className="h-7 w-7" disabled={i === topics.length - 1 || busy} onClick={() => moveTopic(i, 1)}>
-                <ChevronDown className="h-4 w-4" />
-              </Button>
-              <AlertDialog>
-                <AlertDialogTrigger asChild>
-                  <Button size="icon" variant="ghost" className="h-7 w-7 text-destructive hover:text-destructive hover:bg-destructive/10">
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent>
-                  <AlertDialogHeader>
-                    <AlertDialogMedia className="bg-destructive/10 text-destructive">
-                      <AlertTriangle />
-                    </AlertDialogMedia>
-                    <AlertDialogTitle>Удалить тему «{t.title}»?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                      Привязанные к теме задания (и попытки учеников по ним) будут удалены.
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel>Отмена</AlertDialogCancel>
-                    <ConfirmDeleteAction onConfirm={() => deleteTopic(t.id)} />
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
-            </div>
-            <div className="px-3 py-2 space-y-1.5">
-              {t.items.length === 0 ? (
-                <p className="text-xs text-muted-foreground">Заданий пока нет</p>
-              ) : (
-                t.items.map(it => (
-                  <div key={it.assignment_id} className="flex items-center gap-2 text-sm">
-                    <Badge variant={it.kind === 'homework' ? 'outline' : 'secondary'} className="text-[11px] shrink-0">
-                      {it.kind === 'homework' ? 'ДЗ' : 'Тест'}
-                    </Badge>
-                    <span className="flex-1 truncate">{it.test_title}</span>
-                    <span className="text-xs text-muted-foreground shrink-0">{it.max_attempts} поп.</span>
-                    <Button size="icon" variant="ghost" className="h-6 w-6 text-muted-foreground hover:text-destructive"
-                      onClick={() => removeItem(t.id, it.assignment_id)}>
-                      <X className="h-3.5 w-3.5" />
-                    </Button>
-                  </div>
-                ))
-              )}
-              <Button variant="ghost" size="sm" className="h-7 mt-1 text-xs" onClick={() => openItem(t)}>
-                <Plus className="h-3.5 w-3.5 mr-1" /> Добавить задание
-              </Button>
-            </div>
-          </div>
-        ))}
+        <div className="rounded-md border divide-y">
+          {topicTree.map(node => (
+            <TopicTreeItem
+              key={node.id} node={node} depth={0} roadmapId={roadmap.id} busy={busy}
+              onRename={renameTopic} onDelete={deleteTopic} onAddChild={addTopicUnder}
+              onOpenItem={openItem} onRemoveItem={removeItem}
+              onDropTopic={handleTopicDrop} onMoveItem={moveItemToTopic} drag={drag} setDrag={setDrag}
+            />
+          ))}
+        </div>
+        {topics.length > 1 && (
+          <p className="text-xs text-muted-foreground">
+            Перетащите тему или задание за <GripVertical className="inline h-3 w-3 align-text-bottom" /> — наведите
+            на верх или низ другой темы, чтобы переставить рядом с ней (появится синяя полоска), или точно на
+            середину, чтобы сделать подтемой (строка подсветится целиком и появится подпись «станет подтемой»).
+            Задание — на любую тему, чтобы перенести его туда.
+          </p>
+        )}
 
-        {/* Добавить тему */}
+        {/* Добавить тему верхнего уровня */}
         <div className="flex items-center gap-2 pt-1">
           <Input value={newTopic} onChange={(e) => setNewTopic(e.target.value)}
-            placeholder="Название новой темы"
-            onKeyDown={(e) => { if (e.key === 'Enter') addTopic() }} />
-          <Button onClick={addTopic} disabled={busy || newTopic.trim().length < 1}>
+            placeholder="Название новой темы верхнего уровня"
+            onKeyDown={(e) => { if (e.key === 'Enter') { addTopicUnder(null, newTopic); setNewTopic('') } }} />
+          <Button onClick={() => { addTopicUnder(null, newTopic); setNewTopic('') }} disabled={busy || newTopic.trim().length < 1}>
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <><Plus className="h-4 w-4 mr-1" />Тема</>}
           </Button>
         </div>
@@ -589,6 +646,350 @@ export function RoadmapEditor({ roadmap, topics, tests, students, memberIds, gro
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </div>
+  )
+}
+
+// ─── Узел дерева тем ────────────────────────────────────────────────────────
+
+interface DeletePreview {
+  title: string
+  topics_count: number
+  assignments_count: number
+  submitted_attempts_count: number
+  blocked: boolean
+}
+
+// Один узел дерева тем — по образцу TocItem (components/teacher/BookReader.tsx):
+// inline-переименование (Pencil→Input→Check/X), удаление с серверным превью
+// (GET перед показом диалога) и жёсткой блокировкой, если у поддерева есть
+// сданные попытки — см. app/api/roadmaps/[id]/topics/[topicId]/route.ts.
+type DropMode = 'before' | 'after' | 'inside'
+
+type DragState = { id: string; kind: 'topic' | 'item' } | null
+
+function TopicTreeItem({
+  node, depth, roadmapId, busy, onRename, onDelete, onAddChild, onOpenItem, onRemoveItem,
+  onDropTopic, onMoveItem, drag, setDrag,
+}: {
+  node: TopicNode
+  depth: number
+  roadmapId: string
+  busy: boolean
+  onRename: (topicId: string, title: string) => Promise<boolean>
+  onDelete: (topicId: string) => Promise<boolean>
+  onAddChild: (parentId: string | null, title: string) => Promise<void>
+  onOpenItem: (topic: EditorTopic) => void
+  onRemoveItem: (topicId: string, assignmentId: string) => void
+  onDropTopic: (draggedId: string, targetId: string, mode: DropMode) => void
+  onMoveItem: (assignmentId: string, topicId: string) => void
+  drag: DragState
+  setDrag: (d: DragState) => void
+}) {
+  const [open, setOpen] = useState(depth < 1)
+  const hasChildren = node.children.length > 0
+
+  // Зона наведения при перетаскивании темы над ЭТИМ узлом — верх/низ строки
+  // переставляет рядом (тот же родитель), середина — делает подтемой.
+  // Десктоп-only (HTML5 DnD API, без обработки touch-жестов). Перетаскивание
+  // ДЗ-карточки (drag.kind === 'item') не различает зоны — задание всегда
+  // просто переносится «в» эту тему, поэтому у него своя, более простая
+  // подсветка (isItemDropTarget) без before/after.
+  const [dropZone, setDropZone] = useState<DropMode | null>(null)
+  const [isItemDropTarget, setIsItemDropTarget] = useState(false)
+  const isDragSource = drag?.kind === 'topic' && drag.id === node.id
+
+  const [renaming, setRenaming] = useState(false)
+  const [titleDraft, setTitleDraft] = useState(node.title)
+  const [savingTitle, setSavingTitle] = useState(false)
+
+  const [addingChild, setAddingChild] = useState(false)
+  const [childDraft, setChildDraft] = useState('')
+
+  const [deleteOpen, setDeleteOpen] = useState(false)
+  const [preview, setPreview] = useState<DeletePreview | null>(null)
+  const [previewLoading, setPreviewLoading] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+
+  async function handleSaveTitle() {
+    const title = titleDraft.trim()
+    if (!title) { toast.error('Название не может быть пустым'); return }
+    if (title === node.title) { setRenaming(false); return }
+    setSavingTitle(true)
+    try {
+      const ok = await onRename(node.id, title)
+      if (ok) setRenaming(false)
+    } finally {
+      setSavingTitle(false)
+    }
+  }
+
+  async function handleAddChild() {
+    if (childDraft.trim().length < 1) return
+    await onAddChild(node.id, childDraft)
+    setChildDraft('')
+    setAddingChild(false)
+    setOpen(true)
+  }
+
+  async function openDelete() {
+    setDeleteOpen(true)
+    setPreview(null)
+    setPreviewLoading(true)
+    try {
+      const res = await fetch(`/api/roadmaps/${roadmapId}/topics/${node.id}`)
+      if (res.ok) setPreview(await res.json())
+    } finally {
+      setPreviewLoading(false)
+    }
+  }
+
+  async function handleDelete() {
+    setDeleting(true)
+    try {
+      const ok = await onDelete(node.id)
+      if (ok) setDeleteOpen(false)
+    } finally {
+      setDeleting(false)
+    }
+  }
+
+  return (
+    <div
+      className="relative"
+      onDragOver={(e) => {
+        if (!drag || (drag.kind === 'topic' && drag.id === node.id)) return
+        e.preventDefault()
+        e.dataTransfer.dropEffect = 'move'
+        if (drag.kind === 'item') { setIsItemDropTarget(true); return }
+        const rect = e.currentTarget.getBoundingClientRect()
+        const ratio = (e.clientY - rect.top) / rect.height
+        // Верх/низ — по 40% высоты каждая (переставить рядом, самое частое
+        // действие — щедрая зона, легко попасть). Середина — только 20%,
+        // узко и намеренно: «сделать подтемой» меняет структуру сильнее
+        // всего, случайное попадание сюда при простой перестановке — самая
+        // частая жалоба на нынешнюю версию (пороги были по 25%/50%/25%).
+        setDropZone(ratio < 0.4 ? 'before' : ratio > 0.6 ? 'after' : 'inside')
+      }}
+      onDragLeave={(e) => {
+        // Игнорируем переходы между дочерними элементами внутри той же строки —
+        // иначе индикатор мигает при каждом пикселе движения курсора.
+        if (e.currentTarget.contains(e.relatedTarget as Node)) return
+        setDropZone(null)
+        setIsItemDropTarget(false)
+      }}
+      onDrop={(e) => {
+        e.preventDefault()
+        if (drag?.kind === 'item') onMoveItem(drag.id, node.id)
+        else if (drag && drag.id !== node.id && dropZone) onDropTopic(drag.id, node.id, dropZone)
+        setDropZone(null)
+        setIsItemDropTarget(false)
+      }}
+    >
+      {/* Индикатор вставки — толстая полоса на том же отступе глубины, что и
+          сама строка: показывает буквально, где появится тема после drop, а
+          не просто «где-то у края». Раньше была линия 0.5px без отступа —
+          на плотном списке терялась и не показывала, на каком уровне
+          вложенности встанет тема. */}
+      {dropZone === 'before' && (
+        <div className="absolute right-0 top-0 h-1 bg-primary rounded-full z-10" style={{ left: `${12 + depth * 18}px` }} />
+      )}
+      {dropZone === 'after' && (
+        <div className="absolute right-0 bottom-0 h-1 bg-primary rounded-full z-10" style={{ left: `${12 + depth * 18}px` }} />
+      )}
+      <div
+        className={cn(
+          'group flex items-start gap-1.5 px-3 py-2 transition-colors',
+          isDragSource && 'opacity-40',
+          (dropZone === 'inside' || isItemDropTarget) && 'bg-primary/10 ring-2 ring-inset ring-primary',
+        )}
+        style={{ paddingLeft: `${12 + depth * 18}px` }}
+      >
+        <span
+          draggable
+          onDragStart={(e) => {
+            e.dataTransfer.effectAllowed = 'move'
+            e.dataTransfer.setData('text/plain', node.id)
+            setDrag({ id: node.id, kind: 'topic' })
+          }}
+          onDragEnd={() => { setDrag(null); setDropZone(null) }}
+          className="mt-0.5 shrink-0 cursor-grab active:cursor-grabbing text-muted-foreground/40 hover:text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity"
+          title="Перетащите: край темы — переставить рядом, середина — сделать подтемой"
+        >
+          <GripVertical className="h-3.5 w-3.5" />
+        </span>
+        {hasChildren ? (
+          <button type="button" onClick={() => setOpen(!open)} className="mt-0.5 shrink-0 text-muted-foreground hover:text-foreground">
+            {open ? <ChevronDownIcon className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+          </button>
+        ) : (
+          <span className="w-3.5 shrink-0" />
+        )}
+
+        <div className="flex-1 min-w-0">
+          {renaming ? (
+            <div className="flex items-center gap-1">
+              <Input
+                value={titleDraft}
+                onChange={(e) => setTitleDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleSaveTitle()
+                  if (e.key === 'Escape') { setTitleDraft(node.title); setRenaming(false) }
+                }}
+                autoFocus
+                disabled={savingTitle}
+                className="h-7 text-sm"
+              />
+              <button type="button" onClick={handleSaveTitle} disabled={savingTitle} title="Сохранить" className="text-green-600 hover:text-green-700 shrink-0">
+                <Check className="h-3.5 w-3.5" />
+              </button>
+              <button type="button" onClick={() => { setTitleDraft(node.title); setRenaming(false) }} disabled={savingTitle} title="Отмена" className="text-muted-foreground hover:text-foreground shrink-0">
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <span className={cn('truncate', depth === 0 ? 'font-medium' : 'text-sm')}>{node.title}</span>
+              {/* Явно проговаривает намерение drop вместо того, чтобы пользователь
+                  угадывал по подсветке фона/толщине полоски — прямая причина
+                  жалобы «не всегда понятно куда встанет тема». */}
+              {dropZone === 'inside' && drag?.kind === 'topic' && (
+                <span className="text-xs font-medium text-primary shrink-0">→ станет подтемой</span>
+              )}
+              {isItemDropTarget && (
+                <span className="text-xs font-medium text-primary shrink-0">→ задание переедет сюда</span>
+              )}
+              <span className="flex gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                <button type="button" onClick={() => setRenaming(true)} title="Переименовать" className="text-muted-foreground hover:text-foreground">
+                  <Pencil className="h-3 w-3" />
+                </button>
+                <button type="button" onClick={() => setAddingChild(true)} title="Добавить подтему" className="text-muted-foreground hover:text-foreground">
+                  <Plus className="h-3 w-3" />
+                </button>
+                <button type="button" onClick={openDelete} title="Удалить тему (и подтемы)" className="text-muted-foreground hover:text-destructive">
+                  <Trash2 className="h-3 w-3" />
+                </button>
+              </span>
+            </div>
+          )}
+
+          {addingChild && (
+            <div className="flex items-center gap-1 mt-1.5">
+              <Input
+                value={childDraft}
+                onChange={(e) => setChildDraft(e.target.value)}
+                placeholder="Название подтемы"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleAddChild()
+                  if (e.key === 'Escape') { setChildDraft(''); setAddingChild(false) }
+                }}
+                autoFocus
+                className="h-7 text-sm"
+              />
+              <Button size="sm" className="h-7" onClick={handleAddChild} disabled={busy || childDraft.trim().length < 1}>Добавить</Button>
+              <Button size="sm" variant="ghost" className="h-7" onClick={() => { setChildDraft(''); setAddingChild(false) }}>Отмена</Button>
+            </div>
+          )}
+
+          {/* Задания привязаны к конкретному узлу — на любом уровне дерева,
+              не только листовом (учитель может назначить тест сразу на
+              главу целиком, минуя подтемы). Перетаскиваются на другую тему —
+              меняет только roadmap_topic_id (см. onMoveItem), результаты
+              учеников не затрагиваются. */}
+          {node.items.length > 0 && (
+            <div className="mt-1.5 space-y-1">
+              {node.items.map(it => (
+                <div
+                  key={it.assignment_id}
+                  draggable
+                  onDragStart={(e) => {
+                    e.stopPropagation()
+                    e.dataTransfer.effectAllowed = 'move'
+                    e.dataTransfer.setData('text/plain', it.assignment_id)
+                    setDrag({ id: it.assignment_id, kind: 'item' })
+                  }}
+                  onDragEnd={() => setDrag(null)}
+                  className={cn(
+                    'flex items-center gap-2 text-sm cursor-grab active:cursor-grabbing rounded px-1 -mx-1',
+                    drag?.kind === 'item' && drag.id === it.assignment_id && 'opacity-40',
+                  )}
+                >
+                  <GripVertical className="h-3 w-3 shrink-0 text-muted-foreground/40" />
+                  <Badge variant={it.kind === 'homework' ? 'outline' : 'secondary'} className="text-[11px] shrink-0">
+                    {it.kind === 'homework' ? 'ДЗ' : 'Тест'}
+                  </Badge>
+                  <span className="flex-1 truncate">{it.test_title}</span>
+                  <span className="text-xs text-muted-foreground shrink-0">{it.max_attempts} поп.</span>
+                  <Button size="icon" variant="ghost" className="h-6 w-6 text-muted-foreground hover:text-destructive"
+                    onClick={() => onRemoveItem(node.id, it.assignment_id)}>
+                    <X className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+          <Button variant="ghost" size="sm" className="h-6 mt-1 text-xs opacity-0 group-hover:opacity-100 transition-opacity"
+            onClick={() => onOpenItem(node)}>
+            <Plus className="h-3 w-3 mr-1" /> Добавить задание
+          </Button>
+        </div>
+      </div>
+
+      {open && hasChildren && (
+        <div className="divide-y border-t">
+          {node.children.map(child => (
+            <TopicTreeItem
+              key={child.id} node={child} depth={depth + 1} roadmapId={roadmapId} busy={busy}
+              onRename={onRename} onDelete={onDelete} onAddChild={onAddChild}
+              onOpenItem={onOpenItem} onRemoveItem={onRemoveItem}
+              onDropTopic={onDropTopic} onMoveItem={onMoveItem} drag={drag} setDrag={setDrag}
+            />
+          ))}
+        </div>
+      )}
+
+      <AlertDialog open={deleteOpen} onOpenChange={(v) => { if (!v) setDeleteOpen(false) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogMedia className="bg-destructive/10 text-destructive">
+              <AlertTriangle />
+            </AlertDialogMedia>
+            <AlertDialogTitle>Удалить «{node.title}»?</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <span className="block">
+                {previewLoading ? (
+                  'Проверяю содержимое темы...'
+                ) : preview ? (
+                  preview.blocked ? (
+                    <span className="block font-medium text-destructive">
+                      Удаление запрещено: у темы или её подтем есть {preview.submitted_attempts_count} сданных
+                      учениками работ. Результаты учеников не удаляются автоматически — отвяжите
+                      завершённые задания вручную, если это осознанное решение.
+                    </span>
+                  ) : (
+                    <>
+                      Будет удалено {preview.topics_count} тем{preview.topics_count > 1 ? ' (включая подтемы)' : ''}
+                      {preview.assignments_count > 0 ? ` и ${preview.assignments_count} привязанных заданий` : ''}, безвозвратно.
+                    </>
+                  )
+                ) : (
+                  'Не удалось получить информацию о теме.'
+                )}
+              </span>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Отмена</AlertDialogCancel>
+            <Button
+              variant="destructive"
+              onClick={handleDelete}
+              disabled={deleting || previewLoading || !preview || preview.blocked}
+            >
+              {deleting ? 'Удаление...' : 'Удалить'}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }
