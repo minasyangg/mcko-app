@@ -65,6 +65,11 @@ interface Props {
   attemptId: string | null
   onClose: () => void
   onGraded?: (attemptId: string, score: number) => void
+  /** Просмотр расшаренной попытки (assignment_shares, 087) — получатель не
+   *  назначал эту работу и не должен её оценивать. Скрывает все кнопки/поля
+   *  ввода баллов и комментариев, оставляя только чтение условия, ответов
+   *  ученика, корректности и итогового балла. */
+  readOnly?: boolean
 }
 
 const STATUS_LABELS: Record<string, string> = {
@@ -142,7 +147,7 @@ function LazyAnswerCard({ children, eager }: { children: React.ReactNode; eager:
   )
 }
 
-export function AttemptDrawer({ attemptId, onClose, onGraded }: Props) {
+export function AttemptDrawer({ attemptId, onClose, onGraded, readOnly = false }: Props) {
   const [attempt, setAttempt] = useState<AttemptDetail | null>(null)
   const [answers, setAnswers] = useState<AnswerRow[]>([])
   const [mediaByTask, setMediaByTask] = useState<Record<string, MediaRow[]>>({})
@@ -311,7 +316,10 @@ export function AttemptDrawer({ attemptId, onClose, onGraded }: Props) {
     return () => { cancelled = true }
   }, [attemptId])
 
-  const needsGrading = ['submitted', 'under_review'].includes(attempt?.status ?? '')
+  // readOnly (просмотр расшаренной попытки) принудительно гасит режим
+  // проверки — получатель гранта не назначал эту работу, ему нечего
+  // подтверждать/выставлять, независимо от реального статуса попытки.
+  const needsGrading = !readOnly && ['submitted', 'under_review'].includes(attempt?.status ?? '')
   // Авто-проверка (объективные ответы по ключу) ставит status='checked', но
   // teacher_reviewed_at не трогает — учитель ещё не смотрел работу. Раньше
   // единственный способ снять её с «На проверке» в мониторинге — зайти в
@@ -709,7 +717,7 @@ export function AttemptDrawer({ attemptId, onClose, onGraded }: Props) {
             )}
 
             {/* Edit scores for already-checked attempts */}
-            {!needsGrading && attempt.status === 'checked' && (
+            {!readOnly && !needsGrading && attempt.status === 'checked' && (
               <div className="border-t pt-4 space-y-3">
                 {!editingScores ? (
                   <>

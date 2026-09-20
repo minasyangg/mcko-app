@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { ClipboardList, Route } from 'lucide-react'
 import { closedReasonLabel } from '@/lib/assignments/completion'
 import { RoadmapTimeline, type TimelineTopic } from '@/components/student/RoadmapTimeline'
+import { ShareAssignmentDialog } from '@/components/student/ShareAssignmentDialog'
 
 export type AssignmentStatus = 'not_started' | 'in_progress' | 'submitted' | 'checked'
 
@@ -104,6 +105,7 @@ function AssignmentCard({ a }: { a: AssignmentCardData }) {
               <Link href={`/student/attempt/${a.assignment_id}/result`}>Посмотреть результат</Link>
             </Button>
           )}
+          {isDone && <ShareAssignmentDialog assignmentId={a.assignment_id} testTitle={a.test_title} />}
           {isDone && canStart ? (
             <Button asChild size="sm" className="w-full">
               <Link href={`/student/attempt/${a.assignment_id}`}>Пройти ещё раз</Link>

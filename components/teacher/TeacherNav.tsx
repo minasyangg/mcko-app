@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { LogoutButton } from '@/components/shared/LogoutButton'
 import { SwitchAccountButton } from '@/components/shared/SwitchAccountButton'
-import { BookOpen, Users, GraduationCap, Monitor, FileText, BarChart2, TrendingUp, Menu, X, ListChecks, Library, Bell, Settings, PenLine, ChevronDown, ClipboardCheck } from 'lucide-react'
+import { BookOpen, Users, GraduationCap, Monitor, FileText, BarChart2, TrendingUp, Menu, X, ListChecks, Library, Bell, Settings, PenLine, ChevronDown, ClipboardCheck, Share2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useLiveCount } from '@/lib/hooks/usePolling'
 
@@ -59,6 +59,9 @@ const navItems: NavItem[] = [
   // несколько, по одной на предмет
   { href: '/teacher/doska', label: 'Доски', icon: PenLine, teacherOnly: true },
   { href: '/teacher/solution-requests', label: 'Запросы', icon: FileText },
+  // работы, которыми ученики поделились сами (assignment_shares, 087) —
+  // не с составителем назначения, а с этим учителем персонально
+  { href: '/teacher/shared-with-me', label: 'Расшарено мне', icon: Share2 },
   { href: '/teacher/scoring-rules', label: 'Правила', icon: ListChecks },
   // настройка событий telegram/email-уведомлений организации
   { href: '/teacher/notifications', label: 'Уведомления', icon: Bell, adminOnly: true },
