@@ -102,11 +102,16 @@ function ImageThumb({ src, alt }: { src: string; alt?: string | null }) {
         </div>
       </div>
       {open && (
-        <div className="fixed inset-0 z-100 flex items-center justify-center bg-black/80 p-4" onClick={() => setOpen(false)}>
+        // bg-black непрозрачный (не /80) и bg-white на самой картинке — та же
+        // причина, что в лайтбоксе ImageGallery: графики/схемы часто PNG с
+        // прозрачным фоном, без непрозрачной подложки затемнённый оверлей
+        // просвечивал сквозь прозрачные области и чёрные линии графика
+        // сливались с ним в трудноразличимое пятно.
+        <div className="fixed inset-0 z-100 flex items-center justify-center bg-black p-4" onClick={() => setOpen(false)}>
           <button type="button" onClick={() => setOpen(false)} className="absolute top-4 right-4 rounded-full bg-white/10 p-2 text-white hover:bg-white/20">
             <X className="h-5 w-5" />
           </button>
-          <img src={src} alt={alt ?? ''} className="max-w-full max-h-[90vh] object-contain rounded shadow-2xl" onClick={(e) => e.stopPropagation()} />
+          <img src={src} alt={alt ?? ''} className="max-w-full max-h-[90vh] object-contain rounded shadow-2xl bg-white" onClick={(e) => e.stopPropagation()} />
         </div>
       )}
     </>

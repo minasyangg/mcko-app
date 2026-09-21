@@ -226,7 +226,13 @@ export function ImageGallery({
       {/* Lightbox */}
       {lightboxIdx !== null && sorted[lightboxIdx] && (
         <div
-          className="fixed inset-0 bg-black/80 flex items-center justify-center overflow-hidden select-none"
+          // bg-black (непрозрачный), не bg-black/80 — лайтбокс может
+          // открываться поверх ДРУГОГО полупрозрачного оверлея (например
+          // TaskFullscreenView, bg-black/60), и раньше 80%-прозрачность
+          // одного давала просвечивание фона/текста нижнего оверлея сквозь
+          // оба слоя сразу — итоговая картинка и текст под ней выглядели
+          // затемнённой нечитаемой "пеленой" вместо чистого просмотра.
+          className="fixed inset-0 bg-black flex items-center justify-center overflow-hidden select-none"
           style={{ zIndex: lightboxZIndex }}
           onClick={closeLightbox}
           onWheel={onWheelZoom}
@@ -311,7 +317,14 @@ export function ImageGallery({
               src={sorted[lightboxIdx].signedUrl}
               alt={sorted[lightboxIdx].alt ?? `Изображение ${lightboxIdx + 1}`}
               className={cn(
-                'max-h-[78vh] max-w-full object-contain rounded shadow-xl transition-transform',
+                // bg-white обязателен: у заданий (графики/схемы) картинки
+                // часто PNG с прозрачным фоном — без непрозрачной подложки
+                // затемнённый фон лайтбокса (bg-black/80 ниже) просвечивал
+                // сквозь прозрачные области насквозь, и чёрные линии графика
+                // сливались с ним в трудноразличимое серое пятно (миниатюра
+                // в сетке уже была с bg-white, а увеличенная версия в
+                // лайтбоксе — нет, отсюда и разница в читаемости).
+                'max-h-[78vh] max-w-full object-contain rounded shadow-xl transition-transform bg-white',
                 scale > 1 ? (dragging ? 'cursor-grabbing' : 'cursor-grab') : 'cursor-zoom-in',
               )}
               style={{
