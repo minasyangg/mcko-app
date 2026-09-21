@@ -14,16 +14,35 @@ export async function PATCH(
   if (authError || !user) return Response.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { data: profile } = await supabase
-    .from('profiles').select('role').eq('id', user.id).single()
+    .from('profiles').select('role, organization_id').eq('id', user.id).single()
   if (!profile || !['teacher', 'admin'].includes(profile.role)) {
     return Response.json({ error: 'Forbidden' }, { status: 403 })
   }
 
-  // Доступ к заданию через user-клиент: RLS пускает учителя только к своим
-  // тестам, админа — к тестам организации. Чужое задание → 404.
-  const { data: task } = await supabase
-    .from('test_tasks').select('id').eq('id', taskId).single()
-  if (!task) return Response.json({ error: 'Task not found' }, { status: 404 })
+  // Владение заданием, не просто видимость. Раньше здесь был обычный
+  // SELECT test_tasks под RLS — тот пропускал и учителя, которому попытка
+  // просто РАСШАРЕНА (test_tasks: teacher read via share, 089), не только
+  // владельца теста: RLS даёт SELECT читать, а не подтверждает право
+  // редактировать. Найдено при добавлении редактирования эталона прямо из
+  // AttemptDrawer (2026-09-22) — тот дровер открывается получателю
+  // шаринга тоже (в readOnly), и без явной проверки владения этот роут
+  // впустил бы его к чужому эталону в обход UI-скрытия кнопки. Тот же
+  // хелпер, что уже использует RLS-политика "task_answer_keys: teacher
+  // manage own" (018_teacher_scoping.sql).
+  if (profile.role === 'admin') {
+    const { data: task } = await supabase
+      .from('test_tasks')
+      .select('id, test_versions!inner(tests!inner(organization_id))')
+      .eq('id', taskId)
+      .single()
+    const taskOrgId = (task?.test_versions as unknown as { tests: { organization_id: string } } | null)?.tests?.organization_id
+    if (!task || taskOrgId !== profile.organization_id) {
+      return Response.json({ error: 'Task not found' }, { status: 404 })
+    }
+  } else {
+    const { data: owned } = await supabase.rpc('check_task_owned_by_auth', { p_task_id: taskId })
+    if (!owned) return Response.json({ error: 'Task not found' }, { status: 404 })
+  }
 
   const body = await request.json() as { correct_answer?: string; grading_method?: string }
   const { correct_answer, grading_method } = body

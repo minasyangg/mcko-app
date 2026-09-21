@@ -8,11 +8,12 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Skeleton } from '@/components/ui/skeleton'
-import { CheckCircle2, XCircle, MinusCircle, Loader2, ZoomIn, X, Lock, ChevronDown, ChevronUp } from 'lucide-react'
+import { CheckCircle2, XCircle, MinusCircle, Loader2, ZoomIn, X, Lock, ChevronDown, ChevronUp, Pencil, Check } from 'lucide-react'
 import { MathText } from '@/components/shared/MathText'
 import MarkdownContent from '@/components/shared/MarkdownContent'
 import { cn } from '@/lib/utils'
 import { formatAnswerJson } from '@/lib/grading/format-answer-display'
+import { formatCompositeAnswerForEdit } from '@/lib/grading/multi-part-answer'
 import { ImageGallery } from '@/components/shared/ImageGallery'
 import type { Json } from '@/types/database'
 
@@ -153,6 +154,15 @@ export function AttemptDrawer({ attemptId, onClose, onGraded, readOnly = false }
   const [mediaByTask, setMediaByTask] = useState<Record<string, MediaRow[]>>({})
   const [solutionPhotosByTask, setSolutionPhotosByTask] = useState<Record<string, MediaRow[]>>({})
   const [correctAnswerMap, setCorrectAnswerMap] = useState<Record<string, string>>({})
+  // Сырой correct_answer (Json) + grading_method — нужны отдельно от
+  // отформатированной строки выше: показ идёт через formatAnswerJson, а
+  // редактирование составного ответа — через formatCompositeAnswerForEdit
+  // (другой формат разделителя, "а)", не "а:") и метод проверки для сохранения.
+  const [answerKeyMap, setAnswerKeyMap] = useState<Record<string, { raw: Json; gradingMethod: string }>>({})
+  const [editingAnswerTaskId, setEditingAnswerTaskId] = useState<string | null>(null)
+  const [answerEditInput, setAnswerEditInput] = useState('')
+  const [savingAnswer, setSavingAnswer] = useState(false)
+  const [answerSaveError, setAnswerSaveError] = useState<string | null>(null)
   const [changedTaskIds, setChangedTaskIds] = useState<Set<string>>(new Set())
   const [expandedTaskIds, setExpandedTaskIds] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(false)
@@ -166,7 +176,10 @@ export function AttemptDrawer({ attemptId, onClose, onGraded, readOnly = false }
 
   useEffect(() => {
     setEditingScores(false)
-    if (!attemptId) { setAttempt(null); setAnswers([]); setMediaByTask({}); setSolutionPhotosByTask({}); setGrades({}); setCorrectAnswerMap({}); setChangedTaskIds(new Set()); return }
+    setEditingAnswerTaskId(null)
+    setAnswerEditInput('')
+    setAnswerSaveError(null)
+    if (!attemptId) { setAttempt(null); setAnswers([]); setMediaByTask({}); setSolutionPhotosByTask({}); setGrades({}); setCorrectAnswerMap({}); setAnswerKeyMap({}); setChangedTaskIds(new Set()); return }
     let cancelled = false
     setLoading(true); setSaveError(null)
 
@@ -212,18 +225,21 @@ export function AttemptDrawer({ attemptId, onClose, onGraded, readOnly = false }
         // Load correct answers and previous attempt answers
         const taskIds = sorted.map((a) => a.task_id).filter(Boolean) as string[]
         if (taskIds.length > 0) {
-          // Load correct answers for teacher hint
+          // Load correct answers for teacher hint (+ редактирование эталона)
           const { data: ansKeys } = await supabase
             .from('task_answer_keys')
-            .select('task_id, correct_answer')
+            .select('task_id, correct_answer, grading_method')
             .in('task_id', taskIds)
           if (ansKeys && !cancelled) {
             const m: Record<string, string> = {}
+            const km: Record<string, { raw: Json; gradingMethod: string }> = {}
             for (const k of ansKeys) {
               if (!k.task_id) continue
               m[k.task_id] = formatAnswerJson(k.correct_answer as Json)
+              km[k.task_id] = { raw: k.correct_answer as Json, gradingMethod: k.grading_method }
             }
             setCorrectAnswerMap(m)
+            setAnswerKeyMap(km)
           }
 
           // Find previous attempt to detect changed answers
@@ -412,6 +428,62 @@ export function AttemptDrawer({ attemptId, onClose, onGraded, readOnly = false }
     }
   }
 
+  // Правка эталонного ответа задания — НЕ трогает баллы/is_correct ни этой,
+  // ни чужих попыток (по решению пользователя): цель — только исправить
+  // task_answer_keys.correct_answer, чтобы библиотека заданий росла с
+  // правильными ответами. Составной ответ (а)/б)/… форматируется через
+  // formatCompositeAnswerForEdit — НЕ formatAnswerJson, у которой другой
+  // разделитель («а: 5», не «а) 5»), несовместимый при сборке обратно
+  // (см. lib/grading/multi-part-answer.ts).
+  const startEditingAnswer = (taskId: string) => {
+    const entry = answerKeyMap[taskId]
+    setAnswerEditInput(entry ? (formatCompositeAnswerForEdit(entry.raw) ?? formatAnswerJson(entry.raw)) : '')
+    setEditingAnswerTaskId(taskId)
+    setAnswerSaveError(null)
+  }
+
+  const cancelEditingAnswer = () => {
+    setEditingAnswerTaskId(null)
+    setAnswerEditInput('')
+    setAnswerSaveError(null)
+  }
+
+  const saveAnswer = async (taskId: string) => {
+    setSavingAnswer(true)
+    setAnswerSaveError(null)
+    try {
+      const res = await fetch(`/api/tasks/${taskId}/answer-key`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          correct_answer: answerEditInput,
+          grading_method: answerKeyMap[taskId]?.gradingMethod,
+        }),
+      })
+      const resData = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setAnswerSaveError(resData.error ?? 'Ошибка сохранения')
+        return
+      }
+      // Перечитать сохранённый эталон, а не доверять введённому тексту как
+      // есть — сервер мог собрать его в другой JSON (составной {parts:...}),
+      // чем то, что ввёл учитель буквально.
+      const { data: fresh } = await supabase
+        .from('task_answer_keys')
+        .select('correct_answer, grading_method')
+        .eq('task_id', taskId)
+        .single()
+      if (fresh) {
+        setCorrectAnswerMap(prev => ({ ...prev, [taskId]: formatAnswerJson(fresh.correct_answer as Json) }))
+        setAnswerKeyMap(prev => ({ ...prev, [taskId]: { raw: fresh.correct_answer as Json, gradingMethod: fresh.grading_method } }))
+      }
+      setEditingAnswerTaskId(null)
+      setAnswerEditInput('')
+    } finally {
+      setSavingAnswer(false)
+    }
+  }
+
   const taskTypeLabel = (t: string) => ({
     manual_review: 'Развёрнутый', single_choice: 'Один ответ',
     multiple_choice: 'Несколько', numeric: 'Число',
@@ -589,17 +661,61 @@ export function AttemptDrawer({ attemptId, onClose, onGraded, readOnly = false }
                               <span className="ml-1.5 text-[10px] bg-blue-100 text-blue-700 rounded px-1">изменён</span>
                             )}
                           </p>
-                          <span className="font-medium wrap-break-word">{formatAnswerJson(ans.answer_json as Json)}</span>
+                          <MathText
+                            text={formatAnswerJson(ans.answer_json as Json)}
+                            className="font-medium wrap-break-word"
+                          />
                         </div>
-                        {correctAnswerMap[ans.task_id ?? ''] && (
-                          <div className="bg-green-50/60 dark:bg-green-950/20 border border-green-200 dark:border-green-800 rounded px-2 py-1.5">
-                            <p className="text-xs text-green-700 dark:text-green-400 mb-0.5">Правильный ответ</p>
-                            <MathText
-                              text={correctAnswerMap[ans.task_id ?? '']}
-                              className="font-medium text-green-800 dark:text-green-300 text-sm"
-                            />
-                          </div>
-                        )}
+                        {(() => {
+                          const taskId = ans.task_id ?? ''
+                          const isEditingThis = editingAnswerTaskId === taskId
+                          if (isEditingThis) {
+                            return (
+                              <div className="bg-green-50/60 dark:bg-green-950/20 border border-green-200 dark:border-green-800 rounded px-2 py-1.5 space-y-1">
+                                <p className="text-xs text-green-700 dark:text-green-400 mb-0.5">Правильный ответ</p>
+                                <div className="flex items-center gap-1.5">
+                                  <Input
+                                    autoFocus
+                                    value={answerEditInput}
+                                    onChange={e => setAnswerEditInput(e.target.value)}
+                                    onKeyDown={e => { if (e.key === 'Enter') saveAnswer(taskId); if (e.key === 'Escape') cancelEditingAnswer() }}
+                                    className="h-7 text-sm flex-1"
+                                    placeholder="Введите ответ, для составного: а) 5; б) 12"
+                                    disabled={savingAnswer}
+                                  />
+                                  <button onClick={() => saveAnswer(taskId)} disabled={savingAnswer}
+                                    className="text-green-700 hover:text-green-800 disabled:opacity-50 shrink-0">
+                                    {savingAnswer ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                                  </button>
+                                  <button onClick={cancelEditingAnswer} disabled={savingAnswer}
+                                    className="text-muted-foreground hover:text-foreground shrink-0">
+                                    <X className="h-4 w-4" />
+                                  </button>
+                                </div>
+                                {answerSaveError && <p className="text-xs text-destructive">{answerSaveError}</p>}
+                              </div>
+                            )
+                          }
+                          if (!correctAnswerMap[taskId]) return null
+                          return (
+                            <div className="bg-green-50/60 dark:bg-green-950/20 border border-green-200 dark:border-green-800 rounded px-2 py-1.5 group/answer">
+                              <p className="text-xs text-green-700 dark:text-green-400 mb-0.5 flex items-center gap-1.5">
+                                Правильный ответ
+                                {!readOnly && (
+                                  <button onClick={() => startEditingAnswer(taskId)}
+                                    className="opacity-0 group-hover/answer:opacity-100 transition-opacity text-green-700/70 hover:text-green-800 dark:text-green-400/70 dark:hover:text-green-300"
+                                    title="Исправить эталонный ответ">
+                                    <Pencil className="h-3 w-3" />
+                                  </button>
+                                )}
+                              </p>
+                              <MathText
+                                text={correctAnswerMap[taskId]}
+                                className="font-medium text-green-800 dark:text-green-300 text-sm"
+                              />
+                            </div>
+                          )
+                        })()}
                       </div>
 
                       {/* Фото письменного решения ученика (черновик на бумаге) —
