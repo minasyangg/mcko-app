@@ -4,6 +4,53 @@ import type { TimelineTopic } from '@/components/student/RoadmapTimeline'
 
 type Search = { tab?: string }
 
+interface RoadmapTopicRow {
+  id: string
+  roadmap_id: string
+  parent_id: string | null
+  title: string
+  sort_order: number
+  visible_to_students: boolean
+}
+
+// Порядок тем в кабинете ученика ДОЛЖЕН совпадать с порядком, который
+// учитель выставил в редакторе программы (RoadmapEditor.tsx, drag&drop).
+// Раньше здесь был плоский `.order('sort_order')` по всей выборке сразу —
+// но sort_order уникален только СРЕДИ ДЕТЕЙ ОДНОГО РОДИТЕЛЯ (миграция 085,
+// дерево тем: глава → подтема → деталь; см. reorder route.ts, siblings
+// нумеруются 0,1,2... заново под каждым parent_id). Глобальная сортировка
+// по неуникальному полю без учёта parent_id перемешивала ветки дерева
+// между собой. Правильный порядок — обход дерева в глубину (DFS): все дети
+// одного родителя по sort_order, для каждого — сразу его поддерево, потом
+// следующий sibling. Тот же порядок, что учитель видит "сверху вниз" в
+// развёрнутом дереве RoadmapEditor.
+//
+// Заодно применяет видимость (visible_to_students, 092) — эффективно скрыта
+// тема, если скрыта ОНА САМА или ЛЮБОЙ её предок (скрытие главы прячет все
+// подтемы, даже если у них самих флаг true).
+function topicsInTreeOrder(allTopics: RoadmapTopicRow[], roadmapId: string): RoadmapTopicRow[] {
+  const byParent = new Map<string | null, RoadmapTopicRow[]>()
+  for (const t of allTopics) {
+    if (t.roadmap_id !== roadmapId) continue
+    const key = t.parent_id
+    const arr = byParent.get(key) ?? []
+    arr.push(t)
+    byParent.set(key, arr)
+  }
+  for (const arr of byParent.values()) arr.sort((a, b) => a.sort_order - b.sort_order)
+
+  const result: RoadmapTopicRow[] = []
+  function visit(parentId: string | null, hiddenAncestor: boolean) {
+    for (const t of byParent.get(parentId) ?? []) {
+      const hidden = hiddenAncestor || !t.visible_to_students
+      if (!hidden) result.push(t)
+      visit(t.id, hidden)
+    }
+  }
+  visit(null, false)
+  return result
+}
+
 // Главная страница кабинета ученика: ВСЁ назначенное в одном месте, вне
 // зависимости от того, как оно попало к ученику — обычное назначение
 // (лично или на группу) или задание учебной программы. Раньше это были два
@@ -74,8 +121,10 @@ export default async function StudentHomePage({ searchParams }: { searchParams: 
 
   const [{ data: topics }, { data: rawRoadmapItems }] = await Promise.all([
     roadmapIds.length
-      ? supabase.from('roadmap_topics').select('id, roadmap_id, title, sort_order').in('roadmap_id', roadmapIds).order('sort_order')
-      : Promise.resolve({ data: [] as { id: string; roadmap_id: string; title: string; sort_order: number }[] }),
+      ? supabase.from('roadmap_topics')
+          .select('id, roadmap_id, parent_id, title, sort_order, visible_to_students')
+          .in('roadmap_id', roadmapIds)
+      : Promise.resolve({ data: [] as { id: string; roadmap_id: string; parent_id: string | null; title: string; sort_order: number; visible_to_students: boolean }[] }),
     // Групповые назначения темы программы ИЛИ персональные «догоняющие» копии
     // (assignments.student_id, group_id=null) — их заводит «Открыть доступ»
     // (grant-access) ученику, кого правило «3 дня» (058) скрыло от группового
@@ -230,24 +279,24 @@ export default async function StudentHomePage({ searchParams }: { searchParams: 
     itemsByTopic.set(tid, arr)
   }
 
-  const topicsByRoadmap = new Map<string, TimelineTopic[]>()
-  for (const t of topics ?? []) {
-    const its = itemsByTopic.get(t.id) ?? []
-    const state: TimelineTopic['state'] = its.length > 0 && its.every(i => i.status === 'checked')
-      ? 'done'
-      : its.some(i => ['in_progress', 'submitted', 'checked'].includes(i.status))
-        ? 'active'
-        : 'pending'
-    const arr = topicsByRoadmap.get(t.roadmap_id) ?? []
-    arr.push({ id: t.id, title: t.title, state, items: its })
-    topicsByRoadmap.set(t.roadmap_id, arr)
-  }
-
   const roadmapGroups: RoadmapGroup[] = (roadmaps ?? []).map(r => ({
     id: r.id,
     title: r.title,
     subject: r.subject,
-    topics: topicsByRoadmap.get(r.id) ?? [],
+    // Порядок тем — DFS-обход дерева (см. topicsInTreeOrder), не плоский
+    // ORDER BY sort_order: то поле уникально только среди siblings одного
+    // parent_id, поэтому глобальная сортировка перемешивала бы ветки.
+    // Скрытые темы (visible_to_students=false у неё самой или предка) сюда
+    // уже не попадают.
+    topics: topicsInTreeOrder((topics ?? []) as RoadmapTopicRow[], r.id).map((t): TimelineTopic => {
+      const its = itemsByTopic.get(t.id) ?? []
+      const state: TimelineTopic['state'] = its.length > 0 && its.every(i => i.status === 'checked')
+        ? 'done'
+        : its.some(i => ['in_progress', 'submitted', 'checked'].includes(i.status))
+          ? 'active'
+          : 'pending'
+      return { id: t.id, title: t.title, state, items: its }
+    }),
   }))
 
   const initialTab = tab === 'test' || tab === 'homework' || tab === 'roadmap' ? tab : 'all'

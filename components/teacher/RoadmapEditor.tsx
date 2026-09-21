@@ -21,7 +21,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { SearchableSelect } from '@/components/shared/SearchableSelect'
 import {
   ArrowLeft, Plus, Trash2, Pencil, Check, ChevronRight, ChevronDown as ChevronDownIcon,
-  Users, Loader2, X, AlertTriangle, Search, GripVertical,
+  Users, Loader2, X, AlertTriangle, Search, GripVertical, Eye, EyeOff,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -31,11 +31,19 @@ export interface EditorTopic {
   description: string | null
   sort_order: number
   parent_id: string | null
+  visible_to_students: boolean
   items: { assignment_id: string; test_title: string; kind: 'homework' | 'test'; max_attempts: number; ends_at: string | null }[]
 }
 
 interface TopicNode extends EditorTopic {
   children: TopicNode[]
+  /** Скрыта не сама тема, а один из её предков — эффективно тоже невидима
+   *  ученику (092: RoadmapTimeline применяет ту же логику "AND по цепочке
+   *  предков"), но тоггл-иконка должна отражать состояние ИМЕННО этого узла
+   *  (node.visible_to_students), иначе снятие видимости у родителя молча
+   *  перезаписывало бы флаг всех детей и учитель не смог бы вернуть их
+   *  обратно по отдельности после того, как снова откроет родителя. */
+  effectivelyHidden: boolean
 }
 
 // Дерево из плоского списка — тот же приём, что buildTree в BookReader.tsx
@@ -43,13 +51,21 @@ interface TopicNode extends EditorTopic {
 // только на другом типе узла.
 function buildTopicTree(topics: EditorTopic[]): TopicNode[] {
   const byId = new Map<string, TopicNode>()
-  for (const t of topics) byId.set(t.id, { ...t, children: [] })
+  for (const t of topics) byId.set(t.id, { ...t, children: [], effectivelyHidden: !t.visible_to_students })
   const roots: TopicNode[] = []
   for (const t of topics) {
     const node = byId.get(t.id) as TopicNode
     if (t.parent_id && byId.has(t.parent_id)) (byId.get(t.parent_id) as TopicNode).children.push(node)
     else roots.push(node)
   }
+  // Второй проход (после того как дерево собрано) — каскадом от корня вниз:
+  // родитель эффективно скрыт → все потомки эффективно скрыты тоже, даже
+  // если у них самих visible_to_students=true.
+  function propagate(node: TopicNode, hiddenByAncestor: boolean) {
+    node.effectivelyHidden = hiddenByAncestor || !node.visible_to_students
+    for (const child of node.children) propagate(child, node.effectivelyHidden)
+  }
+  for (const root of roots) propagate(root, false)
   return roots
 }
 interface TestOption { id: string; title: string }
@@ -225,6 +241,22 @@ export function RoadmapEditor({ roadmap, topics, tests, students, memberIds, gro
     if (!res.ok) { toast.error(json.error ?? 'Ошибка сохранения'); return false }
     router.refresh()
     return true
+  }
+
+  // Скрыть/показать тему у ученика (092) — не удаляет и не отвязывает
+  // задания, только гасит показ в "Программе" кабинета ученика. Скрытие
+  // родителя прячет и всё поддерево (см. topicsInTreeOrder на стороне
+  // ученика) — учителю здесь достаточно тоггла на самой теме, каскад
+  // считается на чтении, отдельно помечать детей не нужно.
+  async function toggleTopicVisible(topicId: string, nextVisible: boolean) {
+    const res = await fetch(`/api/roadmaps/${roadmap.id}/topics/${topicId}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ visible_to_students: nextVisible }),
+    })
+    const json = await res.json().catch(() => ({}))
+    if (!res.ok) { toast.error(json.error ?? 'Ошибка сохранения'); return }
+    toast.success(nextVisible ? 'Тема снова видна ученикам' : 'Тема скрыта от учеников')
+    router.refresh()
   }
 
   async function deleteTopic(topicId: string) {
@@ -454,7 +486,7 @@ export function RoadmapEditor({ roadmap, topics, tests, students, memberIds, gro
             <TopicTreeItem
               key={node.id} node={node} depth={0} roadmapId={roadmap.id} busy={busy}
               onRename={renameTopic} onDelete={deleteTopic} onAddChild={addTopicUnder}
-              onOpenItem={openItem} onRemoveItem={removeItem}
+              onOpenItem={openItem} onRemoveItem={removeItem} onToggleVisible={toggleTopicVisible}
               onDropTopic={handleTopicDrop} onMoveItem={moveItemToTopic} drag={drag} setDrag={setDrag}
             />
           ))}
@@ -669,7 +701,7 @@ type DropMode = 'before' | 'after' | 'inside'
 type DragState = { id: string; kind: 'topic' | 'item' } | null
 
 function TopicTreeItem({
-  node, depth, roadmapId, busy, onRename, onDelete, onAddChild, onOpenItem, onRemoveItem,
+  node, depth, roadmapId, busy, onRename, onDelete, onAddChild, onOpenItem, onRemoveItem, onToggleVisible,
   onDropTopic, onMoveItem, drag, setDrag,
 }: {
   node: TopicNode
@@ -681,6 +713,7 @@ function TopicTreeItem({
   onAddChild: (parentId: string | null, title: string) => Promise<void>
   onOpenItem: (topic: EditorTopic) => void
   onRemoveItem: (topicId: string, assignmentId: string) => void
+  onToggleVisible: (topicId: string, nextVisible: boolean) => Promise<void>
   onDropTopic: (draggedId: string, targetId: string, mode: DropMode) => void
   onMoveItem: (assignmentId: string, topicId: string) => void
   drag: DragState
@@ -710,6 +743,13 @@ function TopicTreeItem({
   const [preview, setPreview] = useState<DeletePreview | null>(null)
   const [previewLoading, setPreviewLoading] = useState(false)
   const [deleting, setDeleting] = useState(false)
+
+  const [togglingVisible, setTogglingVisible] = useState(false)
+  async function handleToggleVisible() {
+    setTogglingVisible(true)
+    try { await onToggleVisible(node.id, !node.visible_to_students) }
+    finally { setTogglingVisible(false) }
+  }
 
   async function handleSaveTitle() {
     const title = titleDraft.trim()
@@ -849,7 +889,16 @@ function TopicTreeItem({
             </div>
           ) : (
             <div className="flex items-center gap-2">
-              <span className={cn('truncate', depth === 0 ? 'font-medium' : 'text-sm')}>{node.title}</span>
+              <span className={cn(
+                'truncate', depth === 0 ? 'font-medium' : 'text-sm',
+                node.effectivelyHidden && 'text-muted-foreground line-through decoration-1',
+              )}>{node.title}</span>
+              {node.effectivelyHidden && (
+                <span className="flex items-center gap-0.5 text-[10px] text-muted-foreground bg-muted rounded px-1.5 py-0.5 shrink-0">
+                  <EyeOff className="h-2.5 w-2.5" />
+                  {node.visible_to_students ? 'Скрыта (родительская тема скрыта)' : 'Скрыта от учеников'}
+                </span>
+              )}
               {/* Явно проговаривает намерение drop вместо того, чтобы пользователь
                   угадывал по подсветке фона/толщине полоски — прямая причина
                   жалобы «не всегда понятно куда встанет тема». */}
@@ -860,6 +909,15 @@ function TopicTreeItem({
                 <span className="text-xs font-medium text-primary shrink-0">→ задание переедет сюда</span>
               )}
               <span className="flex gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                <button
+                  type="button"
+                  onClick={handleToggleVisible}
+                  disabled={togglingVisible}
+                  title={node.visible_to_students ? 'Скрыть тему от учеников' : 'Показать тему ученикам'}
+                  className="text-muted-foreground hover:text-foreground disabled:opacity-50"
+                >
+                  {node.visible_to_students ? <Eye className="h-3 w-3" /> : <EyeOff className="h-3 w-3" />}
+                </button>
                 <button type="button" onClick={() => setRenaming(true)} title="Переименовать" className="text-muted-foreground hover:text-foreground">
                   <Pencil className="h-3 w-3" />
                 </button>
@@ -941,7 +999,7 @@ function TopicTreeItem({
             <TopicTreeItem
               key={child.id} node={child} depth={depth + 1} roadmapId={roadmapId} busy={busy}
               onRename={onRename} onDelete={onDelete} onAddChild={onAddChild}
-              onOpenItem={onOpenItem} onRemoveItem={onRemoveItem}
+              onOpenItem={onOpenItem} onRemoveItem={onRemoveItem} onToggleVisible={onToggleVisible}
               onDropTopic={onDropTopic} onMoveItem={onMoveItem} drag={drag} setDrag={setDrag}
             />
           ))}

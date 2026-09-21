@@ -2502,6 +2502,7 @@ export type Database = {
           sort_order: number
           status: string
           title: string
+          visible_to_students: boolean
         }
         Insert: {
           created_at?: string | null
@@ -2514,6 +2515,7 @@ export type Database = {
           sort_order?: number
           status?: string
           title: string
+          visible_to_students?: boolean
         }
         Update: {
           created_at?: string | null
@@ -2526,6 +2528,7 @@ export type Database = {
           sort_order?: number
           status?: string
           title?: string
+          visible_to_students?: boolean
         }
         Relationships: [
           {

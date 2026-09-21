@@ -11,6 +11,7 @@ const patchSchema = z.object({
   description: z.string().trim().optional().nullable(),
   sort_order: z.number().int().optional(),
   parent_id: z.string().uuid().nullable().optional(),
+  visible_to_students: z.boolean().optional(),
 })
 
 type Params = { params: Promise<{ id: string; topicId: string }> }
@@ -57,11 +58,12 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     }
   }
 
-  const patch: { title?: string; description?: string | null; sort_order?: number; parent_id?: string | null } = {}
+  const patch: { title?: string; description?: string | null; sort_order?: number; parent_id?: string | null; visible_to_students?: boolean } = {}
   if (parsed.data.title !== undefined) patch.title = parsed.data.title
   if (parsed.data.description !== undefined) patch.description = parsed.data.description || null
   if (parsed.data.sort_order !== undefined) patch.sort_order = parsed.data.sort_order
   if (parsed.data.parent_id !== undefined) patch.parent_id = parsed.data.parent_id
+  if (parsed.data.visible_to_students !== undefined) patch.visible_to_students = parsed.data.visible_to_students
   if (Object.keys(patch).length === 0) return NextResponse.json({ ok: true })
 
   const { error } = await admin.from('roadmap_topics').update(patch)

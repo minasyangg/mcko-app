@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Skeleton } from '@/components/ui/skeleton'
-import { CheckCircle2, XCircle, MinusCircle, Loader2, ZoomIn, X, Lock, ChevronDown, ChevronUp, Pencil, Check } from 'lucide-react'
+import { CheckCircle2, XCircle, MinusCircle, Loader2, ZoomIn, X, Lock, ChevronDown, ChevronUp, Pencil, Check, Maximize2 } from 'lucide-react'
 import { MathText } from '@/components/shared/MathText'
 import MarkdownContent from '@/components/shared/MarkdownContent'
 import { cn } from '@/lib/utils'
@@ -113,6 +113,91 @@ function ImageThumb({ src, alt }: { src: string; alt?: string | null }) {
   )
 }
 
+// Полноэкранный просмотр одного задания — крупный текст условия (без обрезки
+// «раскрыть», как в карточке), все изображения условия сразу с лупой-зумом
+// через ImageGallery (вместо мелких 80×60 миниатюр ImageThumb в карточке).
+// Кнопка вызова — на каждой карточке ответа, см. рендер ниже.
+interface FullscreenTask {
+  taskNumber: number | string
+  taskType: string
+  promptHtml: string | null
+  promptText: string
+  media: MediaRow[]
+}
+
+function TaskFullscreenView({ task, onClose }: { task: FullscreenTask | null; onClose: () => void }) {
+  // Escape закрывает; скролл страницы под оверлеем блокируем — тот же
+  // приём, что уже в ImageGallery для её лайтбокса.
+  useEffect(() => {
+    if (!task) return
+    function onKey(e: KeyboardEvent) { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', onKey)
+    const prevOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.removeEventListener('keydown', onKey)
+      document.body.style.overflow = prevOverflow
+    }
+  }, [task, onClose])
+
+  if (!task) return null
+
+  return (
+    // Sheet (AttemptDrawer) занимает z-50 — без явного подъёма выше этот
+    // оверлей оказался бы в том же слое и либо мерцал под панелью, либо
+    // конкурировал за порядок отрисовки (тот же нюанс, что уже решён для
+    // лайтбокса ImageThumb/ImageGallery через z-100 в этом же файле).
+    <div className="fixed inset-0 z-100 bg-black/60 flex items-center justify-center p-4" onClick={onClose}>
+      <div
+        className="bg-background rounded-lg shadow-2xl w-full max-w-4xl h-[90vh] flex flex-col overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between gap-2 border-b px-4 py-3 shrink-0">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-mono font-semibold bg-muted px-2 py-1 rounded">
+              №{task.taskNumber}
+            </span>
+            <span className="text-sm text-muted-foreground">{task.taskType}</span>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+            aria-label="Закрыть просмотр"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+        <div className="overflow-y-auto p-6 space-y-6">
+          {task.promptHtml
+            ? <div className="text-base [&_p]:my-1.5"><MarkdownContent content={task.promptHtml} /></div>
+            : <p className="text-base text-muted-foreground whitespace-pre-wrap">{task.promptText}</p>
+          }
+          {task.media.length > 0 && (
+            <div>
+              <p className="text-xs text-muted-foreground mb-2">Изображения задания</p>
+              {/* Лайтбокс галереи выше и этого оверлея, и Sheet — иначе клик
+                  по картинке для зума открыл бы лупу «под» текущим окном. */}
+              <ImageGallery
+                layout="grid"
+                lightboxZIndex={110}
+                images={task.media
+                  .filter((m) => m.signedUrl)
+                  .map((m, i) => ({
+                    id: m.id,
+                    signedUrl: m.signedUrl!,
+                    alt: m.alt_text ?? `Изображение ${i + 1}`,
+                    sort_order: m.sort_order ?? i,
+                  }))}
+              />
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 interface GradeState { score: string; comment: string }
 
 // Count rough sentences in plain text (split by .!? followed by space/end)
@@ -171,6 +256,7 @@ export function AttemptDrawer({ attemptId, onClose, onGraded, readOnly = false }
   const [isSaving, setIsSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [editingScores, setEditingScores] = useState(false)
+  const [fullscreenAnswerId, setFullscreenAnswerId] = useState<string | null>(null)
 
   const supabase = createClient()
 
@@ -179,6 +265,7 @@ export function AttemptDrawer({ attemptId, onClose, onGraded, readOnly = false }
     setEditingAnswerTaskId(null)
     setAnswerEditInput('')
     setAnswerSaveError(null)
+    setFullscreenAnswerId(null)
     if (!attemptId) { setAttempt(null); setAnswers([]); setMediaByTask({}); setSolutionPhotosByTask({}); setGrades({}); setCorrectAnswerMap({}); setAnswerKeyMap({}); setChangedTaskIds(new Set()); return }
     let cancelled = false
     setLoading(true); setSaveError(null)
@@ -592,6 +679,15 @@ export function AttemptDrawer({ attemptId, onClose, onGraded, readOnly = false }
                           )}
                         </div>
                         <div className="flex items-center gap-2 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => setFullscreenAnswerId(ans.id)}
+                            className="text-muted-foreground hover:text-foreground rounded p-0.5 hover:bg-muted"
+                            title="Открыть задание на весь экран"
+                            aria-label="Открыть задание на весь экран"
+                          >
+                            <Maximize2 className="h-3.5 w-3.5" />
+                          </button>
                           {ans.is_correct === true && <CheckCircle2 className="h-4 w-4 text-green-500" />}
                           {ans.is_correct === false && <XCircle className="h-4 w-4 text-red-400" />}
                           {ans.is_correct === null && <MinusCircle className="h-4 w-4 text-muted-foreground" />}
@@ -905,6 +1001,20 @@ export function AttemptDrawer({ attemptId, onClose, onGraded, readOnly = false }
           <div className="p-4 text-sm text-muted-foreground">Не удалось загрузить попытку.</div>
         )}
       </SheetContent>
+      <TaskFullscreenView
+        task={(() => {
+          const ans = answers.find((a) => a.id === fullscreenAnswerId)
+          if (!ans) return null
+          return {
+            taskNumber: ans.test_tasks?.task_number ?? '?',
+            taskType: taskTypeLabel(ans.test_tasks?.task_type ?? ''),
+            promptHtml: ans.test_tasks?.prompt_html ?? null,
+            promptText: ans.test_tasks?.prompt_text ?? '',
+            media: mediaByTask[ans.task_id ?? ''] ?? [],
+          }
+        })()}
+        onClose={() => setFullscreenAnswerId(null)}
+      />
     </Sheet>
   )
 }
