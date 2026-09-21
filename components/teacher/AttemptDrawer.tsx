@@ -147,7 +147,19 @@ function TaskFullscreenView({ task, onClose }: { task: FullscreenTask | null; on
     // оверлей оказался бы в том же слое и либо мерцал под панелью, либо
     // конкурировал за порядок отрисовки (тот же нюанс, что уже решён для
     // лайтбокса ImageThumb/ImageGallery через z-100 в этом же файле).
-    <div className="fixed inset-0 z-100 bg-black/60 flex items-center justify-center p-4" onClick={onClose}>
+    //
+    // Рендерится ВНУТРИ SheetContent (см. вызов ниже, последним ребёнком),
+    // не как sibling и не через портал в body — раньше было sibling'ом, и
+    // Radix (react-remove-scroll/aria-hidden внутри @radix-ui/react-dialog,
+    // hideOthers()) считал этот DOM-узел "снаружи" Dialog Content, из-за
+    // чего SheetContent's onPointerDownOutside/hideOthers мешали клику по
+    // крестику доходить до onClick (баг: крестик не закрывал модалку).
+    // Будучи частью поддерева SheetContent, оверлей больше не считается
+    // "снаружи" — Radix его не трогает вовсе.
+    <div
+      className="fixed inset-0 z-100 bg-black/60 flex items-center justify-center p-4"
+      onClick={onClose}
+    >
       <div
         className="bg-background rounded-lg shadow-2xl w-full max-w-4xl h-[90vh] flex flex-col overflow-hidden"
         onClick={(e) => e.stopPropagation()}
@@ -1000,21 +1012,25 @@ export function AttemptDrawer({ attemptId, onClose, onGraded, readOnly = false }
         {!loading && !attempt && attemptId && (
           <div className="p-4 text-sm text-muted-foreground">Не удалось загрузить попытку.</div>
         )}
+
+        {/* Внутри SheetContent намеренно (не sibling/портал в body) — см.
+            комментарий в TaskFullscreenView: снаружи Radix считал оверлей
+            "вне" Dialog Content и мешал клику по крестику закрывать его. */}
+        <TaskFullscreenView
+          task={(() => {
+            const ans = answers.find((a) => a.id === fullscreenAnswerId)
+            if (!ans) return null
+            return {
+              taskNumber: ans.test_tasks?.task_number ?? '?',
+              taskType: taskTypeLabel(ans.test_tasks?.task_type ?? ''),
+              promptHtml: ans.test_tasks?.prompt_html ?? null,
+              promptText: ans.test_tasks?.prompt_text ?? '',
+              media: mediaByTask[ans.task_id ?? ''] ?? [],
+            }
+          })()}
+          onClose={() => setFullscreenAnswerId(null)}
+        />
       </SheetContent>
-      <TaskFullscreenView
-        task={(() => {
-          const ans = answers.find((a) => a.id === fullscreenAnswerId)
-          if (!ans) return null
-          return {
-            taskNumber: ans.test_tasks?.task_number ?? '?',
-            taskType: taskTypeLabel(ans.test_tasks?.task_type ?? ''),
-            promptHtml: ans.test_tasks?.prompt_html ?? null,
-            promptText: ans.test_tasks?.prompt_text ?? '',
-            media: mediaByTask[ans.task_id ?? ''] ?? [],
-          }
-        })()}
-        onClose={() => setFullscreenAnswerId(null)}
-      />
     </Sheet>
   )
 }
