@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button'
 import { Check } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { closedReasonLabel } from '@/lib/assignments/completion'
+import { ShareAssignmentDialog } from '@/components/student/ShareAssignmentDialog'
 
 export interface TimelineItem {
   assignment_id: string
@@ -63,6 +64,7 @@ function ItemAction({ it }: { it: TimelineItem }) {
           <Link href={`/student/attempt/${it.assignment_id}/result`}>Результат</Link>
         </Button>
       )}
+      {isDone && <ShareAssignmentDialog assignmentId={it.assignment_id} testTitle={it.test_title} compact />}
       {it.status === 'in_progress' ? (
         <Button asChild size="sm" className="h-7 text-xs"><Link href={`/student/attempt/${it.assignment_id}`}>Продолжить</Link></Button>
       ) : !isDone && canStart ? (

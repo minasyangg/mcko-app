@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { ClipboardList, Route } from 'lucide-react'
 import { closedReasonLabel } from '@/lib/assignments/completion'
 import { RoadmapTimeline, type TimelineTopic } from '@/components/student/RoadmapTimeline'
+import { ShareAssignmentDialog } from '@/components/student/ShareAssignmentDialog'
 
 export type AssignmentStatus = 'not_started' | 'in_progress' | 'submitted' | 'checked'
 
@@ -100,9 +101,12 @@ function AssignmentCard({ a }: { a: AssignmentCardData }) {
 
         <div className="pt-2 space-y-2">
           {isDone && (
-            <Button asChild variant="outline" size="sm" className="w-full">
-              <Link href={`/student/attempt/${a.assignment_id}/result`}>Посмотреть результат</Link>
-            </Button>
+            <div className="flex items-center gap-1.5">
+              <Button asChild variant="outline" size="sm" className="flex-1">
+                <Link href={`/student/attempt/${a.assignment_id}/result`}>Посмотреть результат</Link>
+              </Button>
+              <ShareAssignmentDialog assignmentId={a.assignment_id} testTitle={a.test_title} compact />
+            </div>
           )}
           {isDone && canStart ? (
             <Button asChild size="sm" className="w-full">

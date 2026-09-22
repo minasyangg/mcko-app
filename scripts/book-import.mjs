@@ -1092,18 +1092,40 @@ const PAREN_RE = /^[ \t]*(\d{1,2})[*°]?\)[*°]?[ \t]/gm
 // количество и т.п. посреди обычного предложения, не начало задания).
 const BARE_RE = /^[ \t]*(?:([КПДСKPDCπ])[ \t]+)?(\d{1,4})[ \t]+(?=[А-ЯЁ$«(])/gm
 
+// Учебники с теорией внутри параграфа (Бутузов и подобные): «§ N. …» →
+// «Основные понятия» (полно нумерованных ТЕЗИСОВ, не заданий: «1. Правило
+// сравнения…») → «Контрольные вопросы и задания» → «Примеры решения задач»
+// → «Задачи и упражнения для самостоятельной работы» (это и есть настоящие
+// задания, тоже нумерованные — сквозной счёт может продолжаться через
+// несколько параграфов подряд). Без разделения PLAIN_RE матчит ОБА потока
+// нумерации на странице вперемешку, и LIS во второй фазе неверно выбирает
+// короткую последовательность тезисов теории как «главный поток», теряя
+// реальные задания как «разрывы». TASK_SECTION_HEAD_RE открывает приём
+// номеров, HEADING_RE любого уровня — закрывает (следующий § или подраздел
+// теории того же параграфа снова не задания).
+const TASK_SECTION_HEAD_RE = /^#{0,6}[ \t]*Задачи и упражнения для самостоятельной работы/gm
+const HEADING_RE = /^#{1,6}[ \t]+\S/gm
+
 function countMatches(re, s) { re.lastIndex = 0; let n = 0; while (re.exec(s) !== null) n++; return n }
-let compositeTotal = 0, bareTotal = 0, dotTotal = 0
+let compositeTotal = 0, bareTotal = 0, dotTotal = 0, taskSectionHeads = 0
 for (const p of pages) {
   if (p.contentBlocks.length > 0) continue
   if (answersStart !== null && p.index >= answersStart) break
   compositeTotal += countMatches(COMPOSITE_RE, p.markdown)
   bareTotal += countMatches(BARE_RE, p.markdown)
   dotTotal += countMatches(PLAIN_RE, p.markdown)
+  taskSectionHeads += countMatches(TASK_SECTION_HEAD_RE, p.markdown)
 }
 const scheme = compositeTotal >= 100 ? 'composite'
   : bareTotal >= 50 && bareTotal > dotTotal * 3 ? 'bare'
   : 'plain'
+// Учебник с теорией внутри параграфа (см. комментарий у TASK_SECTION_HEAD_RE
+// выше) — >=10 вхождений заголовка секции задач считаем структурным
+// признаком книги, не случайным совпадением текста. Только для plain-схемы:
+// у composite/bare/дидактики номера уже разбиты на потоки другими
+// механизмами, здесь фильтр не нужен и может неверно молчать про
+// «Дополнительные задачи»/«Упражнения» без этого конкретного заголовка.
+const hasTaskSections = scheme === 'plain' && taskSectionHeads >= 10
 // Регэксп извлечения задания для схем 'plain'/'bare' (единый на все места
 // использования, чтобы не разъезжались детектор и последующая пересборка)
 const SEQ_RE = scheme === 'bare' ? BARE_RE : PLAIN_RE
@@ -1454,6 +1476,15 @@ let lastPara = 0, lastSub = 0  // composite-схема
 const pageEntries = []
 // состояние дидактического разбора: текущая работа/вариант (переживает страницы)
 const didState = { work: null, variant: 1, lastNum: 0, styleLock: null }
+// hasTaskSections: приём plain-номеров только внутри секции «Задачи и
+// упражнения…», выключается любым следующим заголовком (переживает
+// страницы — секция часто продолжается на следующей странице без заголовка).
+// Нумерация НЕ сквозная по книге — сбрасывается к 1 в КАЖДОЙ секции (65 секций
+// в тестовой книге, проверено эмпирически), поэтому каждой секции присваивается
+// свой порядковый номер (taskSectionNo) — уникальность task_number обеспечивает
+// префикс «§N.» на его основе, LIS здесь не нужен вовсе (сквозного потока нет).
+let inTaskSection = false
+let taskSectionNo = 0 // порядковый номер ТЕКУЩЕЙ секции (0 = вне секции)
 
 for (const p of pages) {
   if (answersStart !== null && p.index >= answersStart) break // ответы и дальше — не задания
@@ -1568,18 +1599,60 @@ for (const p of pages) {
   // не задания основной нумерации
   const re = usePlain ? SEQ_RE : COMPOSITE_RE
 
+  // Учебник с теорией внутри параграфа (см. TASK_SECTION_HEAD_RE выше):
+  // список переходов «номер секции задач ИЛИ 0 (вне секции)» на этой
+  // странице, по позиции в scanText — каждый кандидат берёт номер секции
+  // последнего перехода до своей позиции. Между страницами номер секции
+  // наследуется через taskSectionNo/inTaskSection (секция часто продолжается
+  // на следующей странице без заголовка).
+  let taskSectionTransitions = null
+  const taskSectionNoAtPageStart = taskSectionNo // до обработки transitions этой страницы
+  if (hasTaskSections && usePlain) {
+    const positions = []
+    TASK_SECTION_HEAD_RE.lastIndex = 0
+    let hm
+    const onPositionSet = new Set()
+    while ((hm = TASK_SECTION_HEAD_RE.exec(scanText)) !== null) { positions.push({ at: hm.index, on: true }); onPositionSet.add(hm.index) }
+    HEADING_RE.lastIndex = 0
+    while ((hm = HEADING_RE.exec(scanText)) !== null) {
+      if (!onPositionSet.has(hm.index)) positions.push({ at: hm.index, on: false })
+    }
+    positions.sort((a, b) => a.at - b.at)
+    // Присваиваем номер секции ПО ПОРЯДКУ прохода переходов страницы —
+    // taskSectionNo растёт монотонно по количеству встреченных ON-переходов
+    // за всю книгу (не сбрасывается по страницам), ровно как inTaskSection.
+    taskSectionTransitions = positions.map(t => ({ at: t.at, no: t.on ? ++taskSectionNo : 0 }))
+  }
+  function taskSectionAt(pos) {
+    if (!taskSectionTransitions) return -1 // фильтр не активен для этой книги — не блокирует
+    let no = inTaskSection ? taskSectionNoAtPageStart : 0
+    for (const t of taskSectionTransitions) {
+      if (t.at > pos) break
+      no = t.no
+    }
+    return no
+  }
+
   let m
   re.lastIndex = 0
   while ((m = re.exec(scanText)) !== null) {
     if (dkrFrom !== null && m.index >= dkrFrom) continue // ДКР-зона — ниже отдельно
     if (usePlain) {
+      const sectionNo = taskSectionTransitions ? taskSectionAt(m.index) : -1
+      if (taskSectionTransitions && sectionNo <= 0) {
+        continue // теория параграфа, не задание
+      }
       const rep = inRepetition(p.index)
       // «Итоговое повторение» с тематическими подразделами: у каждого своя
       // сквозная нумерация 1..N — отдельный LIS-поток 'rep{номер подраздела}'
       const subsection = rep && hasRepetitionSubsections ? repetitionSubsectionAt(p.index, m.index) : null
       // изолированный root-раздел со своей плоской нумерацией (см. выше) —
       // отдельный поток по номеру секции, не мешается со сквозной нумерацией книги
-      const stream = subsection ? `rep${subsection.no}` : (rep ? 'rep' : (standaloneSection ? `st${standaloneSection.standaloneNo}` : null))
+      // ts{N} — секция «Задачи и упражнения…» №N (нумерация НЕ сквозная по
+      // книге, сбрасывается в каждой секции — свой LIS-поток на секцию, тот
+      // же принцип, что rep{N}/st{N} выше).
+      const stream = sectionNo > 0 ? `ts${sectionNo}`
+        : subsection ? `rep${subsection.no}` : (rep ? 'rep' : (standaloneSection ? `st${standaloneSection.standaloneNo}` : null))
       entry.plain.push({ glyph: m[1] ?? null, num: parseInt(m[2]), star: m[3] || null, at: m.index, rep, stream, subsection, standaloneSection })
       continue
     }
@@ -1629,6 +1702,11 @@ for (const p of pages) {
       })
     }
   }
+  // Перенести состояние «внутри секции задач» на следующую страницу — по
+  // ПОСЛЕДНЕМУ переходу на этой (секция часто продолжается без заголовка).
+  if (taskSectionTransitions && taskSectionTransitions.length > 0) {
+    inTaskSection = taskSectionTransitions[taskSectionTransitions.length - 1].no > 0
+  }
   pageEntries.push(entry)
 }
 
@@ -1666,6 +1744,13 @@ for (const [key, stream] of streams) {
       const n = parseInt(key.slice(2))
       x.c.taskNumber = `нр${n}.${x.c.num}`
       x.c.sort = 4_000_000 + n * 100_000 + x.c.num
+    } else if (key.startsWith('ts')) {
+      // секция «Задачи и упражнения для самостоятельной работы» №N — своя
+      // нумерация 1..N в КАЖДОЙ секции (не сквозная по книге, см.
+      // TASK_SECTION_HEAD_RE) — уникальность по книге даёт префикс «§N.»
+      const n = parseInt(key.slice(2))
+      x.c.taskNumber = `§${n}.${x.c.num}`
+      x.c.sort = 5_000_000 + n * 100_000 + x.c.num
     } else {
       x.c.taskNumber = String(x.c.num)
       x.c.sort = key === 'rep' ? 1_000_000 + x.c.num : x.c.num

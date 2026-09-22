@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { LogoutButton } from '@/components/shared/LogoutButton'
 import { SwitchAccountButton } from '@/components/shared/SwitchAccountButton'
-import { BookOpen, Users, GraduationCap, Monitor, FileText, BarChart2, TrendingUp, Menu, X, ListChecks, Library, Bell, Settings, PenLine, ChevronDown, ClipboardCheck } from 'lucide-react'
+import { BookOpen, Users, GraduationCap, Monitor, BarChart2, TrendingUp, Menu, X, ListChecks, Library, Bell, Settings, PenLine, ChevronDown, ClipboardCheck, Share2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useLiveCount } from '@/lib/hooks/usePolling'
 
@@ -58,7 +58,13 @@ const navItems: NavItem[] = [
   // доски заводятся здесь, а не кнопкой напротив ученика: у пары их может быть
   // несколько, по одной на предмет
   { href: '/teacher/doska', label: 'Доски', icon: PenLine, teacherOnly: true },
-  { href: '/teacher/solution-requests', label: 'Запросы', icon: FileText },
+  // «Запросы» временно убраны из меню по просьбе пользователя (2026-09-21) —
+  // роут /teacher/solution-requests остаётся рабочим, просто не в навигации.
+  // работы, которыми ученики поделились сами (assignment_shares, 087) —
+  // не с составителем назначения, а с этим учителем персонально. Только
+  // teacher: у admin своя витрина — плитка на дашборде (090/091), не список
+  // всех расшариваний организации (см. teacherOnly ниже).
+  { href: '/teacher/shared-with-me', label: 'Расшарено мне', icon: Share2, teacherOnly: true },
   { href: '/teacher/scoring-rules', label: 'Правила', icon: ListChecks },
   // настройка событий telegram/email-уведомлений организации
   { href: '/teacher/notifications', label: 'Уведомления', icon: Bell, adminOnly: true },

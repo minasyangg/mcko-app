@@ -49,6 +49,15 @@ export async function PATCH(
   if (parsed.data.action === 'deactivate') {
     await admin.from('group_members').delete().eq('user_id', id)
     await admin.from('assignments').delete().eq('student_id', id)
+    // Активные гранты шаринга (087) этого ученика — soft-delete не запускает
+    // ON DELETE CASCADE (профиль не удаляется физически), а гранты живут до
+    // 90 дней (expires_at) независимо от того, деактивирован ли отправивший
+    // их ученик. Явно отзываем, иначе получатель продолжает видеть работу
+    // деактивированного (фактически удалённого из школы) ученика.
+    await admin.from('assignment_shares')
+      .update({ revoked_at: new Date().toISOString() })
+      .eq('student_id', id)
+      .is('revoked_at', null)
     const { error } = await admin.from('profiles').update({ is_active: false, deleted_at: new Date().toISOString() }).eq('id', id)
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
     return NextResponse.json({ ok: true })

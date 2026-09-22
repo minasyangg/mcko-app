@@ -8,11 +8,12 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Skeleton } from '@/components/ui/skeleton'
-import { CheckCircle2, XCircle, MinusCircle, Loader2, ZoomIn, X, Lock, ChevronDown, ChevronUp } from 'lucide-react'
+import { CheckCircle2, XCircle, MinusCircle, Loader2, ZoomIn, X, Lock, ChevronDown, ChevronUp, Pencil, Check, Maximize2 } from 'lucide-react'
 import { MathText } from '@/components/shared/MathText'
 import MarkdownContent from '@/components/shared/MarkdownContent'
 import { cn } from '@/lib/utils'
-import { formatAnswerJson } from '@/lib/grading/format-answer-display'
+import { formatAnswerJson, formatAnswerJsonRaw } from '@/lib/grading/format-answer-display'
+import { formatCompositeAnswerForEdit } from '@/lib/grading/multi-part-answer'
 import { ImageGallery } from '@/components/shared/ImageGallery'
 import type { Json } from '@/types/database'
 
@@ -65,6 +66,11 @@ interface Props {
   attemptId: string | null
   onClose: () => void
   onGraded?: (attemptId: string, score: number) => void
+  /** Просмотр расшаренной попытки (assignment_shares, 087) — получатель не
+   *  назначал эту работу и не должен её оценивать. Скрывает все кнопки/поля
+   *  ввода баллов и комментариев, оставляя только чтение условия, ответов
+   *  ученика, корректности и итогового балла. */
+  readOnly?: boolean
 }
 
 const STATUS_LABELS: Record<string, string> = {
@@ -96,14 +102,116 @@ function ImageThumb({ src, alt }: { src: string; alt?: string | null }) {
         </div>
       </div>
       {open && (
-        <div className="fixed inset-0 z-100 flex items-center justify-center bg-black/80 p-4" onClick={() => setOpen(false)}>
+        // bg-black непрозрачный (не /80) и bg-white на самой картинке — та же
+        // причина, что в лайтбоксе ImageGallery: графики/схемы часто PNG с
+        // прозрачным фоном, без непрозрачной подложки затемнённый оверлей
+        // просвечивал сквозь прозрачные области и чёрные линии графика
+        // сливались с ним в трудноразличимое пятно.
+        <div className="fixed inset-0 z-100 flex items-center justify-center bg-black p-4" onClick={() => setOpen(false)}>
           <button type="button" onClick={() => setOpen(false)} className="absolute top-4 right-4 rounded-full bg-white/10 p-2 text-white hover:bg-white/20">
             <X className="h-5 w-5" />
           </button>
-          <img src={src} alt={alt ?? ''} className="max-w-full max-h-[90vh] object-contain rounded shadow-2xl" onClick={(e) => e.stopPropagation()} />
+          <img src={src} alt={alt ?? ''} className="max-w-full max-h-[90vh] object-contain rounded shadow-2xl bg-white" onClick={(e) => e.stopPropagation()} />
         </div>
       )}
     </>
+  )
+}
+
+// Полноэкранный просмотр одного задания — крупный текст условия (без обрезки
+// «раскрыть», как в карточке), все изображения условия сразу с лупой-зумом
+// через ImageGallery (вместо мелких 80×60 миниатюр ImageThumb в карточке).
+// Кнопка вызова — на каждой карточке ответа, см. рендер ниже.
+interface FullscreenTask {
+  taskNumber: number | string
+  taskType: string
+  promptHtml: string | null
+  promptText: string
+  media: MediaRow[]
+}
+
+function TaskFullscreenView({ task, onClose }: { task: FullscreenTask | null; onClose: () => void }) {
+  // Escape закрывает; скролл страницы под оверлеем блокируем — тот же
+  // приём, что уже в ImageGallery для её лайтбокса.
+  useEffect(() => {
+    if (!task) return
+    function onKey(e: KeyboardEvent) { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', onKey)
+    const prevOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.removeEventListener('keydown', onKey)
+      document.body.style.overflow = prevOverflow
+    }
+  }, [task, onClose])
+
+  if (!task) return null
+
+  return (
+    // Sheet (AttemptDrawer) занимает z-50 — без явного подъёма выше этот
+    // оверлей оказался бы в том же слое и либо мерцал под панелью, либо
+    // конкурировал за порядок отрисовки (тот же нюанс, что уже решён для
+    // лайтбокса ImageThumb/ImageGallery через z-100 в этом же файле).
+    //
+    // Рендерится ВНУТРИ SheetContent (см. вызов ниже, последним ребёнком),
+    // не как sibling и не через портал в body — раньше было sibling'ом, и
+    // Radix (react-remove-scroll/aria-hidden внутри @radix-ui/react-dialog,
+    // hideOthers()) считал этот DOM-узел "снаружи" Dialog Content, из-за
+    // чего SheetContent's onPointerDownOutside/hideOthers мешали клику по
+    // крестику доходить до onClick (баг: крестик не закрывал модалку).
+    // Будучи частью поддерева SheetContent, оверлей больше не считается
+    // "снаружи" — Radix его не трогает вовсе.
+    <div
+      className="fixed inset-0 z-100 bg-black/60 flex items-center justify-center p-4"
+      onClick={onClose}
+    >
+      <div
+        className="bg-background rounded-lg shadow-2xl w-full max-w-4xl h-[90vh] flex flex-col overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between gap-2 border-b px-4 py-3 shrink-0">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-mono font-semibold bg-muted px-2 py-1 rounded">
+              №{task.taskNumber}
+            </span>
+            <span className="text-sm text-muted-foreground">{task.taskType}</span>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+            aria-label="Закрыть просмотр"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+        <div className="overflow-y-auto p-6 space-y-6">
+          {task.promptHtml
+            ? <div className="text-base [&_p]:my-1.5"><MarkdownContent content={task.promptHtml} /></div>
+            : <p className="text-base text-muted-foreground whitespace-pre-wrap">{task.promptText}</p>
+          }
+          {task.media.length > 0 && (
+            <div>
+              <p className="text-xs text-muted-foreground mb-2">Изображения задания</p>
+              {/* Лайтбокс галереи выше и этого оверлея, и Sheet — иначе клик
+                  по картинке для зума открыл бы лупу «под» текущим окном. */}
+              <ImageGallery
+                layout="grid"
+                lightboxZIndex={110}
+                images={task.media
+                  .filter((m) => m.signedUrl)
+                  .map((m, i) => ({
+                    id: m.id,
+                    signedUrl: m.signedUrl!,
+                    alt: m.alt_text ?? `Изображение ${i + 1}`,
+                    sort_order: m.sort_order ?? i,
+                  }))}
+              />
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -142,12 +250,21 @@ function LazyAnswerCard({ children, eager }: { children: React.ReactNode; eager:
   )
 }
 
-export function AttemptDrawer({ attemptId, onClose, onGraded }: Props) {
+export function AttemptDrawer({ attemptId, onClose, onGraded, readOnly = false }: Props) {
   const [attempt, setAttempt] = useState<AttemptDetail | null>(null)
   const [answers, setAnswers] = useState<AnswerRow[]>([])
   const [mediaByTask, setMediaByTask] = useState<Record<string, MediaRow[]>>({})
   const [solutionPhotosByTask, setSolutionPhotosByTask] = useState<Record<string, MediaRow[]>>({})
   const [correctAnswerMap, setCorrectAnswerMap] = useState<Record<string, string>>({})
+  // Сырой correct_answer (Json) + grading_method — нужны отдельно от
+  // отформатированной строки выше: показ идёт через formatAnswerJson, а
+  // редактирование составного ответа — через formatCompositeAnswerForEdit
+  // (другой формат разделителя, "а)", не "а:") и метод проверки для сохранения.
+  const [answerKeyMap, setAnswerKeyMap] = useState<Record<string, { raw: Json; gradingMethod: string }>>({})
+  const [editingAnswerTaskId, setEditingAnswerTaskId] = useState<string | null>(null)
+  const [answerEditInput, setAnswerEditInput] = useState('')
+  const [savingAnswer, setSavingAnswer] = useState(false)
+  const [answerSaveError, setAnswerSaveError] = useState<string | null>(null)
   const [changedTaskIds, setChangedTaskIds] = useState<Set<string>>(new Set())
   const [expandedTaskIds, setExpandedTaskIds] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(false)
@@ -156,12 +273,17 @@ export function AttemptDrawer({ attemptId, onClose, onGraded }: Props) {
   const [isSaving, setIsSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [editingScores, setEditingScores] = useState(false)
+  const [fullscreenAnswerId, setFullscreenAnswerId] = useState<string | null>(null)
 
   const supabase = createClient()
 
   useEffect(() => {
     setEditingScores(false)
-    if (!attemptId) { setAttempt(null); setAnswers([]); setMediaByTask({}); setSolutionPhotosByTask({}); setGrades({}); setCorrectAnswerMap({}); setChangedTaskIds(new Set()); return }
+    setEditingAnswerTaskId(null)
+    setAnswerEditInput('')
+    setAnswerSaveError(null)
+    setFullscreenAnswerId(null)
+    if (!attemptId) { setAttempt(null); setAnswers([]); setMediaByTask({}); setSolutionPhotosByTask({}); setGrades({}); setCorrectAnswerMap({}); setAnswerKeyMap({}); setChangedTaskIds(new Set()); return }
     let cancelled = false
     setLoading(true); setSaveError(null)
 
@@ -207,18 +329,21 @@ export function AttemptDrawer({ attemptId, onClose, onGraded }: Props) {
         // Load correct answers and previous attempt answers
         const taskIds = sorted.map((a) => a.task_id).filter(Boolean) as string[]
         if (taskIds.length > 0) {
-          // Load correct answers for teacher hint
+          // Load correct answers for teacher hint (+ редактирование эталона)
           const { data: ansKeys } = await supabase
             .from('task_answer_keys')
-            .select('task_id, correct_answer')
+            .select('task_id, correct_answer, grading_method')
             .in('task_id', taskIds)
           if (ansKeys && !cancelled) {
             const m: Record<string, string> = {}
+            const km: Record<string, { raw: Json; gradingMethod: string }> = {}
             for (const k of ansKeys) {
               if (!k.task_id) continue
               m[k.task_id] = formatAnswerJson(k.correct_answer as Json)
+              km[k.task_id] = { raw: k.correct_answer as Json, gradingMethod: k.grading_method }
             }
             setCorrectAnswerMap(m)
+            setAnswerKeyMap(km)
           }
 
           // Find previous attempt to detect changed answers
@@ -311,7 +436,10 @@ export function AttemptDrawer({ attemptId, onClose, onGraded }: Props) {
     return () => { cancelled = true }
   }, [attemptId])
 
-  const needsGrading = ['submitted', 'under_review'].includes(attempt?.status ?? '')
+  // readOnly (просмотр расшаренной попытки) принудительно гасит режим
+  // проверки — получатель гранта не назначал эту работу, ему нечего
+  // подтверждать/выставлять, независимо от реального статуса попытки.
+  const needsGrading = !readOnly && ['submitted', 'under_review'].includes(attempt?.status ?? '')
   // Авто-проверка (объективные ответы по ключу) ставит status='checked', но
   // teacher_reviewed_at не трогает — учитель ещё не смотрел работу. Раньше
   // единственный способ снять её с «На проверке» в мониторинге — зайти в
@@ -401,6 +529,65 @@ export function AttemptDrawer({ attemptId, onClose, onGraded }: Props) {
       onGraded?.(attemptId, resData.score ?? 0)
     } finally {
       setIsSaving(false)
+    }
+  }
+
+  // Правка эталонного ответа задания — НЕ трогает баллы/is_correct ни этой,
+  // ни чужих попыток (по решению пользователя): цель — только исправить
+  // task_answer_keys.correct_answer, чтобы библиотека заданий росла с
+  // правильными ответами. Составной ответ (а)/б)/… форматируется через
+  // formatCompositeAnswerForEdit — НЕ formatAnswerJson, у которой другой
+  // разделитель («а: 5», не «а) 5»), несовместимый при сборке обратно
+  // (см. lib/grading/multi-part-answer.ts). Fallback для не-составных
+  // (голая строка) — formatAnswerJsonRaw, БЕЗ auto-$…$-обёртки: это поле
+  // может быть сохранено без изменений (Enter сразу), а formatAnswerJson
+  // (display-вариант) вписал бы в PATCH доллары, которых не было в БД.
+  const startEditingAnswer = (taskId: string) => {
+    const entry = answerKeyMap[taskId]
+    setAnswerEditInput(entry ? (formatCompositeAnswerForEdit(entry.raw) ?? formatAnswerJsonRaw(entry.raw)) : '')
+    setEditingAnswerTaskId(taskId)
+    setAnswerSaveError(null)
+  }
+
+  const cancelEditingAnswer = () => {
+    setEditingAnswerTaskId(null)
+    setAnswerEditInput('')
+    setAnswerSaveError(null)
+  }
+
+  const saveAnswer = async (taskId: string) => {
+    setSavingAnswer(true)
+    setAnswerSaveError(null)
+    try {
+      const res = await fetch(`/api/tasks/${taskId}/answer-key`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          correct_answer: answerEditInput,
+          grading_method: answerKeyMap[taskId]?.gradingMethod,
+        }),
+      })
+      const resData = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setAnswerSaveError(resData.error ?? 'Ошибка сохранения')
+        return
+      }
+      // Перечитать сохранённый эталон, а не доверять введённому тексту как
+      // есть — сервер мог собрать его в другой JSON (составной {parts:...}),
+      // чем то, что ввёл учитель буквально.
+      const { data: fresh } = await supabase
+        .from('task_answer_keys')
+        .select('correct_answer, grading_method')
+        .eq('task_id', taskId)
+        .single()
+      if (fresh) {
+        setCorrectAnswerMap(prev => ({ ...prev, [taskId]: formatAnswerJson(fresh.correct_answer as Json) }))
+        setAnswerKeyMap(prev => ({ ...prev, [taskId]: { raw: fresh.correct_answer as Json, gradingMethod: fresh.grading_method } }))
+      }
+      setEditingAnswerTaskId(null)
+      setAnswerEditInput('')
+    } finally {
+      setSavingAnswer(false)
     }
   }
 
@@ -512,6 +699,15 @@ export function AttemptDrawer({ attemptId, onClose, onGraded }: Props) {
                           )}
                         </div>
                         <div className="flex items-center gap-2 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => setFullscreenAnswerId(ans.id)}
+                            className="text-muted-foreground hover:text-foreground rounded p-0.5 hover:bg-muted"
+                            title="Открыть задание на весь экран"
+                            aria-label="Открыть задание на весь экран"
+                          >
+                            <Maximize2 className="h-3.5 w-3.5" />
+                          </button>
                           {ans.is_correct === true && <CheckCircle2 className="h-4 w-4 text-green-500" />}
                           {ans.is_correct === false && <XCircle className="h-4 w-4 text-red-400" />}
                           {ans.is_correct === null && <MinusCircle className="h-4 w-4 text-muted-foreground" />}
@@ -581,17 +777,70 @@ export function AttemptDrawer({ attemptId, onClose, onGraded }: Props) {
                               <span className="ml-1.5 text-[10px] bg-blue-100 text-blue-700 rounded px-1">изменён</span>
                             )}
                           </p>
-                          <span className="font-medium wrap-break-word">{formatAnswerJson(ans.answer_json as Json)}</span>
+                          {/* formatAnswerJsonRaw (без auto-$…$-обёртки) — это
+                              СВОБОДНЫЙ ввод ученика, не эталон. wrapBareLatex
+                              предназначен для эталонных ответов книг/библиотеки
+                              (там голый LaTeX — известный формат хранения);
+                              применённый к произвольному тексту ученика он рискует
+                              обернуть случайное "\словоСлитно" в формулу и
+                              показать вместо честного текста красную ошибку
+                              парсинга KaTeX. MathText всё равно распарсит explicit
+                              $…$, если ученик сам их использовал. */}
+                          <MathText
+                            text={formatAnswerJsonRaw(ans.answer_json as Json)}
+                            className="font-medium wrap-break-word"
+                          />
                         </div>
-                        {correctAnswerMap[ans.task_id ?? ''] && (
-                          <div className="bg-green-50/60 dark:bg-green-950/20 border border-green-200 dark:border-green-800 rounded px-2 py-1.5">
-                            <p className="text-xs text-green-700 dark:text-green-400 mb-0.5">Правильный ответ</p>
-                            <MathText
-                              text={correctAnswerMap[ans.task_id ?? '']}
-                              className="font-medium text-green-800 dark:text-green-300 text-sm"
-                            />
-                          </div>
-                        )}
+                        {(() => {
+                          const taskId = ans.task_id ?? ''
+                          const isEditingThis = editingAnswerTaskId === taskId
+                          if (isEditingThis) {
+                            return (
+                              <div className="bg-green-50/60 dark:bg-green-950/20 border border-green-200 dark:border-green-800 rounded px-2 py-1.5 space-y-1">
+                                <p className="text-xs text-green-700 dark:text-green-400 mb-0.5">Правильный ответ</p>
+                                <div className="flex items-center gap-1.5">
+                                  <Input
+                                    autoFocus
+                                    value={answerEditInput}
+                                    onChange={e => setAnswerEditInput(e.target.value)}
+                                    onKeyDown={e => { if (e.key === 'Enter') saveAnswer(taskId); if (e.key === 'Escape') cancelEditingAnswer() }}
+                                    className="h-7 text-sm flex-1"
+                                    placeholder="Введите ответ, для составного: а) 5; б) 12"
+                                    disabled={savingAnswer}
+                                  />
+                                  <button onClick={() => saveAnswer(taskId)} disabled={savingAnswer}
+                                    className="text-green-700 hover:text-green-800 disabled:opacity-50 shrink-0">
+                                    {savingAnswer ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                                  </button>
+                                  <button onClick={cancelEditingAnswer} disabled={savingAnswer}
+                                    className="text-muted-foreground hover:text-foreground shrink-0">
+                                    <X className="h-4 w-4" />
+                                  </button>
+                                </div>
+                                {answerSaveError && <p className="text-xs text-destructive">{answerSaveError}</p>}
+                              </div>
+                            )
+                          }
+                          if (!correctAnswerMap[taskId]) return null
+                          return (
+                            <div className="bg-green-50/60 dark:bg-green-950/20 border border-green-200 dark:border-green-800 rounded px-2 py-1.5 group/answer">
+                              <p className="text-xs text-green-700 dark:text-green-400 mb-0.5 flex items-center gap-1.5">
+                                Правильный ответ
+                                {!readOnly && (
+                                  <button onClick={() => startEditingAnswer(taskId)}
+                                    className="opacity-0 group-hover/answer:opacity-100 transition-opacity text-green-700/70 hover:text-green-800 dark:text-green-400/70 dark:hover:text-green-300"
+                                    title="Исправить эталонный ответ">
+                                    <Pencil className="h-3 w-3" />
+                                  </button>
+                                )}
+                              </p>
+                              <MathText
+                                text={correctAnswerMap[taskId]}
+                                className="font-medium text-green-800 dark:text-green-300 text-sm"
+                              />
+                            </div>
+                          )
+                        })()}
                       </div>
 
                       {/* Фото письменного решения ученика (черновик на бумаге) —
@@ -709,7 +958,7 @@ export function AttemptDrawer({ attemptId, onClose, onGraded }: Props) {
             )}
 
             {/* Edit scores for already-checked attempts */}
-            {!needsGrading && attempt.status === 'checked' && (
+            {!readOnly && !needsGrading && attempt.status === 'checked' && (
               <div className="border-t pt-4 space-y-3">
                 {!editingScores ? (
                   <>
@@ -780,6 +1029,24 @@ export function AttemptDrawer({ attemptId, onClose, onGraded }: Props) {
         {!loading && !attempt && attemptId && (
           <div className="p-4 text-sm text-muted-foreground">Не удалось загрузить попытку.</div>
         )}
+
+        {/* Внутри SheetContent намеренно (не sibling/портал в body) — см.
+            комментарий в TaskFullscreenView: снаружи Radix считал оверлей
+            "вне" Dialog Content и мешал клику по крестику закрывать его. */}
+        <TaskFullscreenView
+          task={(() => {
+            const ans = answers.find((a) => a.id === fullscreenAnswerId)
+            if (!ans) return null
+            return {
+              taskNumber: ans.test_tasks?.task_number ?? '?',
+              taskType: taskTypeLabel(ans.test_tasks?.task_type ?? ''),
+              promptHtml: ans.test_tasks?.prompt_html ?? null,
+              promptText: ans.test_tasks?.prompt_text ?? '',
+              media: mediaByTask[ans.task_id ?? ''] ?? [],
+            }
+          })()}
+          onClose={() => setFullscreenAnswerId(null)}
+        />
       </SheetContent>
     </Sheet>
   )

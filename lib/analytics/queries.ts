@@ -154,13 +154,28 @@ export async function getAttemptRows(
   supabase: SupabaseClient<Database>,
   filters: { testVersionId?: string; testId?: string; organizationId?: string }
 ): Promise<AttemptRow[]> {
+  // ВАЖНО: RLS на attempts теперь OR-комбинирует "своё назначение",
+  // "вся организация для admin" И "расшарено мне" (087/088,
+  // assignment_shares) — без явного фильтра для teacher этот запрос молча
+  // подмешивал бы в "Результаты"/CSV-экспорт/аналитику теста чужие попытки,
+  // расшаренные этому учителю другим учеником (не назначившим тест). Экран
+  // владельца назначения, не потребитель шаринга (для того — отдельный
+  // "Расшарено мне", всегда readOnly) — фильтруем по assignments.created_by
+  // для teacher, admin не ограничиваем (его доступ и так по организации).
+  const { data: { user } } = await supabase.auth.getUser()
+  const { data: profile } = user
+    ? await supabase.from('profiles').select('role').eq('id', user.id).single()
+    : { data: null }
+  const isAdmin = profile?.role === 'admin'
+
   let query = supabase
     .from('attempts')
     .select(`
       id, status, score, max_score, submitted_at, grade_at_attempt,
       student_id,
       profiles ( full_name, grade, study_stage ),
-      assignments (
+      assignments!inner (
+        created_by,
         group_id,
         kind,
         groups ( name ),
@@ -174,6 +189,8 @@ export async function getAttemptRows(
     .in('status', ['submitted', 'checked'])
     .order('submitted_at', { ascending: false })
     .limit(500)
+
+  if (!isAdmin && user) query = query.eq('assignments.created_by', user.id)
 
   if (filters.testVersionId) {
     const { data: asgns } = await supabase

@@ -14,6 +14,75 @@ export type Database = {
   }
   public: {
     Tables: {
+      assignment_shares: {
+        Row: {
+          assignment_id: string
+          created_at: string
+          expires_at: string
+          granted_by: string
+          id: string
+          revoked_at: string | null
+          student_id: string
+          teacher_id: string
+        }
+        Insert: {
+          assignment_id: string
+          created_at?: string
+          expires_at: string
+          granted_by: string
+          id?: string
+          revoked_at?: string | null
+          student_id: string
+          teacher_id: string
+        }
+        Update: {
+          assignment_id?: string
+          created_at?: string
+          expires_at?: string
+          granted_by?: string
+          id?: string
+          revoked_at?: string | null
+          student_id?: string
+          teacher_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "assignment_shares_assignment_id_fkey"
+            columns: ["assignment_id"]
+            isOneToOne: false
+            referencedRelation: "assigned_problems"
+            referencedColumns: ["assignment_id"]
+          },
+          {
+            foreignKeyName: "assignment_shares_assignment_id_fkey"
+            columns: ["assignment_id"]
+            isOneToOne: false
+            referencedRelation: "assignments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "assignment_shares_granted_by_fkey"
+            columns: ["granted_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "assignment_shares_student_id_fkey"
+            columns: ["student_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "assignment_shares_teacher_id_fkey"
+            columns: ["teacher_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       assignments: {
         Row: {
           closed_at: string | null
@@ -2433,6 +2502,7 @@ export type Database = {
           sort_order: number
           status: string
           title: string
+          visible_to_students: boolean
         }
         Insert: {
           created_at?: string | null
@@ -2445,6 +2515,7 @@ export type Database = {
           sort_order?: number
           status?: string
           title: string
+          visible_to_students?: boolean
         }
         Update: {
           created_at?: string | null
@@ -2457,6 +2528,7 @@ export type Database = {
           sort_order?: number
           status?: string
           title?: string
+          visible_to_students?: boolean
         }
         Relationships: [
           {
@@ -2840,6 +2912,88 @@ export type Database = {
             columns: ["test_version_id"]
             isOneToOne: false
             referencedRelation: "test_versions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      student_share_recipients: {
+        Row: {
+          created_at: string
+          granted_by: string | null
+          student_id: string
+          teacher_id: string
+        }
+        Insert: {
+          created_at?: string
+          granted_by?: string | null
+          student_id: string
+          teacher_id: string
+        }
+        Update: {
+          created_at?: string
+          granted_by?: string | null
+          student_id?: string
+          teacher_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "student_share_recipients_granted_by_fkey"
+            columns: ["granted_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "student_share_recipients_student_id_fkey"
+            columns: ["student_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "student_share_recipients_teacher_id_fkey"
+            columns: ["teacher_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      student_share_settings: {
+        Row: {
+          default_ttl_days: number
+          enabled: boolean
+          student_id: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          default_ttl_days?: number
+          enabled?: boolean
+          student_id: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          default_ttl_days?: number
+          enabled?: boolean
+          student_id?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "student_share_settings_student_id_fkey"
+            columns: ["student_id"]
+            isOneToOne: true
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "student_share_settings_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
         ]
@@ -3393,11 +3547,19 @@ export type Database = {
         Args: { p_assignment_id: string }
         Returns: boolean
       }
+      check_assignment_shared_with_auth: {
+        Args: { p_assignment_id: string; p_student_id: string }
+        Returns: boolean
+      }
       check_attempt_assignment_owned_by_auth: {
         Args: { p_attempt_id: string }
         Returns: boolean
       }
       check_attempt_in_auth_org: {
+        Args: { p_attempt_id: string }
+        Returns: boolean
+      }
+      check_attempt_shared_with_auth: {
         Args: { p_attempt_id: string }
         Returns: boolean
       }
@@ -3450,12 +3612,20 @@ export type Database = {
         Args: { p_student_id: string }
         Returns: boolean
       }
+      check_student_may_share_with: {
+        Args: { p_student_id: string; p_teacher_id: string }
+        Returns: boolean
+      }
       check_student_owned_by_auth: {
         Args: { p_student_id: string }
         Returns: boolean
       }
       check_task_in_auth_org: { Args: { p_task_id: string }; Returns: boolean }
       check_task_owned_by_auth: {
+        Args: { p_task_id: string }
+        Returns: boolean
+      }
+      check_task_shared_with_auth: {
         Args: { p_task_id: string }
         Returns: boolean
       }

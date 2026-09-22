@@ -11,6 +11,7 @@ const patchSchema = z.object({
   description: z.string().trim().optional().nullable(),
   sort_order: z.number().int().optional(),
   parent_id: z.string().uuid().nullable().optional(),
+  visible_to_students: z.boolean().optional(),
 })
 
 type Params = { params: Promise<{ id: string; topicId: string }> }
@@ -49,19 +50,33 @@ export async function PATCH(request: NextRequest, { params }: Params) {
   if (!parsed.success) return NextResponse.json({ error: 'Invalid body' }, { status: 400 })
 
   // Тема не может стать сама себе предком (прямо или через своё поддерево) —
-  // иначе parent_id зацикливается и дерево ломается при обходе.
+  // иначе parent_id зацикливается и дерево ломается при обходе. Отдельно —
+  // parent_id обязан принадлежать ТОЙ ЖЕ программе: без этой проверки можно
+  // было сослаться на тему из чужого roadmap (id доступен, если известен, —
+  // сама проверка через collectSubtreeIds ищет цикл только внутри текущей
+  // программы и молча пропустила бы чужой id). Итог без проверки: учитель
+  // видел бы узел в дереве RoadmapEditor (buildTopicTree трактует "predок не
+  // найден в byId" как root, не как ошибку), а topicsInTreeOrder на стороне
+  // ученика (app/student/page.tsx) не находит его в обходе от null и вся
+  // подветка немо исчезает из "Программы" без объяснения.
   if (parsed.data.parent_id) {
+    const { data: parent } = await admin
+      .from('roadmap_topics').select('id').eq('id', parsed.data.parent_id).eq('roadmap_id', id).single()
+    if (!parent) {
+      return NextResponse.json({ error: 'Родительская тема не найдена в этой программе' }, { status: 400 })
+    }
     const subtreeIds = new Set(await collectSubtreeIds(admin, id, topicId))
     if (subtreeIds.has(parsed.data.parent_id)) {
       return NextResponse.json({ error: 'Нельзя перенести тему внутрь самой себя или своего поддерева' }, { status: 400 })
     }
   }
 
-  const patch: { title?: string; description?: string | null; sort_order?: number; parent_id?: string | null } = {}
+  const patch: { title?: string; description?: string | null; sort_order?: number; parent_id?: string | null; visible_to_students?: boolean } = {}
   if (parsed.data.title !== undefined) patch.title = parsed.data.title
   if (parsed.data.description !== undefined) patch.description = parsed.data.description || null
   if (parsed.data.sort_order !== undefined) patch.sort_order = parsed.data.sort_order
   if (parsed.data.parent_id !== undefined) patch.parent_id = parsed.data.parent_id
+  if (parsed.data.visible_to_students !== undefined) patch.visible_to_students = parsed.data.visible_to_students
   if (Object.keys(patch).length === 0) return NextResponse.json({ ok: true })
 
   const { error } = await admin.from('roadmap_topics').update(patch)

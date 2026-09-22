@@ -23,15 +23,30 @@ export async function PATCH(
     return Response.json({ error: 'Forbidden' }, { status: 403 })
   }
 
-  // Verify the attempt belongs to the teacher's organization
-  const { data: attemptCheck } = await supabase
-    .from('attempts')
-    .select('id, assignments!inner(organization_id)')
-    .eq('id', attemptId)
-    .single()
-  const attemptOrgId = (attemptCheck?.assignments as { organization_id: string } | null)?.organization_id
-  if (!attemptCheck || attemptOrgId !== profile.organization_id) {
-    return Response.json({ error: 'Forbidden' }, { status: 403 })
+  // Admin — по организации (как раньше, вся организация ему доступна для
+  // проверки). Teacher — по ВЛАДЕНИЮ назначением, не просто по организации:
+  // раньше проверялся только attempts.assignments.organization_id, из-за чего
+  // любой учитель организации мог PATCH-запросом поправить баллы по чужой
+  // попытке, к которой не имел отношения (не он её назначал). Найдено при
+  // проектировании шаринга работ между учителями (2026-09-21) — тот же
+  // хелпер, что уже используют RLS-политики attempts/attempt_task_answers/
+  // student_final_results (018_teacher_scoping.sql), здесь применяется
+  // явно в роуте, т.к. запись дальше идёт через admin-клиент (мимо RLS).
+  if (profile.role === 'admin') {
+    const { data: attemptCheck } = await supabase
+      .from('attempts')
+      .select('id, assignments!inner(organization_id)')
+      .eq('id', attemptId)
+      .single()
+    const attemptOrgId = (attemptCheck?.assignments as { organization_id: string } | null)?.organization_id
+    if (!attemptCheck || attemptOrgId !== profile.organization_id) {
+      return Response.json({ error: 'Forbidden' }, { status: 403 })
+    }
+  } else {
+    const { data: owned } = await supabase.rpc('check_attempt_assignment_owned_by_auth', {
+      p_attempt_id: attemptId,
+    })
+    if (!owned) return Response.json({ error: 'Forbidden' }, { status: 403 })
   }
 
   const body = await request.json() as {

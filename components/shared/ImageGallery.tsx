@@ -1,7 +1,7 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
-import { X, ChevronLeft, ChevronRight, ZoomIn, ImageOff, Loader2 } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { X, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, RotateCcw, ImageOff, Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 interface GalleryImage {
@@ -36,6 +36,10 @@ interface Props {
   lightboxZIndex?: number
 }
 
+const ZOOM_MIN = 1
+const ZOOM_MAX = 4
+const ZOOM_STEP = 0.5
+
 export function ImageGallery({
   images, onDelete, uploading = false, uploadSlot,
   layout = 'auto', lightboxZIndex = 50,
@@ -44,16 +48,31 @@ export function ImageGallery({
   const sorted = [...images].sort((a, b) => a.sort_order - b.sort_order)
   const isMany = sorted.length > 2
 
+  // Zoom/pan увеличенной картинки в лайтбоксе — колесо мыши, pinch на тач,
+  // кнопки +/− для мыши без колеса. scale=1 — обычный object-contain режим
+  // (перетаскивание/pan отключены, чтобы не мешать обычному клику "закрыть
+  // по фону"). offset — сдвиг в px при scale>1, чтобы можно было
+  // рассмотреть край увеличенного изображения (мелкий текст в таблице,
+  // деталь графика), не только центр.
+  const [scale, setScale] = useState(1)
+  const [offset, setOffset] = useState({ x: 0, y: 0 })
+  const dragRef = useRef<{ startX: number; startY: number; startOffX: number; startOffY: number } | null>(null)
+  const [dragging, setDragging] = useState(false)
+  const pinchRef = useRef<{ startDist: number; startScale: number } | null>(null)
+
+  const resetZoom = useCallback(() => { setScale(1); setOffset({ x: 0, y: 0 }) }, [])
+  const clampScale = (s: number) => Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, s))
+
   const total = sorted.length
-  function openLightbox(idx: number) { setLightboxIdx(idx) }
-  const closeLightbox = useCallback(() => setLightboxIdx(null), [])
+  function openLightbox(idx: number) { setLightboxIdx(idx); resetZoom() }
+  const closeLightbox = useCallback(() => { setLightboxIdx(null); resetZoom() }, [resetZoom])
   const prev = useCallback(
-    () => setLightboxIdx(i => (i == null ? 0 : (i - 1 + total) % total)),
-    [total]
+    () => { setLightboxIdx(i => (i == null ? 0 : (i - 1 + total) % total)); resetZoom() },
+    [total, resetZoom]
   )
   const next = useCallback(
-    () => setLightboxIdx(i => (i == null ? 0 : (i + 1) % total)),
-    [total]
+    () => { setLightboxIdx(i => (i == null ? 0 : (i + 1) % total)); resetZoom() },
+    [total, resetZoom]
   )
 
   // Клавиатура в лайтбоксе: Escape закрывает, стрелки листают — ожидаемое
@@ -61,21 +80,89 @@ export function ImageGallery({
   // Заодно блокируем скролл страницы под оверлеем, иначе колесо прокручивает
   // список за ним, и после закрытия пользователь оказывается не там, где был.
   const isOpen = lightboxIdx !== null
+  // scale читаем через ref, не как зависимость эффекта — иначе почти каждый
+  // тик колеса мыши (setScale на wheel) пересобирал слушатель и
+  // body.style.overflow заново; ref избегает лишнего churn, оставляя
+  // обработчик стабильным на весь показ картинки.
+  const scaleRef = useRef(scale)
+  scaleRef.current = scale
   useEffect(() => {
     if (!isOpen) return
     function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') closeLightbox()
-      else if (e.key === 'ArrowLeft') prev()
-      else if (e.key === 'ArrowRight') next()
+      if (e.key === 'Escape') {
+        // capture-фаза + stopPropagation: лайтбокс может быть открыт ПОВЕРХ
+        // другого полноэкранного оверлея с собственным Escape-слушателем на
+        // document (например TaskFullscreenView в AttemptDrawer) — без
+        // остановки события оба слушателя срабатывали бы на одно нажатие,
+        // и Escape закрывал сразу два слоя вместо одного (сначала лайтбокс).
+        e.stopPropagation()
+        closeLightbox()
+        return
+      }
+      // Стрелки листают только пока не увеличено — иначе они конфликтовали
+      // бы с ожиданием "подвигать увеличенную картинку" (drag уже это даёт,
+      // стрелки на клавиатуре для pan не заведены, чтобы не путать с листанием).
+      if (e.key === 'ArrowLeft' && scaleRef.current === 1) prev()
+      else if (e.key === 'ArrowRight' && scaleRef.current === 1) next()
+      else if (e.key === '+' || e.key === '=') setScale(s => clampScale(s + ZOOM_STEP))
+      else if (e.key === '-') setScale(s => clampScale(s - ZOOM_STEP))
+      else if (e.key === '0') resetZoom()
     }
-    document.addEventListener('keydown', onKey)
+    document.addEventListener('keydown', onKey, true)
     const prevOverflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
     return () => {
-      document.removeEventListener('keydown', onKey)
+      document.removeEventListener('keydown', onKey, true)
       document.body.style.overflow = prevOverflow
     }
-  }, [isOpen, closeLightbox, prev, next])
+  }, [isOpen, closeLightbox, prev, next, resetZoom])
+
+  // Колесо мыши = zoom (вместо скролла страницы, тот уже заблокирован выше).
+  // Знак минус — стандартное направление (от себя/вверх = приближение).
+  function onWheelZoom(e: React.WheelEvent) {
+    e.preventDefault()
+    setScale(s => clampScale(s - e.deltaY * 0.0015 * ZOOM_MAX))
+  }
+
+  // Перетаскивание увеличенного изображения мышью — активно только при
+  // scale>1, иначе конфликтовало бы с закрытием по клику на фон.
+  function onImagePointerDown(e: React.PointerEvent) {
+    if (scale <= 1) return
+    e.stopPropagation()
+    ;(e.target as HTMLElement).setPointerCapture(e.pointerId)
+    dragRef.current = { startX: e.clientX, startY: e.clientY, startOffX: offset.x, startOffY: offset.y }
+    setDragging(true)
+  }
+  function onImagePointerMove(e: React.PointerEvent) {
+    if (!dragRef.current) return
+    const dx = e.clientX - dragRef.current.startX
+    const dy = e.clientY - dragRef.current.startY
+    setOffset({ x: dragRef.current.startOffX + dx, y: dragRef.current.startOffY + dy })
+  }
+  function onImagePointerUp() {
+    dragRef.current = null
+    setDragging(false)
+  }
+
+  // Pinch-to-zoom на тач — два touch-пойнтера, масштаб по изменению
+  // расстояния между ними относительно расстояния на touchstart.
+  function onTouchStart(e: React.TouchEvent) {
+    if (e.touches.length !== 2) return
+    const [a, b] = [e.touches[0], e.touches[1]]
+    const dist = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY)
+    pinchRef.current = { startDist: dist, startScale: scale }
+  }
+  function onTouchMove(e: React.TouchEvent) {
+    if (e.touches.length !== 2 || !pinchRef.current) return
+    e.preventDefault()
+    const [a, b] = [e.touches[0], e.touches[1]]
+    const dist = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY)
+    const ratio = dist / pinchRef.current.startDist
+    setScale(clampScale(pinchRef.current.startScale * ratio))
+  }
+  function onTouchEnd(e: React.TouchEvent) {
+    if (e.touches.length < 2) pinchRef.current = null
+  }
 
   return (
     <>
@@ -154,9 +241,19 @@ export function ImageGallery({
       {/* Lightbox */}
       {lightboxIdx !== null && sorted[lightboxIdx] && (
         <div
-          className="fixed inset-0 bg-black/80 flex items-center justify-center"
+          // bg-black (непрозрачный), не bg-black/80 — лайтбокс может
+          // открываться поверх ДРУГОГО полупрозрачного оверлея (например
+          // TaskFullscreenView, bg-black/60), и раньше 80%-прозрачность
+          // одного давала просвечивание фона/текста нижнего оверлея сквозь
+          // оба слоя сразу — итоговая картинка и текст под ней выглядели
+          // затемнённой нечитаемой "пеленой" вместо чистого просмотра.
+          className="fixed inset-0 bg-black flex items-center justify-center overflow-hidden select-none"
           style={{ zIndex: lightboxZIndex }}
           onClick={closeLightbox}
+          onWheel={onWheelZoom}
+          onTouchStart={onTouchStart}
+          onTouchMove={onTouchMove}
+          onTouchEnd={onTouchEnd}
         >
           {/* type="button" обязателен: галерея используется внутри <form>
               (InlineTaskForm), без него клик «закрыть»/«листать» отправлял бы
@@ -164,18 +261,47 @@ export function ImageGallery({
           <button
             type="button"
             onClick={(e) => { e.stopPropagation(); closeLightbox() }}
-            className="absolute top-4 right-4 text-white hover:text-white/70 transition-colors"
+            className="absolute top-4 right-4 text-white hover:text-white/70 transition-colors z-10"
             aria-label="Закрыть"
           >
             <X className="h-7 w-7" />
           </button>
 
-          {sorted.length > 1 && (
+          {/* Zoom-контролы — колесо/pinch уже работают, но мышь без колеса
+              и десктоп без тачскрина иначе не имели бы способа увеличить. */}
+          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-1 bg-black/50 rounded-full px-2 py-1 z-10" onClick={e => e.stopPropagation()}>
+            <button
+              type="button"
+              onClick={() => setScale(s => clampScale(s - ZOOM_STEP))}
+              disabled={scale <= ZOOM_MIN}
+              className="text-white hover:text-white/70 disabled:opacity-30 p-1.5"
+              aria-label="Уменьшить"
+            >
+              <ZoomOut className="h-4 w-4" />
+            </button>
+            <span className="text-white/80 text-xs tabular-nums w-10 text-center">{Math.round(scale * 100)}%</span>
+            <button
+              type="button"
+              onClick={() => setScale(s => clampScale(s + ZOOM_STEP))}
+              disabled={scale >= ZOOM_MAX}
+              className="text-white hover:text-white/70 disabled:opacity-30 p-1.5"
+              aria-label="Увеличить"
+            >
+              <ZoomIn className="h-4 w-4" />
+            </button>
+            {scale !== 1 && (
+              <button type="button" onClick={resetZoom} className="text-white hover:text-white/70 p-1.5" aria-label="Сбросить масштаб" title="Сбросить масштаб">
+                <RotateCcw className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
+
+          {sorted.length > 1 && scale === 1 && (
             <>
               <button
                 type="button"
                 onClick={(e) => { e.stopPropagation(); prev() }}
-                className="absolute left-4 text-white hover:text-white/70 transition-colors p-2"
+                className="absolute left-4 text-white hover:text-white/70 transition-colors p-2 z-10"
                 aria-label="Предыдущее изображение"
               >
                 <ChevronLeft className="h-8 w-8" />
@@ -183,7 +309,7 @@ export function ImageGallery({
               <button
                 type="button"
                 onClick={(e) => { e.stopPropagation(); next() }}
-                className="absolute right-4 text-white hover:text-white/70 transition-colors p-2"
+                className="absolute right-4 text-white hover:text-white/70 transition-colors p-2 z-10"
                 aria-label="Следующее изображение"
               >
                 <ChevronRight className="h-8 w-8" />
@@ -191,13 +317,47 @@ export function ImageGallery({
             </>
           )}
 
-          <div className="max-w-4xl max-h-[85vh] flex flex-col items-center gap-2" onClick={e => e.stopPropagation()}>
-            <GalleryThumb
-              src={sorted[lightboxIdx].signedUrl}
-              alt={sorted[lightboxIdx].alt ?? `Изображение ${lightboxIdx + 1}`}
-              className="max-h-[78vh] max-w-full object-contain rounded shadow-xl"
-            />
-            {sorted.length > 1 && (
+          <div
+            className="max-w-4xl max-h-[85vh] w-full h-full flex flex-col items-center justify-center gap-2"
+            onClick={e => e.stopPropagation()}
+          >
+            {/* onClick зума — на самой картинке, не на всей обёртке: та
+                включает и счётчик "2 / 5" под фото, клик по которому раньше
+                тоже засчитывался как "зумить фото" (обёртка ловила клик по
+                всей своей area, не только по img). */}
+            <div
+              onClick={() => {
+                // Клик по картинке (не drag) при обычном масштабе — быстрый
+                // зум на 1 шаг, тот же жест, что интуитивно ждут от "клик на
+                // фото = приблизить". При scale>1 клик ничего не делает —
+                // только drag двигает, разжимать нужно явно кнопкой/колесом.
+                if (scale === 1) setScale(clampScale(ZOOM_MIN + ZOOM_STEP))
+              }}
+            >
+              <GalleryThumb
+                src={sorted[lightboxIdx].signedUrl}
+                alt={sorted[lightboxIdx].alt ?? `Изображение ${lightboxIdx + 1}`}
+                className={cn(
+                  // bg-white обязателен: у заданий (графики/схемы) картинки
+                  // часто PNG с прозрачным фоном — без непрозрачной подложки
+                  // затемнённый фон лайтбокса (bg-black/80 ниже) просвечивал
+                  // сквозь прозрачные области насквозь, и чёрные линии графика
+                  // сливались с ним в трудноразличимое серое пятно (миниатюра
+                  // в сетке уже была с bg-white, а увеличенная версия в
+                  // лайтбоксе — нет, отсюда и разница в читаемости).
+                  'max-h-[78vh] max-w-full object-contain rounded shadow-xl transition-transform bg-white',
+                  scale > 1 ? (dragging ? 'cursor-grabbing' : 'cursor-grab') : 'cursor-zoom-in',
+                )}
+                style={{
+                  transform: `translate(${offset.x}px, ${offset.y}px) scale(${scale})`,
+                  transitionDuration: dragging ? '0ms' : '100ms',
+                }}
+                onPointerDownCapture={onImagePointerDown}
+                onPointerMove={onImagePointerMove}
+                onPointerUp={onImagePointerUp}
+              />
+            </div>
+            {sorted.length > 1 && scale === 1 && (
               <span className="text-white/70 text-sm">{lightboxIdx + 1} / {sorted.length}</span>
             )}
           </div>
@@ -221,7 +381,18 @@ export function ImageGallery({
 // Повторов, как в TaskImage, здесь нет сознательно: это учительские экраны
 // (редактор, ревью, проверка работ), где ссылку легко обновить перезагрузкой,
 // а не ученик посреди контрольной на школьном Wi-Fi.
-export function GalleryThumb({ src, alt, className }: { src: string; alt: string; className?: string }) {
+export function GalleryThumb({
+  src, alt, className, style, onPointerDownCapture, onPointerMove, onPointerUp,
+}: {
+  src: string
+  alt: string
+  className?: string
+  /** Используется лайтбоксом для zoom/pan (transform: scale+translate) — обычные миниатюры это не передают. */
+  style?: React.CSSProperties
+  onPointerDownCapture?: React.PointerEventHandler<HTMLImageElement>
+  onPointerMove?: React.PointerEventHandler<HTMLImageElement>
+  onPointerUp?: React.PointerEventHandler<HTMLImageElement>
+}) {
   const [failed, setFailed] = useState(false)
 
   if (!src || failed) {
@@ -248,7 +419,11 @@ export function GalleryThumb({ src, alt, className }: { src: string; alt: string
       loading="lazy"
       decoding="async"
       className={className}
+      style={style}
       onError={() => setFailed(true)}
+      onPointerDownCapture={onPointerDownCapture}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
     />
   )
 }
