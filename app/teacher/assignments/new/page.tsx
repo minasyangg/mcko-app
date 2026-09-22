@@ -3,7 +3,7 @@
 import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { createClient } from '@/lib/supabase/client'
@@ -14,11 +14,13 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { ArrowLeft, Loader2, AlertTriangle } from 'lucide-react'
 import { SearchableSelect } from '@/components/shared/SearchableSelect'
+import { visibleTopicsInTreeOrder, type RoadmapTopicRow } from '@/lib/roadmaps/topic-order'
 import Link from 'next/link'
 
 const schema = z.object({
   test_id: z.string().min(1, 'Выберите тест'),
-  target_type: z.enum(['group', 'student']),
+  target_type: z.enum(['roadmap_topic', 'group', 'student']),
+  roadmap_topic_id: z.string().optional(),
   group_id: z.string().optional(),
   student_id: z.string().optional(),
   starts_at: z.string().optional(),
@@ -26,6 +28,9 @@ const schema = z.object({
   max_attempts: z.number().min(1, 'Минимум 1 попытка'),
   preserve_answers: z.boolean(),
 }).superRefine((d, ctx) => {
+  if (d.target_type === 'roadmap_topic' && !d.roadmap_topic_id) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Выберите тему программы', path: ['roadmap_topic_id'] })
+  }
   if (d.target_type === 'group' && !d.group_id) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Выберите группу', path: ['group_id'] })
   }
@@ -39,24 +44,49 @@ type FormData = z.infer<typeof schema>
 interface TestOption { id: string; title: string }
 interface GroupOption { id: string; name: string }
 interface StudentOption { id: string; full_name: string; grade: string | null }
+interface RoadmapOption { id: string; title: string }
+interface TopicOption { value: string; label: string; hint: string; roadmapId: string }
 
 export default function NewAssignmentPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const supabase = createClient()
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [tests, setTests] = useState<TestOption[]>([])
   const [groups, setGroups] = useState<GroupOption[]>([])
   const [students, setStudents] = useState<StudentOption[]>([])
+  const [topicOptions, setTopicOptions] = useState<TopicOption[]>([])
+
+  // Тест уже выбран, если экран открыт кнопкой «Назначить» из карточки
+  // теста (?test=<id>) — устраняет живую жалобу пользователя: параметр в
+  // URL уже передавался с 2026-09-х (TestDetailClient.tsx), но эта форма
+  // никогда не читала searchParams и требовала выбрать тест заново.
+  const presetTestId = searchParams.get('test') ?? undefined
 
   const { register, handleSubmit, control, watch, setValue, formState: { errors, isSubmitting } } = useForm<FormData>({
     resolver: zodResolver(schema),
-    defaultValues: { target_type: 'group', max_attempts: 1, preserve_answers: false },
+    defaultValues: {
+      test_id: presetTestId,
+      // По умолчанию — «Программа» (решение пользователя, 2026-09-23);
+      // если у учителя нет ни одной программы с видимой темой — переключаем
+      // на «Группе» после загрузки данных (см. эффект ниже), не оставляем
+      // пользователя перед пустым списком тем без выхода.
+      target_type: 'roadmap_topic',
+      max_attempts: 1,
+      preserve_answers: false,
+    },
   })
   const targetType = watch('target_type')
   const testId = watch('test_id')
   const studentId = watch('student_id')
   const groupId = watch('group_id')
+  const roadmapTopicId = watch('roadmap_topic_id')
+
+  // roadmapId → его системная группа (roadmaps.group_id) — используется
+  // ниже для already-taken/duplicates и не хранится в форме напрямую
+  // (форма шлёт roadmap_topic_id, сервер сам резолвит группу при вставке).
+  const [groupIdByRoadmap, setGroupIdByRoadmap] = useState<Record<string, string>>({})
 
   // «Этот тест уже проходили» — информационно: назначить повторно можно
   // (например, для отработки), поэтому кнопку не блокируем.
@@ -64,8 +94,15 @@ export default function NewAssignmentPage() {
     { student_name: string; score: number | null; max_score: number | null; submitted_at: string | null }[]
   >([])
 
+  // already-taken/duplicates сверяются по «фактическому получателю» —
+  // для программы это системная группа программы (roadmaps.group_id), не
+  // сам roadmap_topic_id (той сущности API проверки не знают).
+  const topicGroupId = topicOptions.find(t => t.value === roadmapTopicId)?.roadmapId
+    ? groupIdByRoadmap[topicOptions.find(t => t.value === roadmapTopicId)!.roadmapId]
+    : undefined
+
   useEffect(() => {
-    const target = targetType === 'group' ? groupId : studentId
+    const target = targetType === 'group' ? groupId : targetType === 'student' ? studentId : topicGroupId
     if (!testId || !target) { setAlreadyTaken([]); return }
     let cancelled = false
     fetch('/api/assignments/already-taken', {
@@ -73,14 +110,14 @@ export default function NewAssignmentPage() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         test_id: testId,
-        ...(targetType === 'group' ? { group_id: target } : { student_id: target }),
+        ...(targetType === 'student' ? { student_id: target } : { group_id: target }),
       }),
     })
       .then(r => r.ok ? r.json() : { taken: [] })
       .then(d => { if (!cancelled) setAlreadyTaken(d.taken ?? []) })
       .catch(() => { if (!cancelled) setAlreadyTaken([]) })
     return () => { cancelled = true }
-  }, [testId, studentId, groupId, targetType])
+  }, [testId, studentId, groupId, topicGroupId, targetType])
 
   // «Задачи из этого ДЗ уже задавались» — сверка по каждой задаче теста
   // (см. /api/assignments/duplicates, миграция 052). В отличие от
@@ -88,10 +125,11 @@ export default function NewAssignmentPage() {
   // заданными — то самое «сверка в реальный момент назначения», о которой
   // просил пользователь: пока ДЗ не назначено никому, сравнивать не с кем.
   //
-  // Ученику — показываем список совпадений напрямую. Группе — сервер сам
-  // решает, стоит ли вообще предупреждать (пороги: >50% учеников группы имеют
-  // личное пересечение >30% задач теста), чтобы один ученик с полным
-  // повтором в группе из 20 не выглядел как «всем это уже задавали».
+  // Ученику — показываем список совпадений напрямую. Группе/программе —
+  // сервер сам решает, стоит ли вообще предупреждать (пороги: >50%
+  // учеников группы имеют личное пересечение >30% задач теста), чтобы один
+  // ученик с полным повтором в группе из 20 не выглядел как «всем это уже
+  // задавали».
   const [studentDups, setStudentDups] = useState<
     { student_name: string; test_title: string; assigned_at: string }[]
   >([])
@@ -100,7 +138,7 @@ export default function NewAssignmentPage() {
   >(null)
 
   useEffect(() => {
-    const target = targetType === 'group' ? groupId : studentId
+    const target = targetType === 'group' ? groupId : targetType === 'student' ? studentId : topicGroupId
     if (!testId || !target) { setStudentDups([]); setGroupWarning(null); return }
     let cancelled = false
     fetch('/api/assignments/duplicates', {
@@ -108,18 +146,18 @@ export default function NewAssignmentPage() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         test_id: testId,
-        ...(targetType === 'group' ? { group_id: target } : { student_id: target }),
+        ...(targetType === 'student' ? { student_id: target } : { group_id: target }),
       }),
     })
       .then(r => r.ok ? r.json() : { duplicates: [], group_warning: null })
       .then(d => {
         if (cancelled) return
         setStudentDups(targetType === 'student' ? (d.duplicates ?? []) : [])
-        setGroupWarning(targetType === 'group' ? (d.group_warning ?? null) : null)
+        setGroupWarning(targetType !== 'student' ? (d.group_warning ?? null) : null)
       })
       .catch(() => { if (!cancelled) { setStudentDups([]); setGroupWarning(null) } })
     return () => { cancelled = true }
-  }, [testId, studentId, groupId, targetType])
+  }, [testId, studentId, groupId, topicGroupId, targetType])
 
   useEffect(() => {
     async function load() {
@@ -136,18 +174,51 @@ export default function NewAssignmentPage() {
         }
 
         const org = profile.organization_id
-        const [{ data: testsData }, { data: grps }, { data: studs }] = await Promise.all([
+        const [{ data: testsData }, { data: grps }, { data: studs }, { data: roadmaps }] = await Promise.all([
           supabase.from('tests').select('id, title')
             .eq('organization_id', org).eq('status', 'published').eq('is_active', true)
             .not('current_published_version_id', 'is', null).order('created_at', { ascending: false }),
           supabase.from('groups').select('id, name').eq('organization_id', org).is('roadmap_id', null).order('name'),
           supabase.from('profiles').select('id, full_name, grade')
             .eq('role', 'student').eq('organization_id', org).order('full_name'),
+          // Свои программы — созданные этим учителем (та же граница
+          // владения, что authorizeRoadmap проверяет для прямого редактора
+          // программы, здесь просто список для выбора, не мутация).
+          supabase.from('roadmaps').select('id, title, group_id').eq('created_by', user.id).order('title'),
         ])
 
         setTests(testsData ?? [])
         setGroups(grps ?? [])
         setStudents(studs ?? [])
+
+        const roadmapList = (roadmaps ?? []) as (RoadmapOption & { group_id: string | null })[]
+        const gMap: Record<string, string> = {}
+        for (const r of roadmapList) if (r.group_id) gMap[r.id] = r.group_id
+        setGroupIdByRoadmap(gMap)
+
+        if (roadmapList.length > 0) {
+          const { data: topics } = await supabase
+            .from('roadmap_topics')
+            .select('id, roadmap_id, parent_id, title, sort_order, visible_to_students')
+            .in('roadmap_id', roadmapList.map(r => r.id))
+
+          const options: TopicOption[] = []
+          for (const r of roadmapList) {
+            const entries = visibleTopicsInTreeOrder((topics ?? []) as RoadmapTopicRow[], r.id)
+            for (const { topic, ancestorTitles } of entries) {
+              const path = [r.title, ...ancestorTitles].join(' → ')
+              options.push({ value: topic.id, label: topic.title, hint: path, roadmapId: r.id })
+            }
+          }
+          setTopicOptions(options)
+          // Ни одной видимой темы ни в одной программе — «Программа» по
+          // умолчанию оставила бы пользователя перед пустым списком без
+          // выхода (кроме ручного переключения типа). Переключаем на
+          // «Группе», решение пользователя 2026-09-23.
+          if (options.length === 0) setValue('target_type', 'group')
+        } else {
+          setValue('target_type', 'group')
+        }
       } catch {
         setLoadError('Ошибка загрузки данных')
       } finally {
@@ -155,6 +226,7 @@ export default function NewAssignmentPage() {
       }
     }
     load()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   async function onSubmit(data: FormData) {
@@ -224,18 +296,44 @@ export default function NewAssignmentPage() {
                     value={field.value}
                     onValueChange={(v) => {
                       field.onChange(v)
-                      // Clear opposite field when switching
-                      if (v === 'group') setValue('student_id', undefined)
-                      if (v === 'student') setValue('group_id', undefined)
+                      // Сбрасываем поля неактивных вариантов при переключении
+                      if (v !== 'roadmap_topic') setValue('roadmap_topic_id', undefined)
+                      if (v !== 'group') setValue('group_id', undefined)
+                      if (v !== 'student') setValue('student_id', undefined)
                     }}
                   >
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
+                      <SelectItem value="roadmap_topic">Программе</SelectItem>
                       <SelectItem value="group">Группе</SelectItem>
                       <SelectItem value="student">Ученику</SelectItem>
                     </SelectContent>
                   </Select>
                 )} />
+              </div>
+
+              {/* Программа/тема — всегда в DOM, скрыта CSS */}
+              <div className={targetType !== 'roadmap_topic' ? 'hidden' : 'space-y-1'}>
+                <Label>Тема программы *</Label>
+                <Controller name="roadmap_topic_id" control={control} render={({ field }) => (
+                  <SearchableSelect
+                    options={topicOptions}
+                    value={field.value ?? ''}
+                    onChange={field.onChange}
+                    placeholder="Выберите тему"
+                    recentCount={0}
+                    emptyText={
+                      topicOptions.length === 0
+                        ? 'Нет программ с открытыми ученикам темами — создайте программу или откройте тему в её редакторе'
+                        : 'Ничего не найдено'
+                    }
+                  />
+                )} />
+                <p className="text-xs text-muted-foreground">
+                  Показаны только темы, открытые ученикам (см. значок глазка в редакторе программы).
+                  Назначение попадёт всем ученикам программы.
+                </p>
+                {errors.roadmap_topic_id && <p className="text-sm text-destructive">{errors.roadmap_topic_id.message}</p>}
               </div>
 
               {/* Группа — всегда в DOM, скрыта CSS */}
@@ -359,9 +457,9 @@ export default function NewAssignmentPage() {
                     </div>
                   )}
 
-                  {/* Группа: не по задачам и не по ученикам поимённо — сводка,
-                      мягкое предупреждение только при выходе за оба порога
-                      (см. GROUP_MIN_STUDENT_SHARE/GROUP_MIN_OVERLAP_SHARE) */}
+                  {/* Группа/программа: не по задачам и не по ученикам поимённо —
+                      сводка, мягкое предупреждение только при выходе за оба
+                      порога (см. GROUP_MIN_STUDENT_SHARE/GROUP_MIN_OVERLAP_SHARE) */}
                   {groupWarning && (
                     <div className="flex items-start gap-2.5">
                       <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
@@ -369,7 +467,7 @@ export default function NewAssignmentPage() {
                         <div className="font-medium">Похоже, это ДЗ во многом повторяет уже заданное</div>
                         <p className="mt-1 text-amber-800/90 dark:text-amber-200/80">
                           У {groupWarning.affected_students} из {groupWarning.total_students} учеников
-                          группы в среднем {groupWarning.avg_overlap_percent}% задач этого ДЗ уже
+                          в среднем {groupWarning.avg_overlap_percent}% задач этого ДЗ уже
                           встречались в других заданиях.
                         </p>
                       </div>
