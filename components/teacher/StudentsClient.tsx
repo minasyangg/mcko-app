@@ -557,6 +557,17 @@ export function StudentsClient({ students: initial, isAdmin = false, teachers = 
                 <Input
                   id="edit-email"
                   type="email"
+                  // Браузер (особенно Chrome) агрессивно автозаполняет поля с
+                  // id/name, похожим на "email", сохранённым значением из
+                  // истории — уже ПОСЛЕ монтирования, минуя React `value`.
+                  // Живой инцидент: пустое editForm.email при открытии
+                  // формы, но DOM после autofill содержал чужой email из
+                  // истории браузера — handleSave() честно отправил его как
+                  // "новый email", сервер упал на уникальном индексе
+                  // auth.users (другой пользователь уже занимает этот email),
+                  // а рассинхрон React state vs DOM после autofill дальше
+                  // давал hydration mismatch (React error #418) в консоли.
+                  autoComplete="off"
                   value={editForm.email}
                   onChange={(e) => setEditForm((p) => ({ ...p, email: e.target.value }))}
                   placeholder="Оставьте пустым, чтобы не менять"
@@ -567,6 +578,7 @@ export function StudentsClient({ students: initial, isAdmin = false, teachers = 
                 <div className="relative">
                   <Input
                     id="edit-pwd"
+                    autoComplete="new-password"
                     type={showPwd ? 'text' : 'password'}
                     value={editForm.password}
                     onChange={(e) => setEditForm((p) => ({ ...p, password: e.target.value }))}
