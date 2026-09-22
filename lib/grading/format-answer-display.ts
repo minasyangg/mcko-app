@@ -9,7 +9,13 @@ import type { Json } from '@/types/database'
 // набрал с долларами), считаем её оформленной и не трогаем — двойное
 // оборачивание сломало бы разметку.
 const HAS_LATEX_COMMAND = /\\[a-zA-Z]+/
-function wrapBareLatex(s: string): string {
+// Экспортирована отдельно — нужна там, где строка для ПОКАЗА уже готова
+// как plain string (не Json) и приходит из другого источника, чем
+// formatAnswerJson (например TestDetailClient.tsx: task.correct_answer —
+// уже сериализованная на сервере строка, специально formatAnswerJsonRaw
+// без обёртки, потому что то же поле инициализирует форму редактирования;
+// показ карточки применяет обёртку здесь, отдельно от источника формы).
+export function wrapBareLatex(s: string): string {
   if (!s || s.includes('$') || !HAS_LATEX_COMMAND.test(s)) return s
   return `$${s}$`
 }
