@@ -155,12 +155,26 @@ export async function POST(request: Request) {
     }
   }
 
+  // Экран ученика показывает бейдж «ДЗ»/«Тест» ПО-РАЗНОМУ в зависимости от
+  // пути назначения: обычный список карточек (plainAssignments) берёт тип
+  // из tests.kind, а карточки программы (roadmapItems) — из
+  // assignments.kind напрямую (app/student/page.tsx, "kind: (a.kind ...)
+  // ?? 'test'"), тот же паттерн, что /api/roadmaps/[id]/topics/[topicId]/
+  // items/route.ts уже учитывает явным полем формы. Этот общий роут
+  // assignments.kind не проставлял вовсе — назначение через программу
+  // молча падало в дефолт 'test' из-за ?? 'test' на экране ученика, даже
+  // если сам тест был создан как ДЗ (tests.kind='homework'). Источник
+  // истины — сам тест: назначение наследует его тип, не гадает заново.
+  const { data: testKindRow } = await admin.from('tests').select('kind').eq('id', test_id).single()
+  const assignmentKind = testKindRow?.kind === 'homework' ? 'homework' : 'test'
+
   const { data: assignment, error } = await admin.from('assignments').insert({
     test_version_id: test.current_published_version_id,
     organization_id: profile.organization_id,
     group_id: target_type === 'roadmap_topic' ? roadmapGroupId : target_type === 'group' ? group_id : null,
     student_id: target_type === 'student' ? student_id : null,
     roadmap_topic_id: target_type === 'roadmap_topic' ? roadmap_topic_id : null,
+    kind: assignmentKind,
     starts_at: starts_at || null,
     ends_at: ends_at || null,
     max_attempts,
