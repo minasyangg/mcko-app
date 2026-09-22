@@ -26,7 +26,7 @@ export default async function SharedWithMePage() {
   const { data: shares } = await supabase
     .from('assignment_shares')
     .select(`
-      id, assignment_id, expires_at, created_at,
+      id, assignment_id, student_id, expires_at, created_at,
       profiles!student_id(full_name, grade),
       assignments!assignment_id(
         created_by,
@@ -54,13 +54,20 @@ export default async function SharedWithMePage() {
     assignmentIds.length > 0
       ? supabase
           .from('student_final_results')
-          .select('assignment_id, final_score, max_score')
+          .select('assignment_id, student_id, final_score, max_score')
           .in('assignment_id', assignmentIds)
-      : Promise.resolve({ data: [] as { assignment_id: string; final_score: number | null; max_score: number | null }[] }),
+      : Promise.resolve({ data: [] as { assignment_id: string; student_id: string; final_score: number | null; max_score: number | null }[] }),
   ])
 
   const senderNameById = new Map((senders ?? []).map(t => [t.id, t.full_name]))
-  const resultByAssignment = new Map((finalResults ?? []).map(r => [r.assignment_id, r]))
+  // Ключ — (assignment_id, student_id), не просто assignment_id: для
+  // группового назначения несколько учеников могут расшарить один и тот же
+  // assignment_id, у каждого свой student_final_results — плоский Map по
+  // одному assignment_id брал бы результат СЛУЧАЙНОГО (последнего в ответе
+  // БД) студента для всех строк таблицы разом.
+  const resultByKey = new Map(
+    (finalResults ?? []).map(r => [`${r.assignment_id}_${r.student_id}`, r])
+  )
 
   const rows: SharedRow[] = (shares ?? []).map(s => {
     const student = s.profiles as unknown as { full_name: string; grade: string | null } | null
@@ -70,11 +77,12 @@ export default async function SharedWithMePage() {
     } | null
     const test = assignment?.test_versions?.tests
     const senderId = assignment?.created_by ?? null
-    const result = resultByAssignment.get(s.assignment_id)
+    const result = resultByKey.get(`${s.assignment_id}_${s.student_id}`)
 
     return {
       share_id: s.id,
       assignment_id: s.assignment_id,
+      student_id: s.student_id,
       student_name: student?.full_name ?? '—',
       grade: student?.grade ?? null,
       test_title: test?.title ?? '—',

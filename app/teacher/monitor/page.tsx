@@ -12,8 +12,21 @@ export default async function MonitorPage() {
     : { data: null }
   const isAdmin = profile?.role === 'admin'
 
-  // Load all recent attempts with assignment/student info
-  const { data: attempts } = await supabase
+  // Load all recent attempts with assignment/student info.
+  //
+  // ВАЖНО: RLS на attempts теперь OR-комбинирует "своё назначение" (018/019),
+  // "вся организация для admin" (018) И "расшарено мне" (087/088,
+  // assignment_shares) — без явного фильтра для роли teacher SELECT-запрос
+  // молча подмешивал бы в дашборд мониторинга чужие попытки, которые ученик
+  // расшарил ЭТОМУ учителю (не назначившему тест), включая полноценные
+  // кнопки проверки (AttemptDrawer тут открывается без readOnly). Мониторинг/
+  // результаты — это экран владельца назначения, не потребитель шаринга (для
+  // того отдельный "Расшарено мне", shared-with-me/page.tsx, где
+  // readOnly=true всегда) — поэтому teacher фильтруется по
+  // assignments.created_by явно, не полагаясь на голое RLS. Admin не
+  // фильтруется тем же условием — его доступ и так по всей организации
+  // (check_assignment_in_auth_org, 018), не по created_by.
+  let attemptsQuery = supabase
     .from('attempts')
     .select(`
       id, status, current_task_number, score, max_score,
@@ -21,6 +34,7 @@ export default async function MonitorPage() {
       assignment_id, teacher_reviewed_at,
       assignments!inner (
         id,
+        created_by,
         max_attempts,
         closed_at,
         test_version_id,
@@ -31,6 +45,8 @@ export default async function MonitorPage() {
       profiles ( full_name, grade )
     `)
     .in('status', ['not_started', 'in_progress', 'submitted', 'under_review', 'checked'])
+  if (!isAdmin && user) attemptsQuery = attemptsQuery.eq('assignments.created_by', user.id)
+  const { data: attempts } = await attemptsQuery
     .order('last_activity_at', { ascending: false })
     .limit(500)
 
@@ -134,17 +150,23 @@ export default async function MonitorPage() {
   // ── Таб «Назначения» (перенесён из /teacher/assignments) ──
   // Roadmap-назначения (roadmap_topic_id) не показываем: программа — не
   // группа, её заданиями управляет редактор программы.
-  const { data: asgnRows } = await supabase
+  //
+  // Тот же риск, что у attempts выше: RLS на assignments теперь допускает
+  // SELECT и через "assignments: teacher read via share" (090) — без
+  // явного фильтра для teacher сюда попали бы чужие расшаренные назначения.
+  let asgnQuery = supabase
     .from('assignments')
     .select(`
       id, starts_at, ends_at, max_attempts, created_at, kind, closed_at,
-      group_id, student_id, test_version_id,
+      group_id, student_id, test_version_id, created_by,
       test_versions!test_version_id ( tests!test_id ( title, kind ) ),
       groups ( name ),
       profiles!student_id ( full_name ),
       attempts ( id, status, student_id )
     `)
     .is('roadmap_topic_id', null)
+  if (!isAdmin && user) asgnQuery = asgnQuery.eq('created_by', user.id)
+  const { data: asgnRows } = await asgnQuery
     .order('created_at', { ascending: false })
     .limit(100)
 

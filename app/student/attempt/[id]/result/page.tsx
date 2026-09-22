@@ -14,7 +14,7 @@ import { MathText } from '@/components/shared/MathText'
 import MarkdownContent from '@/components/shared/MarkdownContent'
 import { ImageGallery } from '@/components/shared/ImageGallery'
 import type { TaskMedia } from '@/types/domain'
-import { formatAnswerJson } from '@/lib/grading/format-answer-display'
+import { formatAnswerJsonRaw } from '@/lib/grading/format-answer-display'
 import { closedReasonLabel } from '@/lib/assignments/completion'
 
 interface PageProps {
@@ -419,7 +419,11 @@ export default async function ResultPage({ params }: PageProps) {
                           </div>
                           <p className="text-sm">
                             <span className="text-muted-foreground">Ваш ответ: </span>
-                            <span className="font-medium">{formatAnswerJson(ans?.answer_json ?? null)}</span>
+                            {/* Свободный ввод ученика, показан голым <span>, не
+                                MathText — formatAnswerJsonRaw без $…$-обёртки
+                                (formatAnswerJson тут добавил бы видимые доллары
+                                без всякого КaTeX-парсинга, который бы их убрал). */}
+                            <span className="font-medium">{formatAnswerJsonRaw(ans?.answer_json ?? null)}</span>
                           </p>
                           {isChecked && ans?.teacher_comment && (
                             <div className="rounded bg-yellow-50 dark:bg-yellow-950/30 border border-yellow-200 dark:border-yellow-800 px-3 py-2 text-sm">

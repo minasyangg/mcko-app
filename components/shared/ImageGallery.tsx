@@ -80,27 +80,42 @@ export function ImageGallery({
   // Заодно блокируем скролл страницы под оверлеем, иначе колесо прокручивает
   // список за ним, и после закрытия пользователь оказывается не там, где был.
   const isOpen = lightboxIdx !== null
+  // scale читаем через ref, не как зависимость эффекта — иначе почти каждый
+  // тик колеса мыши (setScale на wheel) пересобирал слушатель и
+  // body.style.overflow заново; ref избегает лишнего churn, оставляя
+  // обработчик стабильным на весь показ картинки.
+  const scaleRef = useRef(scale)
+  scaleRef.current = scale
   useEffect(() => {
     if (!isOpen) return
     function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') closeLightbox()
+      if (e.key === 'Escape') {
+        // capture-фаза + stopPropagation: лайтбокс может быть открыт ПОВЕРХ
+        // другого полноэкранного оверлея с собственным Escape-слушателем на
+        // document (например TaskFullscreenView в AttemptDrawer) — без
+        // остановки события оба слушателя срабатывали бы на одно нажатие,
+        // и Escape закрывал сразу два слоя вместо одного (сначала лайтбокс).
+        e.stopPropagation()
+        closeLightbox()
+        return
+      }
       // Стрелки листают только пока не увеличено — иначе они конфликтовали
       // бы с ожиданием "подвигать увеличенную картинку" (drag уже это даёт,
       // стрелки на клавиатуре для pan не заведены, чтобы не путать с листанием).
-      else if (e.key === 'ArrowLeft' && scale === 1) prev()
-      else if (e.key === 'ArrowRight' && scale === 1) next()
+      if (e.key === 'ArrowLeft' && scaleRef.current === 1) prev()
+      else if (e.key === 'ArrowRight' && scaleRef.current === 1) next()
       else if (e.key === '+' || e.key === '=') setScale(s => clampScale(s + ZOOM_STEP))
       else if (e.key === '-') setScale(s => clampScale(s - ZOOM_STEP))
       else if (e.key === '0') resetZoom()
     }
-    document.addEventListener('keydown', onKey)
+    document.addEventListener('keydown', onKey, true)
     const prevOverflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
     return () => {
-      document.removeEventListener('keydown', onKey)
+      document.removeEventListener('keydown', onKey, true)
       document.body.style.overflow = prevOverflow
     }
-  }, [isOpen, closeLightbox, prev, next, scale, resetZoom])
+  }, [isOpen, closeLightbox, prev, next, resetZoom])
 
   // Колесо мыши = zoom (вместо скролла страницы, тот уже заблокирован выше).
   // Знак минус — стандартное направление (от себя/вверх = приближение).
@@ -304,37 +319,44 @@ export function ImageGallery({
 
           <div
             className="max-w-4xl max-h-[85vh] w-full h-full flex flex-col items-center justify-center gap-2"
-            onClick={e => {
-              e.stopPropagation()
-              // Клик по картинке (не drag) при обычном масштабе — быстрый
-              // зум на 1 шаг, тот же жест, что интуитивно ждут от "клик на
-              // фото = приблизить". При scale>1 клик ничего не делает —
-              // только drag двигает, разжимать нужно явно кнопкой/колесом.
-              if (scale === 1) setScale(clampScale(ZOOM_MIN + ZOOM_STEP))
-            }}
+            onClick={e => e.stopPropagation()}
           >
-            <GalleryThumb
-              src={sorted[lightboxIdx].signedUrl}
-              alt={sorted[lightboxIdx].alt ?? `Изображение ${lightboxIdx + 1}`}
-              className={cn(
-                // bg-white обязателен: у заданий (графики/схемы) картинки
-                // часто PNG с прозрачным фоном — без непрозрачной подложки
-                // затемнённый фон лайтбокса (bg-black/80 ниже) просвечивал
-                // сквозь прозрачные области насквозь, и чёрные линии графика
-                // сливались с ним в трудноразличимое серое пятно (миниатюра
-                // в сетке уже была с bg-white, а увеличенная версия в
-                // лайтбоксе — нет, отсюда и разница в читаемости).
-                'max-h-[78vh] max-w-full object-contain rounded shadow-xl transition-transform bg-white',
-                scale > 1 ? (dragging ? 'cursor-grabbing' : 'cursor-grab') : 'cursor-zoom-in',
-              )}
-              style={{
-                transform: `translate(${offset.x}px, ${offset.y}px) scale(${scale})`,
-                transitionDuration: dragging ? '0ms' : '100ms',
+            {/* onClick зума — на самой картинке, не на всей обёртке: та
+                включает и счётчик "2 / 5" под фото, клик по которому раньше
+                тоже засчитывался как "зумить фото" (обёртка ловила клик по
+                всей своей area, не только по img). */}
+            <div
+              onClick={() => {
+                // Клик по картинке (не drag) при обычном масштабе — быстрый
+                // зум на 1 шаг, тот же жест, что интуитивно ждут от "клик на
+                // фото = приблизить". При scale>1 клик ничего не делает —
+                // только drag двигает, разжимать нужно явно кнопкой/колесом.
+                if (scale === 1) setScale(clampScale(ZOOM_MIN + ZOOM_STEP))
               }}
-              onPointerDownCapture={onImagePointerDown}
-              onPointerMove={onImagePointerMove}
-              onPointerUp={onImagePointerUp}
-            />
+            >
+              <GalleryThumb
+                src={sorted[lightboxIdx].signedUrl}
+                alt={sorted[lightboxIdx].alt ?? `Изображение ${lightboxIdx + 1}`}
+                className={cn(
+                  // bg-white обязателен: у заданий (графики/схемы) картинки
+                  // часто PNG с прозрачным фоном — без непрозрачной подложки
+                  // затемнённый фон лайтбокса (bg-black/80 ниже) просвечивал
+                  // сквозь прозрачные области насквозь, и чёрные линии графика
+                  // сливались с ним в трудноразличимое серое пятно (миниатюра
+                  // в сетке уже была с bg-white, а увеличенная версия в
+                  // лайтбоксе — нет, отсюда и разница в читаемости).
+                  'max-h-[78vh] max-w-full object-contain rounded shadow-xl transition-transform bg-white',
+                  scale > 1 ? (dragging ? 'cursor-grabbing' : 'cursor-grab') : 'cursor-zoom-in',
+                )}
+                style={{
+                  transform: `translate(${offset.x}px, ${offset.y}px) scale(${scale})`,
+                  transitionDuration: dragging ? '0ms' : '100ms',
+                }}
+                onPointerDownCapture={onImagePointerDown}
+                onPointerMove={onImagePointerMove}
+                onPointerUp={onImagePointerUp}
+              />
+            </div>
             {sorted.length > 1 && scale === 1 && (
               <span className="text-white/70 text-sm">{lightboxIdx + 1} / {sorted.length}</span>
             )}

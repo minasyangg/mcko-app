@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import { usePagination } from '@/lib/hooks/usePagination'
@@ -61,6 +61,7 @@ export function StudentsClient({ students: initial, isAdmin = false, teachers = 
   // разошёлся бы с тем, что реально показано на экране
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [editTarget, setEditTarget] = useState<StudentRow | null>(null)
+  const editLoadTokenRef = useRef(0)
   const [editForm, setEditForm] = useState({ full_name: '', grade: '', email: '', password: '', telegram: '', parentTelegram: '' })
   const [showPwd, setShowPwd] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -108,6 +109,12 @@ export function StudentsClient({ students: initial, isAdmin = false, teachers = 
   }
 
   async function openEdit(s: StudentRow) {
+    // Токен запроса — админ может кликнуть "редактировать" на другом
+    // ученике раньше, чем долетит fetch для предыдущего (диалог уже
+    // переключился на нового editTarget по id) — без токена более
+    // медленный устаревший ответ мог прийти ПОСЛЕ и перезаписать whitelist
+    // на экране, который уже озаглавлен и привязан к другому ученику.
+    const token = ++editLoadTokenRef.current
     setEditTarget(s)
     setEditForm({
       full_name: s.full_name,
@@ -123,11 +130,12 @@ export function StudentsClient({ students: initial, isAdmin = false, teachers = 
     try {
       const res = await fetch(`/api/admin/students/${s.id}/share-settings`)
       const json = await res.json().catch(() => ({}))
+      if (token !== editLoadTokenRef.current) return // устарело — открыт уже другой ученик
       setShareEnabled(json.enabled ?? false)
       setShareTtl(String(json.default_ttl_days ?? 14))
       setShareRecipientIds(new Set((json.recipients ?? []).map((r: { teacher_id: string }) => r.teacher_id)))
     } finally {
-      setShareLoading(false)
+      if (token === editLoadTokenRef.current) setShareLoading(false)
     }
   }
 

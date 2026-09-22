@@ -47,8 +47,13 @@ export async function PATCH(
   const body = await request.json() as { correct_answer?: string; grading_method?: string }
   const { correct_answer, grading_method } = body
 
-  if (correct_answer === undefined) {
-    return Response.json({ error: 'correct_answer required' }, { status: 400 })
+  // Пустая строка (например Enter сразу после очистки поля в AttemptDrawer)
+  // раньше проходила эту проверку и записывалась как "валидный" эталон —
+  // а дальше AttemptDrawer скрывает саму кнопку редактирования для пустого
+  // correct_answer (falsy-check), делая испорченный эталон неисправимым из
+  // того же экрана, который для этого и предназначен.
+  if (correct_answer === undefined || correct_answer.trim() === '') {
+    return Response.json({ error: 'correct_answer не может быть пустым' }, { status: 400 })
   }
 
   const admin = createAdminClient()

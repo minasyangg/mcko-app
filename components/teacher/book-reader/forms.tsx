@@ -17,18 +17,21 @@ import {
 } from '@/components/ui/select'
 import { taskNumberLabel } from '@/lib/books/anchors'
 import { formatCompositeAnswerForEdit } from '@/lib/grading/multi-part-answer'
-import { formatAnswerJson } from '@/lib/grading/format-answer-display'
+import { formatAnswerJsonRaw } from '@/lib/grading/format-answer-display'
 import type { Json } from '@/types/database'
 import { gradingMethodLabel, stripTaskNumber, type PageData, type ProblemAnchor } from './shared'
 
 // Ответ ИИ на составное задание («а)…; б)…») хранится не как {text}, а как
 // {parts:{...}} (см. multi-part-answer.ts) — без этого разбора поле было бы
-// пустым несмотря на бейдж «ответ · ИИ».
+// пустым несмотря на бейдж «ответ · ИИ». formatAnswerJsonRaw (без $…$-обёртки
+// голого LaTeX) — значение уходит обратно в это же текстовое поле формы и
+// может быть пересохранено без изменений; formatAnswerJson добавил бы
+// доллары, которых не было в источнике.
 function answerToEditText(correctAnswer: ProblemAnchor['correct_answer']): string {
   if (!correctAnswer) return ''
   if (typeof correctAnswer.text === 'string') return correctAnswer.text
   const json = correctAnswer as unknown as Json
-  return formatCompositeAnswerForEdit(json) ?? formatAnswerJson(json)
+  return formatCompositeAnswerForEdit(json) ?? formatAnswerJsonRaw(json)
 }
 
 // ─── Формы редактирования читалки (по образцу EditTaskForm из тестов) ─────────

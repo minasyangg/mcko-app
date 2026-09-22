@@ -49,18 +49,24 @@ interface TopicNode extends EditorTopic {
 // Дерево из плоского списка — тот же приём, что buildTree в BookReader.tsx
 // (components/teacher/BookReader.tsx), переиспользован без изменений логики,
 // только на другом типе узла.
+//
+// effectivelyHidden нельзя посчитать в этом же цикле расстановки по
+// родителям: topics приходит с сервера отсортированным по sort_order,
+// которое уникально только СРЕДИ SIBLINGS одного parent_id (не глобально,
+// см. app/student/page.tsx/topicsInTreeOrder) — порядок массива НЕ
+// гарантирует, что родитель встретится раньше своего ребёнка. Каскад
+// "родитель скрыт → скрыты все потомки" поэтому считается отдельным
+// проходом propagate() ПОСЛЕ того, как дерево уже полностью собрано (у
+// каждого узла уже есть ссылка на детей, независимо от исходного порядка).
 function buildTopicTree(topics: EditorTopic[]): TopicNode[] {
   const byId = new Map<string, TopicNode>()
-  for (const t of topics) byId.set(t.id, { ...t, children: [], effectivelyHidden: !t.visible_to_students })
+  for (const t of topics) byId.set(t.id, { ...t, children: [], effectivelyHidden: false })
   const roots: TopicNode[] = []
   for (const t of topics) {
     const node = byId.get(t.id) as TopicNode
     if (t.parent_id && byId.has(t.parent_id)) (byId.get(t.parent_id) as TopicNode).children.push(node)
     else roots.push(node)
   }
-  // Второй проход (после того как дерево собрано) — каскадом от корня вниз:
-  // родитель эффективно скрыт → все потомки эффективно скрыты тоже, даже
-  // если у них самих visible_to_students=true.
   function propagate(node: TopicNode, hiddenByAncestor: boolean) {
     node.effectivelyHidden = hiddenByAncestor || !node.visible_to_students
     for (const child of node.children) propagate(child, node.effectivelyHidden)

@@ -12,7 +12,7 @@ import { CheckCircle2, XCircle, MinusCircle, Loader2, ZoomIn, X, Lock, ChevronDo
 import { MathText } from '@/components/shared/MathText'
 import MarkdownContent from '@/components/shared/MarkdownContent'
 import { cn } from '@/lib/utils'
-import { formatAnswerJson } from '@/lib/grading/format-answer-display'
+import { formatAnswerJson, formatAnswerJsonRaw } from '@/lib/grading/format-answer-display'
 import { formatCompositeAnswerForEdit } from '@/lib/grading/multi-part-answer'
 import { ImageGallery } from '@/components/shared/ImageGallery'
 import type { Json } from '@/types/database'
@@ -538,10 +538,13 @@ export function AttemptDrawer({ attemptId, onClose, onGraded, readOnly = false }
   // правильными ответами. Составной ответ (а)/б)/… форматируется через
   // formatCompositeAnswerForEdit — НЕ formatAnswerJson, у которой другой
   // разделитель («а: 5», не «а) 5»), несовместимый при сборке обратно
-  // (см. lib/grading/multi-part-answer.ts).
+  // (см. lib/grading/multi-part-answer.ts). Fallback для не-составных
+  // (голая строка) — formatAnswerJsonRaw, БЕЗ auto-$…$-обёртки: это поле
+  // может быть сохранено без изменений (Enter сразу), а formatAnswerJson
+  // (display-вариант) вписал бы в PATCH доллары, которых не было в БД.
   const startEditingAnswer = (taskId: string) => {
     const entry = answerKeyMap[taskId]
-    setAnswerEditInput(entry ? (formatCompositeAnswerForEdit(entry.raw) ?? formatAnswerJson(entry.raw)) : '')
+    setAnswerEditInput(entry ? (formatCompositeAnswerForEdit(entry.raw) ?? formatAnswerJsonRaw(entry.raw)) : '')
     setEditingAnswerTaskId(taskId)
     setAnswerSaveError(null)
   }
@@ -774,8 +777,17 @@ export function AttemptDrawer({ attemptId, onClose, onGraded, readOnly = false }
                               <span className="ml-1.5 text-[10px] bg-blue-100 text-blue-700 rounded px-1">изменён</span>
                             )}
                           </p>
+                          {/* formatAnswerJsonRaw (без auto-$…$-обёртки) — это
+                              СВОБОДНЫЙ ввод ученика, не эталон. wrapBareLatex
+                              предназначен для эталонных ответов книг/библиотеки
+                              (там голый LaTeX — известный формат хранения);
+                              применённый к произвольному тексту ученика он рискует
+                              обернуть случайное "\словоСлитно" в формулу и
+                              показать вместо честного текста красную ошибку
+                              парсинга KaTeX. MathText всё равно распарсит explicit
+                              $…$, если ученик сам их использовал. */}
                           <MathText
-                            text={formatAnswerJson(ans.answer_json as Json)}
+                            text={formatAnswerJsonRaw(ans.answer_json as Json)}
                             className="font-medium wrap-break-word"
                           />
                         </div>

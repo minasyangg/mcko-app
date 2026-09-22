@@ -13,6 +13,7 @@ import { ClipboardList, Eye } from 'lucide-react'
 export interface SharedRow {
   share_id: string
   assignment_id: string
+  student_id: string
   student_name: string
   grade: string | null
   test_title: string
@@ -48,16 +49,21 @@ export function SharedWithMeTable({ initialRows }: { initialRows: SharedRow[] })
   const { visible: pagedRows, hasMore, loadMore, total, showing } =
     usePagination(filtered, 15, 15, JSON.stringify(filters))
 
-  async function openAttempt(assignmentId: string) {
+  async function openAttempt(assignmentId: string, studentId: string) {
     // AttemptDrawer работает с attempt_id, а не assignment_id — находим
     // актуальную (последнюю submitted/checked) попытку. RLS ("attempts:
     // teacher read via share") уже гарантирует, что мы увидим только то,
-    // что реально расшарено этому учителю.
+    // что реально расшарено этому учителю — но для ГРУППОВОГО назначения
+    // один и тот же assignment_id общий для всех учеников группы, и без
+    // фильтра по student_id клик на строку ученика А мог открыть попытку
+    // ученика Б (если Б сдал позже — .order(submitted_at desc).limit(1)
+    // выбирал бы её, не привязываясь к строке, на которую нажали).
     const supabase = createClient()
     const { data } = await supabase
       .from('attempts')
       .select('id')
       .eq('assignment_id', assignmentId)
+      .eq('student_id', studentId)
       .in('status', ['submitted', 'checked'])
       .order('submitted_at', { ascending: false })
       .limit(1)
@@ -114,7 +120,7 @@ export function SharedWithMeTable({ initialRows }: { initialRows: SharedRow[] })
                 </td>
                 <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{formatDate(r.expires_at)}</td>
                 <td className="px-4 py-3">
-                  <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => openAttempt(r.assignment_id)}>
+                  <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => openAttempt(r.assignment_id, r.student_id)}>
                     <Eye className="h-3.5 w-3.5 mr-1.5" /> Открыть
                   </Button>
                 </td>

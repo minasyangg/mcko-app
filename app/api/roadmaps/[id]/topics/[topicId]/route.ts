@@ -50,8 +50,21 @@ export async function PATCH(request: NextRequest, { params }: Params) {
   if (!parsed.success) return NextResponse.json({ error: 'Invalid body' }, { status: 400 })
 
   // Тема не может стать сама себе предком (прямо или через своё поддерево) —
-  // иначе parent_id зацикливается и дерево ломается при обходе.
+  // иначе parent_id зацикливается и дерево ломается при обходе. Отдельно —
+  // parent_id обязан принадлежать ТОЙ ЖЕ программе: без этой проверки можно
+  // было сослаться на тему из чужого roadmap (id доступен, если известен, —
+  // сама проверка через collectSubtreeIds ищет цикл только внутри текущей
+  // программы и молча пропустила бы чужой id). Итог без проверки: учитель
+  // видел бы узел в дереве RoadmapEditor (buildTopicTree трактует "predок не
+  // найден в byId" как root, не как ошибку), а topicsInTreeOrder на стороне
+  // ученика (app/student/page.tsx) не находит его в обходе от null и вся
+  // подветка немо исчезает из "Программы" без объяснения.
   if (parsed.data.parent_id) {
+    const { data: parent } = await admin
+      .from('roadmap_topics').select('id').eq('id', parsed.data.parent_id).eq('roadmap_id', id).single()
+    if (!parent) {
+      return NextResponse.json({ error: 'Родительская тема не найдена в этой программе' }, { status: 400 })
+    }
     const subtreeIds = new Set(await collectSubtreeIds(admin, id, topicId))
     if (subtreeIds.has(parsed.data.parent_id)) {
       return NextResponse.json({ error: 'Нельзя перенести тему внутрь самой себя или своего поддерева' }, { status: 400 })

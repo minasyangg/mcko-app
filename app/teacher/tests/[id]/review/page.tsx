@@ -8,7 +8,7 @@ import ReviewBoard, {
   type UnmatchedImageItem,
   type ParsingWarning,
 } from '@/components/teacher/ReviewBoard'
-import { formatAnswerJson } from '@/lib/grading/format-answer-display'
+import { formatAnswerJsonRaw } from '@/lib/grading/format-answer-display'
 import { formatCompositeAnswerForEdit } from '@/lib/grading/multi-part-answer'
 
 interface PageProps {
@@ -175,10 +175,14 @@ export default async function ReviewPage({ params }: PageProps) {
       ? t.task_answer_keys[0]
       : t.task_answer_keys
 
+    // formatAnswerJsonRaw (без $…$-обёртки) — значение инициализирует
+    // редактируемое поле формы, которое может уйти обратно на сервер без
+    // изменений; formatAnswerJson (display-вариант) добавил бы доллары,
+    // которых не было в исходном correct_answer.
     const correctAnswer = answerKey?.correct_answer
       ? typeof answerKey.correct_answer === 'string'
         ? answerKey.correct_answer
-        : formatCompositeAnswerForEdit(answerKey.correct_answer) ?? formatAnswerJson(answerKey.correct_answer)
+        : formatCompositeAnswerForEdit(answerKey.correct_answer) ?? formatAnswerJsonRaw(answerKey.correct_answer)
       : null
 
     // Solution media for this task (for teacher review in board)

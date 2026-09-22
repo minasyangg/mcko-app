@@ -29,10 +29,19 @@ interface RoadmapTopicRow {
 // тема, если скрыта ОНА САМА или ЛЮБОЙ её предок (скрытие главы прячет все
 // подтемы, даже если у них самих флаг true).
 function topicsInTreeOrder(allTopics: RoadmapTopicRow[], roadmapId: string): RoadmapTopicRow[] {
+  const own = allTopics.filter(t => t.roadmap_id === roadmapId)
+  const ownIds = new Set(own.map(t => t.id))
+
   const byParent = new Map<string | null, RoadmapTopicRow[]>()
-  for (const t of allTopics) {
-    if (t.roadmap_id !== roadmapId) continue
-    const key = t.parent_id
+  for (const t of own) {
+    // "Осиротевшая" тема (parent_id ссылается на id, которого нет среди тем
+    // ЭТОЙ программы — не должно происходить при корректном API, 092
+    // проверяет parent_id на принадлежность roadmap_id, но это защита в
+    // глубину) трактуется как root, не отбрасывается молча — тот же
+    // фолбэк, что buildTopicTree делает на стороне учителя
+    // (RoadmapEditor.tsx): без него подветка просто исчезала бы из
+    // "Программы" без единого признака проблемы.
+    const key = t.parent_id && ownIds.has(t.parent_id) ? t.parent_id : null
     const arr = byParent.get(key) ?? []
     arr.push(t)
     byParent.set(key, arr)

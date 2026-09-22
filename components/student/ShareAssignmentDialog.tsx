@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -32,8 +32,15 @@ export function ShareAssignmentDialog({ assignmentId, testTitle, compact = false
   const [recipients, setRecipients] = useState<Recipient[]>([])
   const [activeShares, setActiveShares] = useState<ActiveShare[]>([])
   const [busy, setBusy] = useState<string | null>(null)
+  // Токен последнего запущенного loadState — открыть/закрыть/переоткрыть
+  // диалог быстро (или share()/revoke() дозапустить loadState() поверх ещё
+  // летящего предыдущего) без него могло гонкой перезаписать состояние
+  // устаревшим ответом: чей fetch долетит вторым, тот и "выигрывает",
+  // независимо от того, какой из них реально самый свежий.
+  const loadTokenRef = useRef(0)
 
   async function loadState() {
+    const token = ++loadTokenRef.current
     setLoading(true)
     try {
       const [recipientsRes, sharesRes] = await Promise.all([
@@ -42,11 +49,12 @@ export function ShareAssignmentDialog({ assignmentId, testTitle, compact = false
       ])
       const recipientsJson = await recipientsRes.json().catch(() => ({}))
       const sharesJson = await sharesRes.json().catch(() => ({}))
+      if (token !== loadTokenRef.current) return // устарел — пришёл более новый запрос
       setEnabled(recipientsJson.enabled ?? false)
       setRecipients(recipientsJson.recipients ?? [])
       setActiveShares(sharesJson.shares ?? [])
     } finally {
-      setLoading(false)
+      if (token === loadTokenRef.current) setLoading(false)
     }
   }
 

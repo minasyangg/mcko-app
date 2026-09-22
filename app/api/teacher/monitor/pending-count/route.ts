@@ -13,13 +13,22 @@ export async function GET() {
   if (!profile || !['teacher', 'admin'].includes(profile.role)) {
     return Response.json({ count: 0 }, { status: 403 })
   }
+  const isAdmin = profile.role === 'admin'
 
   // Load all non-active attempts ordered newest first.
   // We only need the latest per (student_id, assignment_id) to determine current state.
-  const { data: attempts } = await supabase
+  //
+  // ВАЖНО: та же дыра, что в MonitorTable/getAttemptRows — RLS на attempts
+  // теперь пропускает и попытки, расшаренные этому учителю через
+  // assignment_shares (087/088), не только его собственные назначения.
+  // Без фильтра бейдж "на проверке" считал бы и чужие расшаренные работы,
+  // которые этот экран не должен трогать вовсе (это не владелец).
+  let attemptsQuery = supabase
     .from('attempts')
-    .select('student_id, assignment_id, status, last_activity_at, teacher_reviewed_at')
+    .select('student_id, assignment_id, status, last_activity_at, teacher_reviewed_at, assignments!inner(created_by)')
     .in('status', ['submitted', 'under_review', 'checked'])
+  if (!isAdmin) attemptsQuery = attemptsQuery.eq('assignments.created_by', user.id)
+  const { data: attempts } = await attemptsQuery
     .order('last_activity_at', { ascending: false })
     .limit(1000)
 
