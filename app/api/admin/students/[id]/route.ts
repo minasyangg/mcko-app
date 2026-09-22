@@ -125,7 +125,21 @@ export async function PATCH(
     if (email) authUpdate.email = email
     if (password) authUpdate.password = password
     const { error } = await admin.auth.admin.updateUserById(id, authUpdate)
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    if (error) {
+      // auth.users.email уникален (users_email_partial_key) — живой
+      // инцидент: браузерный autofill подставил в поле "Новый email" чужой
+      // сохранённый адрес уже после рендера формы (клиентский input не
+      // видел этого в своём React state), сервер упал на голом postgres
+      // "duplicate key value violates unique constraint" — учителю это
+      // ничего не говорило. Клиент дополнительно защищён autoComplete="off"
+      // на этом поле, но сервер всё равно даёт понятный текст на случай
+      // реального совпадения (два разных ученика, один email по ошибке).
+      const isDuplicateEmail = email && /duplicate key.*email|users_email_partial_key/i.test(error.message)
+      return NextResponse.json(
+        { error: isDuplicateEmail ? `Email ${email} уже используется другим аккаунтом` : error.message },
+        { status: isDuplicateEmail ? 409 : 500 }
+      )
+    }
     // profiles.email — копия auth-email (миграция 025), синхронизируем
     if (email) await admin.from('profiles').update({ email }).eq('id', id)
   }
