@@ -46,6 +46,8 @@ import {
   GripVertical,
 } from 'lucide-react'
 import MarkdownContent from '@/components/shared/MarkdownContent'
+import { MathText } from '@/components/shared/MathText'
+import { wrapBareLatex } from '@/lib/grading/format-answer-display'
 import { derivePromptText } from '@/lib/tasks/prompt'
 import { ImageGallery } from '@/components/shared/ImageGallery'
 import { TestPreviewModal } from '@/components/teacher/TestPreviewModal'
@@ -576,7 +578,18 @@ function TaskCard({
         {/* Answer / score row */}
         <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
           {task.correct_answer != null && task.correct_answer !== '' && (
-            <span>Ответ: <span className="font-medium text-foreground">{task.correct_answer}</span></span>
+            <span>
+              Ответ:{' '}
+              {/* task.correct_answer собран через formatAnswerJsonRaw
+                  (без $…$-обёртки) на сервере — то же значение инициализирует
+                  EditTaskForm при открытии редактирования, и обёртка там
+                  была бы лишней при пересохранении. Показ применяет обёртку
+                  здесь же, отдельно от источника формы, и рендерит через
+                  MathText — раньше составные эталоны с голым LaTeX
+                  ("\left(-2/3;2\right]") показывались сырым нечитаемым
+                  текстом вместо формулы. */}
+              <MathText text={wrapBareLatex(task.correct_answer)} className="font-medium text-foreground inline" />
+            </span>
           )}
           {task.max_score != null && (
             <span>Балл: <span className="font-medium text-foreground">{task.max_score}</span></span>

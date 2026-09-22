@@ -26,6 +26,8 @@ import {
   Save,
 } from 'lucide-react'
 import MarkdownContent from '@/components/shared/MarkdownContent'
+import { MathText } from '@/components/shared/MathText'
+import { wrapBareLatex } from '@/lib/grading/format-answer-display'
 import { ImageGallery, GalleryThumb } from '@/components/shared/ImageGallery'
 
 export interface TaskWithReview {
@@ -286,8 +288,12 @@ function TaskRow({
           </p>
         </td>
         <td className="px-4 py-3">
+          {/* task.correct_answer собран без $…$-обёртки (то же значение
+              инициализирует форму редактирования ниже, обёртка на показе
+              не должна попасть обратно в источник формы) — обёртка и
+              MathText применяются здесь же, отдельно, как в TestDetailClient. */}
           <span className="text-sm text-muted-foreground">
-            {task.correct_answer ?? '—'}
+            {task.correct_answer ? <MathText text={wrapBareLatex(task.correct_answer)} className="inline" /> : '—'}
           </span>
         </td>
         <td className="px-4 py-3">
