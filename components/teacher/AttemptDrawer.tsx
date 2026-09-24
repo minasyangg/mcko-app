@@ -28,6 +28,8 @@ interface AttemptDetail {
   teacher_reviewed_at: string | null
   current_task_number: number | null
   teacher_comment: string | null
+  assignment_id: string | null
+  student_id: string | null
   profiles: { full_name: string; grade: string | null } | null
   assignments: {
     test_versions: { version_number: number; tests: { title: string } | null } | null
@@ -292,6 +294,7 @@ export function AttemptDrawer({ attemptId, onClose, onGraded, readOnly = false }
         supabase.from('attempts').select(`
           id, status, score, max_score, started_at, submitted_at, checked_at,
           teacher_reviewed_at, current_task_number, teacher_comment,
+          assignment_id, student_id,
           profiles ( full_name, grade ),
           assignments ( test_versions!test_version_id (
             version_number, tests!test_id ( title )
@@ -326,108 +329,104 @@ export function AttemptDrawer({ attemptId, onClose, onGraded, readOnly = false }
         }
         setGrades(init)
 
-        // Load correct answers and previous attempt answers
+        // Раньше эти запросы шли ПОСЛЕДОВАТЕЛЬНО один за другим (await в
+        // цикле) — 6-7 круговых поездок подряд вместо параллельных, отсюда
+        // и жалобы на долгую загрузку окна попытки (суммарная задержка =
+        // сумма latency всех запросов, а не самый медленный из них). Они
+        // независимы друг от друга (все зависят только от уже известных
+        // attemptId/taskIds/assignment_id/student_id из attemptRes) —
+        // запускаем всё разом через Promise.all.
         const taskIds = sorted.map((a) => a.task_id).filter(Boolean) as string[]
-        if (taskIds.length > 0) {
-          // Load correct answers for teacher hint (+ редактирование эталона)
-          const { data: ansKeys } = await supabase
-            .from('task_answer_keys')
-            .select('task_id, correct_answer, grading_method')
-            .in('task_id', taskIds)
-          if (ansKeys && !cancelled) {
-            const m: Record<string, string> = {}
-            const km: Record<string, { raw: Json; gradingMethod: string }> = {}
-            for (const k of ansKeys) {
-              if (!k.task_id) continue
-              m[k.task_id] = formatAnswerJson(k.correct_answer as Json)
-              km[k.task_id] = { raw: k.correct_answer as Json, gradingMethod: k.grading_method }
-            }
-            setCorrectAnswerMap(m)
-            setAnswerKeyMap(km)
-          }
+        const a = attemptRes.data as unknown as AttemptDetail | null
 
-          // Find previous attempt to detect changed answers
-          const attemptData = (await supabase.from('attempts')
-            .select('assignment_id, student_id')
-            .eq('id', attemptId!).single()).data
-          if (attemptData && !cancelled) {
-            const { data: prevAttempts } = await supabase
-              .from('attempts')
-              .select('id, started_at')
-              .eq('assignment_id', attemptData.assignment_id)
-              .eq('student_id', attemptData.student_id)
-              .in('status', ['submitted', 'checked'])
-              .order('started_at', { ascending: false })
-              .limit(5)
+        const [ansKeysRes, prevAttemptsRes, rawMediaRes, rawSolutionMediaRes] = await Promise.all([
+          taskIds.length > 0
+            ? supabase.from('task_answer_keys').select('task_id, correct_answer, grading_method').in('task_id', taskIds)
+            : Promise.resolve({ data: null }),
+          // assignment_id/student_id уже пришли с первым запросом (attemptRes) —
+          // повторный поход в attempts за теми же полями был чистым дублированием.
+          taskIds.length > 0 && a?.assignment_id && a?.student_id
+            ? supabase.from('attempts').select('id, started_at')
+                .eq('assignment_id', a.assignment_id).eq('student_id', a.student_id)
+                .in('status', ['submitted', 'checked']).order('started_at', { ascending: false }).limit(5)
+            : Promise.resolve({ data: null }),
+          taskIds.length > 0
+            ? supabase.from('task_media')
+                .select('id, task_id, storage_path, width_px, height_px, alt_text, sort_order')
+                .in('task_id', taskIds).order('sort_order', { ascending: true })
+            : Promise.resolve({ data: null }),
+          taskIds.length > 0
+            ? supabase.from('attempt_answer_media')
+                .select('id, task_id, storage_path, width_px, height_px, sort_order')
+                .eq('attempt_id', attemptId!).order('sort_order', { ascending: true })
+            : Promise.resolve({ data: null }),
+        ])
+        if (cancelled) return
 
-            // Find the attempt just before current one
-            const prevAttemptId = prevAttempts?.find(p => p.id !== attemptId)?.id
-            if (prevAttemptId) {
-              const { data: prevAnswers } = await supabase
-                .from('attempt_task_answers')
-                .select('task_id, answer_json')
-                .eq('attempt_id', prevAttemptId)
-              if (prevAnswers && !cancelled) {
-                const prevMap = new Map(prevAnswers.map(p => [p.task_id, JSON.stringify(p.answer_json)]))
-                const changed = new Set<string>()
-                for (const ans of sorted) {
-                  const tid = ans.task_id ?? ''
-                  const curr = JSON.stringify(ans.answer_json)
-                  if (!prevMap.has(tid) || prevMap.get(tid) !== curr) changed.add(tid)
-                }
-                setChangedTaskIds(changed)
-              }
-            }
+        if (ansKeysRes.data) {
+          const m: Record<string, string> = {}
+          const km: Record<string, { raw: Json; gradingMethod: string }> = {}
+          for (const k of ansKeysRes.data) {
+            if (!k.task_id) continue
+            m[k.task_id] = formatAnswerJson(k.correct_answer as Json)
+            km[k.task_id] = { raw: k.correct_answer as Json, gradingMethod: k.grading_method }
           }
+          setCorrectAnswerMap(m)
+          setAnswerKeyMap(km)
         }
 
-        if (taskIds.length > 0) {
-          const { data: rawMedia } = await supabase
-            .from('task_media')
-            .select('id, task_id, storage_path, width_px, height_px, alt_text, sort_order')
-            .in('task_id', taskIds)
-            .order('sort_order', { ascending: true })
+        // Дальше по предыдущей попытке нужен ещё один поход (её ответы) —
+        // он не зависит от медиа-запросов выше, поэтому запускаем его
+        // параллельно с загрузкой подписанных URL, а не после них.
+        const prevAttemptId = prevAttemptsRes.data?.find((p: { id: string }) => p.id !== attemptId)?.id
 
-          if (rawMedia && rawMedia.length > 0 && !cancelled) {
-            const paths = rawMedia.map((m) => m.storage_path)
-            const { data: signed } = await supabase.storage
-              .from('task-media')
-              .createSignedUrls(paths, 3600)
+        const [prevAnswersRes, signedMediaRes, signedSolutionRes] = await Promise.all([
+          prevAttemptId
+            ? supabase.from('attempt_task_answers').select('task_id, answer_json').eq('attempt_id', prevAttemptId)
+            : Promise.resolve({ data: null }),
+          rawMediaRes.data && rawMediaRes.data.length > 0
+            ? supabase.storage.from('task-media').createSignedUrls(rawMediaRes.data.map((m) => m.storage_path), 3600)
+            : Promise.resolve({ data: null }),
+          rawSolutionMediaRes.data && rawSolutionMediaRes.data.length > 0
+            ? supabase.storage.from('student-solution-media').createSignedUrls(rawSolutionMediaRes.data.map((m) => m.storage_path), 3600)
+            : Promise.resolve({ data: null }),
+        ])
+        if (cancelled) return
 
-            const urlMap = Object.fromEntries((signed ?? []).map((s) => [s.path, s.signedUrl]))
-            const byTask: Record<string, MediaRow[]> = {}
-            for (const m of rawMedia) {
-              if (!m.task_id) continue
-              if (!byTask[m.task_id]) byTask[m.task_id] = []
-              byTask[m.task_id].push({ ...m, signedUrl: urlMap[m.storage_path] ?? '' })
-            }
-            setMediaByTask(byTask)
+        if (prevAnswersRes.data) {
+          const prevMap = new Map(prevAnswersRes.data.map((p) => [p.task_id, JSON.stringify(p.answer_json)]))
+          const changed = new Set<string>()
+          for (const ans of sorted) {
+            const tid = ans.task_id ?? ''
+            const curr = JSON.stringify(ans.answer_json)
+            if (!prevMap.has(tid) || prevMap.get(tid) !== curr) changed.add(tid)
           }
+          setChangedTaskIds(changed)
+        }
 
-          // Фото письменного решения ученика (attempt_answer_media) — тот же
-          // паттерн подписи ссылок, что и task_media, но приватный бакет
-          // student-solution-media и своя таблица (см. миграцию 077).
-          const { data: rawSolutionMedia } = await supabase
-            .from('attempt_answer_media')
-            .select('id, task_id, storage_path, width_px, height_px, sort_order')
-            .eq('attempt_id', attemptId!)
-            .order('sort_order', { ascending: true })
-
-          if (rawSolutionMedia && rawSolutionMedia.length > 0 && !cancelled) {
-            const paths = rawSolutionMedia.map((m) => m.storage_path)
-            const { data: signed } = await supabase.storage
-              .from('student-solution-media')
-              .createSignedUrls(paths, 3600)
-
-            const urlMap = Object.fromEntries((signed ?? []).map((s) => [s.path, s.signedUrl]))
-            const byTask: Record<string, MediaRow[]> = {}
-            for (const m of rawSolutionMedia) {
-              if (!m.task_id) continue
-              if (!byTask[m.task_id]) byTask[m.task_id] = []
-              byTask[m.task_id].push({ ...m, alt_text: null, signedUrl: urlMap[m.storage_path] ?? '' })
-            }
-            setSolutionPhotosByTask(byTask)
+        if (rawMediaRes.data && rawMediaRes.data.length > 0) {
+          const urlMap = Object.fromEntries((signedMediaRes.data ?? []).map((s) => [s.path, s.signedUrl]))
+          const byTask: Record<string, MediaRow[]> = {}
+          for (const m of rawMediaRes.data) {
+            if (!m.task_id) continue
+            if (!byTask[m.task_id]) byTask[m.task_id] = []
+            byTask[m.task_id].push({ ...m, signedUrl: urlMap[m.storage_path] ?? '' })
           }
+          setMediaByTask(byTask)
+        }
+
+        // Фото письменного решения ученика (attempt_answer_media) — тот же
+        // паттерн подписи ссылок, что и task_media, но приватный бакет
+        // student-solution-media и своя таблица (см. миграцию 077).
+        if (rawSolutionMediaRes.data && rawSolutionMediaRes.data.length > 0) {
+          const urlMap = Object.fromEntries((signedSolutionRes.data ?? []).map((s) => [s.path, s.signedUrl]))
+          const byTask: Record<string, MediaRow[]> = {}
+          for (const m of rawSolutionMediaRes.data) {
+            if (!m.task_id) continue
+            if (!byTask[m.task_id]) byTask[m.task_id] = []
+            byTask[m.task_id].push({ ...m, alt_text: null, signedUrl: urlMap[m.storage_path] ?? '' })
+          }
+          setSolutionPhotosByTask(byTask)
         }
       }
       setLoading(false)
