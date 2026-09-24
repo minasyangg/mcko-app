@@ -23,22 +23,19 @@ export async function PATCH(
       return Response.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const { data: profile, error: profileError } = await supabase
-      .from('profiles')
-      .select('role')
-      .eq('id', user.id)
-      .single()
+    // profile и task оба зависят только от user.id/taskId, не друг от
+    // друга — грузим параллельно вместо последовательно.
+    const [
+      { data: profile, error: profileError },
+      { data: task, error: taskError },
+    ] = await Promise.all([
+      supabase.from('profiles').select('role').eq('id', user.id).single(),
+      supabase.from('test_tasks').select('id, test_version_id').eq('id', taskId).single(),
+    ])
 
     if (profileError || !profile || !['teacher', 'admin'].includes(profile.role)) {
       return Response.json({ error: 'Forbidden' }, { status: 403 })
     }
-
-    // Verify task exists and version is not published
-    const { data: task, error: taskError } = await supabase
-      .from('test_tasks')
-      .select('id, test_version_id')
-      .eq('id', taskId)
-      .single()
 
     if (taskError || !task) {
       return Response.json({ error: 'Task not found' }, { status: 404 })
@@ -106,21 +103,19 @@ export async function DELETE(
       return Response.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const { data: profile, error: profileError } = await supabase
-      .from('profiles')
-      .select('role')
-      .eq('id', user.id)
-      .single()
+    // profile и task оба зависят только от user.id/taskId, не друг от
+    // друга — грузим параллельно вместо последовательно.
+    const [
+      { data: profile, error: profileError },
+      { data: task, error: taskError },
+    ] = await Promise.all([
+      supabase.from('profiles').select('role').eq('id', user.id).single(),
+      supabase.from('test_tasks').select('id, test_version_id').eq('id', taskId).single(),
+    ])
 
     if (profileError || !profile || !['teacher', 'admin'].includes(profile.role)) {
       return Response.json({ error: 'Forbidden' }, { status: 403 })
     }
-
-    const { data: task, error: taskError } = await supabase
-      .from('test_tasks')
-      .select('id, test_version_id')
-      .eq('id', taskId)
-      .single()
 
     if (taskError || !task) {
       return Response.json({ error: 'Task not found' }, { status: 404 })
@@ -140,27 +135,31 @@ export async function DELETE(
 
     const admin = createAdminClient()
 
-    // Cascade: answer keys, solutions (and their media), task media, solution_requests, parsing_warnings, attempt_task_answers
-    await admin.from('task_answer_keys').delete().eq('task_id', taskId)
-
-    const { data: solutions } = await admin
-      .from('task_solutions')
-      .select('id')
-      .eq('task_id', taskId)
+    // Cascade: answer keys, solutions (and their media), task media, solution_requests, parsing_warnings, attempt_task_answers.
+    // task_answer_keys, task_solutions→solution_media и task_media→Storage-файлы —
+    // независимые ветки каскада (разные таблицы, ничто не ссылается друг на
+    // друга между ветками) — параллелим. Внутри каждой ветки порядок
+    // (сначала дочерние строки/файлы, потом родительские) сохранён.
+    const [, { data: solutions }, { data: mediaRows }] = await Promise.all([
+      admin.from('task_answer_keys').delete().eq('task_id', taskId),
+      admin.from('task_solutions').select('id').eq('task_id', taskId),
+      admin.from('task_media').select('storage_path').eq('task_id', taskId),
+    ])
 
     const solutionIds = (solutions ?? []).map((s) => s.id)
-    if (solutionIds.length > 0) {
-      await admin.from('solution_media').delete().in('solution_id', solutionIds)
-      await admin.from('task_solutions').delete().in('id', solutionIds)
-    }
+    const mediaPaths = (mediaRows ?? []).map(r => r.storage_path).filter(Boolean)
 
-    // Delete Storage files before DB rows
-    const { data: mediaRows } = await admin.from('task_media').select('storage_path').eq('task_id', taskId)
-    await deleteTaskMediaFiles(admin, (mediaRows ?? []).map(r => r.storage_path).filter(Boolean))
-    await admin.from('task_media').delete().eq('task_id', taskId)
-    await admin.from('solution_requests').delete().eq('task_id', taskId)
-    await admin.from('parsing_warnings').delete().eq('task_id', taskId)
-    await admin.from('attempt_task_answers').delete().eq('task_id', taskId)
+    await Promise.all([
+      solutionIds.length > 0
+        ? admin.from('solution_media').delete().in('solution_id', solutionIds)
+            .then(() => admin.from('task_solutions').delete().in('id', solutionIds))
+        : Promise.resolve(),
+      // Storage-файлы удаляем до DB-строки task_media — тот же порядок, что был.
+      deleteTaskMediaFiles(admin, mediaPaths).then(() => admin.from('task_media').delete().eq('task_id', taskId)),
+      admin.from('solution_requests').delete().eq('task_id', taskId),
+      admin.from('parsing_warnings').delete().eq('task_id', taskId),
+      admin.from('attempt_task_answers').delete().eq('task_id', taskId),
+    ])
 
     const { error: deleteError } = await admin
       .from('test_tasks')
