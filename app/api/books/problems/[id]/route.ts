@@ -148,13 +148,15 @@ export async function PATCH(
           .eq('page_index', problem.page_index)
         const anchors = computeAnchors(newPageMd, (pageProblems ?? []).map(p => p.task_number),
           new Map((pageProblems ?? []).map(p => [p.task_number, p.task_number_sort ?? 0])))
-        for (const p of pageProblems ?? []) {
+        // Каждое обновление — своя строка book_problems (разные id),
+        // независимы друг от друга — параллельно вместо последовательного цикла.
+        await Promise.all((pageProblems ?? []).map(p => {
           const a = anchors.get(p.task_number) ?? null
-          await admin.from('book_problems').update({
+          return admin.from('book_problems').update({
             md_start: a?.start ?? null,
             md_end: a?.end ?? null,
           }).eq('id', p.id)
-        }
+        }))
       }
     }
   }
@@ -217,13 +219,15 @@ export async function DELETE(
         .neq('id', id)
       const anchors = computeAnchors(newPageMd, (pageProblems ?? []).map(p => p.task_number),
           new Map((pageProblems ?? []).map(p => [p.task_number, p.task_number_sort ?? 0])))
-      for (const p of pageProblems ?? []) {
+      // Каждое обновление — своя строка book_problems (разные id),
+      // независимы друг от друга — параллельно вместо последовательного цикла.
+      await Promise.all((pageProblems ?? []).map(p => {
         const a = anchors.get(p.task_number) ?? null
-        await admin.from('book_problems').update({
+        return admin.from('book_problems').update({
           md_start: a?.start ?? null,
           md_end: a?.end ?? null,
         }).eq('id', p.id)
-      }
+      }))
     }
   }
 

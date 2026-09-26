@@ -34,13 +34,19 @@ export default async function RoadmapEditPage({ params }: { params: Promise<{ id
     supabase.from('roadmap_source_groups').select('group_id').eq('roadmap_id', id),
   ])
 
-  // Обычные группы учителя (системные группы программ исключаем: roadmap_id).
-  // Нужны, чтобы добавлять в программу сразу весь класс, а не по одному ученику.
-  const { data: groupRows } = await supabase
-    .from('groups')
-    .select('id, name')
-    .is('roadmap_id', null)
-    .order('name')
+  // Профили закреплённых учеников (studentIds уже известны из links,
+  // пришедших в первом Promise.all выше) и обычные группы учителя
+  // (системные группы программ исключаем: roadmap_id) независимы друг от
+  // друга — запускаем параллельно, а не последовательно. group_members
+  // групп зависит от groupIds, поэтому остаётся отдельным шагом ПОСЛЕ
+  // groupRows — эту связку распараллелить нельзя, она реально зависимая.
+  const studentIds = (links ?? []).map(l => l.student_id)
+  const [{ data: students }, { data: groupRows }] = await Promise.all([
+    studentIds.length
+      ? supabase.from('profiles').select('id, full_name, grade').in('id', studentIds).order('full_name')
+      : Promise.resolve({ data: [] as { id: string; full_name: string; grade: string | null }[] }),
+    supabase.from('groups').select('id, name').is('roadmap_id', null).order('name'),
+  ])
 
   const groupIds = (groupRows ?? []).map(g => g.id)
   const { data: groupMemberRows } = groupIds.length
@@ -53,12 +59,6 @@ export default async function RoadmapEditPage({ params }: { params: Promise<{ id
     arr.push(m.user_id)
     membersByGroup.set(m.group_id, arr)
   }
-
-  // Профили закреплённых учеников
-  const studentIds = (links ?? []).map(l => l.student_id)
-  const { data: students } = studentIds.length
-    ? await supabase.from('profiles').select('id, full_name, grade').in('id', studentIds).order('full_name')
-    : { data: [] as { id: string; full_name: string; grade: string | null }[] }
 
   // Задания по темам
   const itemsByTopic = new Map<string, EditorTopic['items']>()

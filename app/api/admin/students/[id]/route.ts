@@ -169,9 +169,13 @@ export async function DELETE(
   const { error: rpcError } = await admin.rpc('delete_student_cascade', { target_student_id: id })
   if (rpcError) return NextResponse.json({ error: rpcError.message }, { status: 500 })
 
-  // 2. Delete remaining rows that reference profiles.id
-  await admin.from('solution_requests').delete().eq('student_id', id)
-  await admin.from('student_final_results').delete().eq('student_id', id)
+  // 2. Delete remaining rows that reference profiles.id (независимы друг от
+  // друга — параллельно). Должны идти ПОСЛЕ RPC (шаг 1) и ДО удаления самого
+  // profile-row (шаг 3) — эти границы менять нельзя.
+  await Promise.all([
+    admin.from('solution_requests').delete().eq('student_id', id),
+    admin.from('student_final_results').delete().eq('student_id', id),
+  ])
 
   // 3. Hard-delete the profile row itself
   const { error: profileError } = await admin.from('profiles').delete().eq('id', id)
