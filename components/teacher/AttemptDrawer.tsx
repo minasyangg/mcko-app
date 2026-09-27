@@ -16,6 +16,7 @@ import { formatAnswerJson, formatAnswerJsonRaw } from '@/lib/grading/format-answ
 import { formatCompositeAnswerForEdit } from '@/lib/grading/multi-part-answer'
 import { ImageGallery } from '@/components/shared/ImageGallery'
 import type { Json } from '@/types/database'
+import { loadAttemptReview, type AttemptReviewData } from '@/lib/attempts/review-data'
 
 interface AttemptDetail {
   id: string
@@ -289,32 +290,33 @@ export function AttemptDrawer({ attemptId, onClose, onGraded, readOnly = false }
     let cancelled = false
     setLoading(true); setSaveError(null)
 
+    // Все запросы окна — в lib/attempts/review-data.ts. Основной путь — один
+    // запрос к серверному роуту: он стоит рядом с БД, и три последовательные
+    // волны запросов там стоят единицы мс, тогда как из браузера каждая волна
+    // шла через всю Европу (~120 мс). Если роут не ответил — выполняем те же
+    // запросы прямо из браузера, как раньше (права одинаковые — RLS).
+    async function fetchReview(): Promise<AttemptReviewData> {
+      try {
+        const res = await fetch(`/api/attempts/${attemptId}/review`, { cache: 'no-store' })
+        if (res.ok) return await res.json() as AttemptReviewData
+      } catch {
+        // сеть/роут недоступен — уходим в запасной путь ниже
+      }
+      return loadAttemptReview(supabase, attemptId!)
+    }
+
     async function load() {
-      const [attemptRes, answersRes] = await Promise.all([
-        supabase.from('attempts').select(`
-          id, status, score, max_score, started_at, submitted_at, checked_at,
-          teacher_reviewed_at, current_task_number, teacher_comment,
-          assignment_id, student_id,
-          profiles ( full_name, grade ),
-          assignments ( test_versions!test_version_id (
-            version_number, tests!test_id ( title )
-          ))
-        `).eq('id', attemptId!).single(),
-        supabase.from('attempt_task_answers').select(`
-          id, task_id, answer_json, awarded_score, is_correct, is_locked, teacher_comment,
-          test_tasks ( task_number, task_type, prompt_text, prompt_html, max_score )
-        `).eq('attempt_id', attemptId!),
-      ])
+      const data = await fetchReview()
       if (cancelled) return
 
-      if (!attemptRes.error && attemptRes.data) {
-        const a = attemptRes.data as unknown as AttemptDetail
+      if (data.attempt) {
+        const a = data.attempt as AttemptDetail
         setAttempt(a)
         setTeacherComment(a.teacher_comment ?? '')
       }
 
-      if (!answersRes.error && answersRes.data) {
-        const sorted = [...(answersRes.data as unknown as AnswerRow[])].sort(
+      if (data.answers) {
+        const sorted = [...(data.answers as AnswerRow[])].sort(
           (a, b) => (a.test_tasks?.task_number ?? 0) - (b.test_tasks?.task_number ?? 0)
         )
         setAnswers(sorted)
@@ -329,44 +331,10 @@ export function AttemptDrawer({ attemptId, onClose, onGraded, readOnly = false }
         }
         setGrades(init)
 
-        // Раньше эти запросы шли ПОСЛЕДОВАТЕЛЬНО один за другим (await в
-        // цикле) — 6-7 круговых поездок подряд вместо параллельных, отсюда
-        // и жалобы на долгую загрузку окна попытки (суммарная задержка =
-        // сумма latency всех запросов, а не самый медленный из них). Они
-        // независимы друг от друга (все зависят только от уже известных
-        // attemptId/taskIds/assignment_id/student_id из attemptRes) —
-        // запускаем всё разом через Promise.all.
-        const taskIds = sorted.map((a) => a.task_id).filter(Boolean) as string[]
-        const a = attemptRes.data as unknown as AttemptDetail | null
-
-        const [ansKeysRes, prevAttemptsRes, rawMediaRes, rawSolutionMediaRes] = await Promise.all([
-          taskIds.length > 0
-            ? supabase.from('task_answer_keys').select('task_id, correct_answer, grading_method').in('task_id', taskIds)
-            : Promise.resolve({ data: null }),
-          // assignment_id/student_id уже пришли с первым запросом (attemptRes) —
-          // повторный поход в attempts за теми же полями был чистым дублированием.
-          taskIds.length > 0 && a?.assignment_id && a?.student_id
-            ? supabase.from('attempts').select('id, started_at')
-                .eq('assignment_id', a.assignment_id).eq('student_id', a.student_id)
-                .in('status', ['submitted', 'checked']).order('started_at', { ascending: false }).limit(5)
-            : Promise.resolve({ data: null }),
-          taskIds.length > 0
-            ? supabase.from('task_media')
-                .select('id, task_id, storage_path, width_px, height_px, alt_text, sort_order')
-                .in('task_id', taskIds).order('sort_order', { ascending: true })
-            : Promise.resolve({ data: null }),
-          taskIds.length > 0
-            ? supabase.from('attempt_answer_media')
-                .select('id, task_id, storage_path, width_px, height_px, sort_order')
-                .eq('attempt_id', attemptId!).order('sort_order', { ascending: true })
-            : Promise.resolve({ data: null }),
-        ])
-        if (cancelled) return
-
-        if (ansKeysRes.data) {
+        if (data.answerKeys) {
           const m: Record<string, string> = {}
           const km: Record<string, { raw: Json; gradingMethod: string }> = {}
-          for (const k of ansKeysRes.data) {
+          for (const k of data.answerKeys) {
             if (!k.task_id) continue
             m[k.task_id] = formatAnswerJson(k.correct_answer as Json)
             km[k.task_id] = { raw: k.correct_answer as Json, gradingMethod: k.grading_method }
@@ -375,26 +343,8 @@ export function AttemptDrawer({ attemptId, onClose, onGraded, readOnly = false }
           setAnswerKeyMap(km)
         }
 
-        // Дальше по предыдущей попытке нужен ещё один поход (её ответы) —
-        // он не зависит от медиа-запросов выше, поэтому запускаем его
-        // параллельно с загрузкой подписанных URL, а не после них.
-        const prevAttemptId = prevAttemptsRes.data?.find((p: { id: string }) => p.id !== attemptId)?.id
-
-        const [prevAnswersRes, signedMediaRes, signedSolutionRes] = await Promise.all([
-          prevAttemptId
-            ? supabase.from('attempt_task_answers').select('task_id, answer_json').eq('attempt_id', prevAttemptId)
-            : Promise.resolve({ data: null }),
-          rawMediaRes.data && rawMediaRes.data.length > 0
-            ? supabase.storage.from('task-media').createSignedUrls(rawMediaRes.data.map((m) => m.storage_path), 3600)
-            : Promise.resolve({ data: null }),
-          rawSolutionMediaRes.data && rawSolutionMediaRes.data.length > 0
-            ? supabase.storage.from('student-solution-media').createSignedUrls(rawSolutionMediaRes.data.map((m) => m.storage_path), 3600)
-            : Promise.resolve({ data: null }),
-        ])
-        if (cancelled) return
-
-        if (prevAnswersRes.data) {
-          const prevMap = new Map(prevAnswersRes.data.map((p) => [p.task_id, JSON.stringify(p.answer_json)]))
+        if (data.prevAnswers) {
+          const prevMap = new Map(data.prevAnswers.map((p) => [p.task_id, JSON.stringify(p.answer_json)]))
           const changed = new Set<string>()
           for (const ans of sorted) {
             const tid = ans.task_id ?? ''
@@ -404,13 +354,12 @@ export function AttemptDrawer({ attemptId, onClose, onGraded, readOnly = false }
           setChangedTaskIds(changed)
         }
 
-        if (rawMediaRes.data && rawMediaRes.data.length > 0) {
-          const urlMap = Object.fromEntries((signedMediaRes.data ?? []).map((s) => [s.path, s.signedUrl]))
+        if (data.taskMedia) {
           const byTask: Record<string, MediaRow[]> = {}
-          for (const m of rawMediaRes.data) {
+          for (const m of data.taskMedia) {
             if (!m.task_id) continue
             if (!byTask[m.task_id]) byTask[m.task_id] = []
-            byTask[m.task_id].push({ ...m, signedUrl: urlMap[m.storage_path] ?? '' })
+            byTask[m.task_id].push({ ...m, alt_text: m.alt_text ?? null })
           }
           setMediaByTask(byTask)
         }
@@ -418,13 +367,12 @@ export function AttemptDrawer({ attemptId, onClose, onGraded, readOnly = false }
         // Фото письменного решения ученика (attempt_answer_media) — тот же
         // паттерн подписи ссылок, что и task_media, но приватный бакет
         // student-solution-media и своя таблица (см. миграцию 077).
-        if (rawSolutionMediaRes.data && rawSolutionMediaRes.data.length > 0) {
-          const urlMap = Object.fromEntries((signedSolutionRes.data ?? []).map((s) => [s.path, s.signedUrl]))
+        if (data.solutionMedia) {
           const byTask: Record<string, MediaRow[]> = {}
-          for (const m of rawSolutionMediaRes.data) {
+          for (const m of data.solutionMedia) {
             if (!m.task_id) continue
             if (!byTask[m.task_id]) byTask[m.task_id] = []
-            byTask[m.task_id].push({ ...m, alt_text: null, signedUrl: urlMap[m.storage_path] ?? '' })
+            byTask[m.task_id].push({ ...m, alt_text: null })
           }
           setSolutionPhotosByTask(byTask)
         }
