@@ -34,7 +34,9 @@ export async function getRoadmapSummaries(
   const roadmapIds = rows.map(r => r.id)
   const groupIds = [...new Set(rows.map(r => r.group_id).filter(Boolean))] as string[]
 
-  const [{ data: topics }, { data: members }, ownersRes] = await Promise.all([
+  // Задания программ (itemRows) зависят только от groupIds — грузим их в той же
+  // волне, что темы/участников, а не отдельным последовательным запросом после.
+  const [{ data: topics }, { data: members }, ownersRes, { data: itemRows }] = await Promise.all([
     supabase.from('roadmap_topics').select('id, roadmap_id').in('roadmap_id', roadmapIds),
     groupIds.length
       ? supabase.from('group_members').select('group_id, user_id').in('group_id', groupIds)
@@ -42,6 +44,13 @@ export async function getRoadmapSummaries(
     opts.resolveOwners
       ? supabase.from('profiles').select('id, full_name').in('id', [...new Set(rows.map(r => r.created_by))])
       : Promise.resolve({ data: null as { id: string; full_name: string }[] | null }),
+    groupIds.length
+      ? supabase
+          .from('assignments')
+          .select('id, group_id')
+          .in('group_id', groupIds)
+          .not('roadmap_topic_id', 'is', null)
+      : Promise.resolve({ data: [] as { id: string; group_id: string | null }[] }),
   ])
 
   const topicCount = new Map<string, number>()
@@ -60,14 +69,6 @@ export async function getRoadmapSummaries(
   // Грубая % выполнения для строки списка: доля (ученик×задание), где есть
   // проверенная попытка. Полная детализация (кто именно, какой балл) —
   // отдельным запросом getRoadmapDetail по клику, не здесь.
-  const { data: itemRows } = groupIds.length
-    ? await supabase
-        .from('assignments')
-        .select('id, group_id')
-        .in('group_id', groupIds)
-        .not('roadmap_topic_id', 'is', null)
-    : { data: [] as { id: string; group_id: string | null }[] }
-
   const itemsByGroup = new Map<string, string[]>()
   for (const a of itemRows ?? []) {
     if (!a.group_id) continue

@@ -13,6 +13,32 @@ export default async function MonitorPage() {
     : { data: null }
   const isAdmin = profile?.role === 'admin'
 
+  // Три независимые ветки загрузки — попытки (таб «Мониторинг»), назначения
+  // (таб «Назначения») и сводка программ — раньше шли строго друг за другом,
+  // и время страницы было СУММОЙ всех волн запросов. Друг от друга они не
+  // зависят, поэтому запускаем их разом: время = самая долгая ветка.
+  const [rows, assignments, programSummaries] = await Promise.all([
+    loadAttemptRows(supabase, user?.id ?? null, isAdmin),
+    loadAssignmentRows(supabase, user?.id ?? null, isAdmin),
+    getRoadmapSummaries(supabase, { resolveOwners: isAdmin }),
+  ])
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-semibold">Мониторинг</h1>
+        <p className="text-sm text-muted-foreground mt-1">
+          Назначения тестов и текущий статус попыток
+        </p>
+      </div>
+      <MonitorTable initialAttempts={rows} isAdmin={isAdmin} assignments={assignments} programSummaries={programSummaries} />
+    </div>
+  )
+}
+
+type ServerClient = Awaited<ReturnType<typeof createClient>>
+
+async function loadAttemptRows(supabase: ServerClient, userId: string | null, isAdmin: boolean): Promise<AttemptRow[]> {
   // Load all recent attempts with assignment/student info.
   //
   // ВАЖНО: RLS на attempts теперь OR-комбинирует "своё назначение" (018/019),
@@ -46,7 +72,7 @@ export default async function MonitorPage() {
       profiles ( full_name, grade )
     `)
     .in('status', ['not_started', 'in_progress', 'submitted', 'under_review', 'checked'])
-  if (!isAdmin && user) attemptsQuery = attemptsQuery.eq('assignments.created_by', user.id)
+  if (!isAdmin && userId) attemptsQuery = attemptsQuery.eq('assignments.created_by', userId)
   const { data: attempts } = await attemptsQuery
     .order('last_activity_at', { ascending: false })
     .limit(500)
@@ -100,7 +126,7 @@ export default async function MonitorPage() {
     }
   }
 
-  const rows: AttemptRow[] = [...groupMap.values()].map((a) => {
+  return [...groupMap.values()].map((a) => {
     const asgn = (a as any).assignments
     const tv = asgn?.test_versions
     const test = tv?.tests
@@ -147,7 +173,9 @@ export default async function MonitorPage() {
       max_attempts: maxAttempts,
     }
   }).sort((a, b) => new Date(b.last_activity_at ?? 0).getTime() - new Date(a.last_activity_at ?? 0).getTime())
+}
 
+async function loadAssignmentRows(supabase: ServerClient, userId: string | null, isAdmin: boolean): Promise<AssignmentRow[]> {
   // ── Таб «Назначения» (перенесён из /teacher/assignments) ──
   // Roadmap-назначения (roadmap_topic_id) не показываем: программа — не
   // группа, её заданиями управляет редактор программы.
@@ -166,7 +194,7 @@ export default async function MonitorPage() {
       attempts ( id, status, student_id )
     `)
     .is('roadmap_topic_id', null)
-  if (!isAdmin && user) asgnQuery = asgnQuery.eq('created_by', user.id)
+  if (!isAdmin && userId) asgnQuery = asgnQuery.eq('created_by', userId)
   const { data: asgnRows } = await asgnQuery
     .order('created_at', { ascending: false })
     .limit(100)
@@ -182,7 +210,7 @@ export default async function MonitorPage() {
     (asgnFinals ?? []).filter(r => r.assignment_id).map(r => [`${r.student_id}_${r.assignment_id}`, r])
   )
 
-  const assignments: AssignmentRow[] = (asgnRows ?? []).map(a => {
+  return (asgnRows ?? []).map(a => {
     const tv = a.test_versions as any
     const test = tv?.tests as any
     const group = a.groups as any
@@ -212,19 +240,4 @@ export default async function MonitorPage() {
       closed_reason: sfr?.closed_reason ?? null,
     }
   })
-
-  // ── Сводка программ (для фильтра «Программы» внутри «Назначения») ──
-  const programSummaries = await getRoadmapSummaries(supabase, { resolveOwners: isAdmin })
-
-  return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold">Мониторинг</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Назначения тестов и текущий статус попыток
-        </p>
-      </div>
-      <MonitorTable initialAttempts={rows} isAdmin={isAdmin} assignments={assignments} programSummaries={programSummaries} />
-    </div>
-  )
 }

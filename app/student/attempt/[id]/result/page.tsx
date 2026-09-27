@@ -62,25 +62,35 @@ export default async function ResultPage({ params }: PageProps) {
   const test = tv?.tests as any
   const resultVisibility: string = tv?.result_visibility ?? 'after_submit'
 
-  const { data: attempts } = await supabase
-    .from('attempts')
-    .select('id, status, score, max_score, submitted_at, checked_at, teacher_comment')
-    .eq('assignment_id', assignmentId).eq('student_id', user.id)
-    .in('status', ['submitted', 'checked'])
-    .order('submitted_at', { ascending: false }).limit(1)
-
-  const attempt = attempts?.[0]
-  if (!attempt) redirect(`/student/attempt/${assignmentId}`)
-
+  // Дальше запросы сгруппированы в волны по зависимостям (раньше шли строго
+  // по одному, ~14 последовательных запросов на открытие результата).
+  // Волна 1: последняя попытка, итог и задания — друг от друга не зависят.
+  //
   // Накопительный итог — по НАЗНАЧЕНИЮ, а не по версии теста: тот же тест
   // может быть назначен ученику ещё раз (например, через тему программы), и
   // фильтр по test_version_id подхватывал бы чужой итог (см. миграцию 032).
-  const { data: finalResult } = await supabase
-    .from('student_final_results')
-    .select('final_score, max_score, attempt_count, status, closed_reason')
-    .eq('student_id', user.id)
-    .eq('assignment_id', assignmentId)
-    .maybeSingle()
+  const [{ data: attempts }, { data: finalResult }, { data: tasks }] = await Promise.all([
+    supabase
+      .from('attempts')
+      .select('id, status, score, max_score, submitted_at, checked_at, teacher_comment')
+      .eq('assignment_id', assignmentId).eq('student_id', user.id)
+      .in('status', ['submitted', 'checked'])
+      .order('submitted_at', { ascending: false }).limit(1),
+    supabase
+      .from('student_final_results')
+      .select('final_score, max_score, attempt_count, status, closed_reason')
+      .eq('student_id', user.id)
+      .eq('assignment_id', assignmentId)
+      .maybeSingle(),
+    supabase
+      .from('test_tasks')
+      .select('id, task_number, prompt_text, prompt_html, max_score, task_type')
+      .eq('test_version_id', assignment.test_version_id)
+      .order('sort_order', { ascending: true }),
+  ])
+
+  const attempt = attempts?.[0]
+  if (!attempt) redirect(`/student/attempt/${assignmentId}`)
 
   const completedAttempts = finalResult?.attempt_count ?? 1
   const maxAttempts = assignment.max_attempts ?? 1
@@ -106,56 +116,41 @@ export default async function ResultPage({ params }: PageProps) {
       (resultVisibility === 'after_teacher_review' && isChecked))
   const pendingTeacherReview = resultVisibility === 'after_teacher_review' && !isChecked
 
-  const { data: tasks } = await supabase
-    .from('test_tasks')
-    .select('id, task_number, prompt_text, prompt_html, max_score, task_type')
-    .eq('test_version_id', assignment.test_version_id)
-    .order('sort_order', { ascending: true })
-
-  const { data: studentAnswers } = await supabase
-    .from('attempt_task_answers')
-    .select('task_id, answer_json, is_correct, awarded_score, teacher_comment, is_locked, auto_checked_at')
-    .eq('attempt_id', attempt.id)
-
-  // Load task images for result page display
-  const taskMediaByTaskId = new Map<string, { url: string; alt: string | null }[]>()
-  const taskIdsForMedia = (tasks ?? []).map(t => t.id)
-  if (taskIdsForMedia.length > 0) {
-    const { data: rawMedia } = await supabase
-      .from('task_media')
-      .select('id, task_id, storage_path, media_type, original_filename, width_px, height_px, file_size_bytes, format, placement, sort_order, alt_text, source_page, source_bbox, is_manually_uploaded, created_at')
-      .in('task_id', taskIdsForMedia)
-      .order('sort_order', { ascending: true })
-    if (rawMedia?.length) {
-      const enriched = await enrichTaskMediaWithUrls(supabase, rawMedia as TaskMedia[])
-      for (const m of enriched) {
-        if (!m.task_id || !m.signedUrl) continue
-        if (!taskMediaByTaskId.has(m.task_id)) taskMediaByTaskId.set(m.task_id, [])
-        taskMediaByTaskId.get(m.task_id)!.push({ url: m.signedUrl, alt: m.alt_text })
-      }
-    }
-  }
+  // Волна 2: всё, что зависит только от попытки и списка заданий, — разом.
+  const taskIds = (tasks ?? []).map(t => t.id)
+  const [{ data: studentAnswers }, { data: rawTaskMedia }, { data: keys }, { data: solutionsAvailable }, { data: solRequests }] = await Promise.all([
+    supabase
+      .from('attempt_task_answers')
+      .select('task_id, answer_json, is_correct, awarded_score, teacher_comment, is_locked, auto_checked_at')
+      .eq('attempt_id', attempt.id),
+    // Load task images for result page display
+    taskIds.length > 0
+      ? supabase
+          .from('task_media')
+          .select('id, task_id, storage_path, media_type, original_filename, width_px, height_px, file_size_bytes, format, placement, sort_order, alt_text, source_page, source_bbox, is_manually_uploaded, created_at')
+          .in('task_id', taskIds)
+          .order('sort_order', { ascending: true })
+      : Promise.resolve({ data: null }),
+    showDetails && isChecked && tasks
+      ? supabase
+          .from('task_answer_keys').select('task_id, correct_answer')
+          .in('task_id', taskIds)
+      : Promise.resolve({ data: null }),
+    // Load which tasks have solutions
+    supabase
+      .from('task_solutions').select('task_id')
+      .in('task_id', taskIds),
+    // Load solution requests for this attempt
+    supabase
+      .from('solution_requests')
+      .select('task_id, status, id')
+      .eq('attempt_id', attempt.id).eq('student_id', user.id),
+  ])
 
   const answerKeyMap = new Map<string, Json>()
-  if (showDetails && isChecked && tasks) {
-    const { data: keys } = await supabase
-      .from('task_answer_keys').select('task_id, correct_answer')
-      .in('task_id', tasks.map(t => t.id))
-    for (const k of keys ?? []) if (k.task_id) answerKeyMap.set(k.task_id, k.correct_answer)
-  }
+  for (const k of keys ?? []) if (k.task_id) answerKeyMap.set(k.task_id, k.correct_answer)
 
-  // Load which tasks have solutions
-  const taskIds = (tasks ?? []).map(t => t.id)
-  const { data: solutionsAvailable } = await supabase
-    .from('task_solutions').select('task_id')
-    .in('task_id', taskIds)
   const solutionTaskIds = new Set((solutionsAvailable ?? []).map(s => s.task_id).filter(Boolean))
-
-  // Load solution requests for this attempt
-  const { data: solRequests } = await supabase
-    .from('solution_requests')
-    .select('task_id, status, id')
-    .eq('attempt_id', attempt.id).eq('student_id', user.id)
 
   type ReqStatus = 'none' | 'pending' | 'approved' | 'rejected'
   const requestStatusMap = new Map<string, ReqStatus>()
@@ -170,11 +165,28 @@ export default async function ResultPage({ params }: PageProps) {
   const solutionContentMap = new Map<string, { text: string | null; html: string | null; solutionId: string }>()
   const solutionMediaMap = new Map<string, Awaited<ReturnType<typeof enrichTaskMediaWithUrls>>>()
 
+  // Волна 3: подпись ссылок на картинки заданий и тексты одобренных решений —
+  // независимы друг от друга.
+  const [enrichedTaskMedia, { data: solutions }] = await Promise.all([
+    rawTaskMedia?.length
+      ? enrichTaskMediaWithUrls(supabase, rawTaskMedia as TaskMedia[])
+      : Promise.resolve([] as Awaited<ReturnType<typeof enrichTaskMediaWithUrls>>),
+    approvedTaskIds.length > 0
+      ? supabase
+          .from('task_solutions')
+          .select('id, task_id, solution_text, solution_html, has_images')
+          .in('task_id', approvedTaskIds)
+      : Promise.resolve({ data: null }),
+  ])
+
+  const taskMediaByTaskId = new Map<string, { url: string; alt: string | null }[]>()
+  for (const m of enrichedTaskMedia) {
+    if (!m.task_id || !m.signedUrl) continue
+    if (!taskMediaByTaskId.has(m.task_id)) taskMediaByTaskId.set(m.task_id, [])
+    taskMediaByTaskId.get(m.task_id)!.push({ url: m.signedUrl, alt: m.alt_text })
+  }
+
   if (approvedTaskIds.length > 0) {
-    const { data: solutions } = await supabase
-      .from('task_solutions')
-      .select('id, task_id, solution_text, solution_html, has_images')
-      .in('task_id', approvedTaskIds)
 
     for (const sol of solutions ?? []) {
       if (sol.task_id) {
