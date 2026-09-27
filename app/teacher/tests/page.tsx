@@ -1,11 +1,12 @@
 import { createClient } from '@/lib/supabase/server'
 import { TestsListClient, type TestRow } from '@/components/teacher/TestsListClient'
 import type { ProposalRow } from '@/components/teacher/ProposalsListClient'
+import { getAuthUser } from '@/lib/supabase/auth-user'
 
 export default async function TestsPage() {
   const supabase = await createClient()
 
-  const { data: { user } } = await supabase.auth.getUser()
+  const { data: { user } } = await getAuthUser(supabase)
   const { data: profile } = user
     ? await supabase.from('profiles').select('role').eq('id', user.id).single()
     : { data: null }

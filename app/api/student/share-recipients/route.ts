@@ -1,11 +1,12 @@
 import { createClient } from '@/lib/supabase/server'
+import { getAuthUser } from '@/lib/supabase/auth-user'
 
 // GET — whitelist получателей текущего ученика (для диалога "Поделиться").
 // RLS ("sss: student reads own", "ssr: student reads own") сам ограничивает
 // выборку своими строками — явный student_id-фильтр не нужен.
 export async function GET() {
   const supabase = await createClient()
-  const { data: { user }, error: authError } = await supabase.auth.getUser()
+  const { data: { user }, error: authError } = await getAuthUser(supabase)
   if (authError || !user) return Response.json({ enabled: false, recipients: [] }, { status: 401 })
 
   const [{ data: settings }, { data: recipients }] = await Promise.all([

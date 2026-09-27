@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { zUuid } from '@/lib/uuid'
 import { createClient } from '@/lib/supabase/server'
+import { getAuthUser } from '@/lib/supabase/auth-user'
 
 const schema = z.object({
   // Задачи, которые учитель собирается добавить (id в книге/библиотеке).
@@ -56,7 +57,7 @@ const GROUP_MIN_OVERLAP_SHARE = 0.3   // ...у кого совпало >30% за
 // поэтому пустой ответ НЕ доказывает, что задача не задавалась.
 export async function POST(request: NextRequest) {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const { data: { user } } = await getAuthUser(supabase)
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const parsed = schema.safeParse(await request.json().catch(() => null))

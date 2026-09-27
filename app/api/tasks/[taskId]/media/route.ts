@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { MEDIA_CACHE_CONTROL } from '@/lib/media/signed-urls'
 import { NextRequest } from 'next/server'
+import { getAuthUser } from '@/lib/supabase/auth-user'
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const sharp = require('sharp')
@@ -13,7 +14,7 @@ export async function POST(
   const { taskId } = await params
 
   const supabase = await createClient()
-  const { data: { user }, error: authError } = await supabase.auth.getUser()
+  const { data: { user }, error: authError } = await getAuthUser(supabase)
   if (authError || !user) return Response.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { data: profile } = await supabase

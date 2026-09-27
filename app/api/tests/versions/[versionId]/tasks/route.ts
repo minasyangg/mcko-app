@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { buildCompositeAnswerKey, formatCompositeAnswerForEdit } from '@/lib/grading/multi-part-answer'
 import { formatAnswerJson } from '@/lib/grading/format-answer-display'
+import { getAuthUser } from '@/lib/supabase/auth-user'
 
 export async function POST(
   request: NextRequest,
@@ -15,7 +16,7 @@ export async function POST(
     const {
       data: { user },
       error: authError,
-    } = await supabase.auth.getUser()
+    } = await getAuthUser(supabase)
 
     if (authError || !user) {
       return Response.json({ error: 'Unauthorized' }, { status: 401 })

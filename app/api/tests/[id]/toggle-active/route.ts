@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { getAuthUser } from '@/lib/supabase/auth-user'
 
 export async function PATCH(
   _req: NextRequest,
@@ -9,7 +10,7 @@ export async function PATCH(
   const { id } = await params
   const supabase = await createClient()
 
-  const { data: { user } } = await supabase.auth.getUser()
+  const { data: { user } } = await getAuthUser(supabase)
   if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { data: profile } = await supabase.from('profiles').select('role, organization_id').eq('id', user.id).single()

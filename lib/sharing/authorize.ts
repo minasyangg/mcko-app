@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { getAuthUser } from '@/lib/supabase/auth-user'
 
 type AdminClient = ReturnType<typeof createAdminClient>
 
@@ -20,7 +21,7 @@ export async function authorizeShareAdmin(
   message = 'Нет доступа к настройкам этого ученика'
 ): Promise<ShareAdminAuth> {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const { data: { user } } = await getAuthUser(supabase)
   if (!user) return { error: Response.json({ error: 'Unauthorized' }, { status: 401 }) }
 
   const { data: profile } = await supabase
@@ -53,7 +54,7 @@ export async function authorizeStudentShare(
   recipientTeacherId: string
 ): Promise<StudentShareAuth> {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const { data: { user } } = await getAuthUser(supabase)
   if (!user) return { error: Response.json({ error: 'Unauthorized' }, { status: 401 }) }
 
   const { data: profile } = await supabase

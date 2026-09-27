@@ -325,6 +325,57 @@ export async function notifyAssignmentCreated(assignmentId: string): Promise<voi
   }
 }
 
+// ── Событие: разовое сообщение учителя группе/программе ─────────────────────
+// Инициируется вручную со страницы группы/программы (не системное событие,
+// поэтому нет записи в NOTIFICATION_EVENTS и тумблера в /teacher/notifications
+// — сообщение либо уходит целиком, либо не отправляется вовсе, без частичного
+// глушения по организации). studentIds — уже отфильтрованный получателями
+// список (учитель мог снять галочки с части участников на странице).
+export async function notifyTeacherBroadcast(opts: {
+  orgId: string | null
+  studentIds: string[]
+  message: string
+  senderName: string
+}): Promise<{ sent: number; failed: number; noTelegram: number }> {
+  const { orgId, studentIds, message, senderName } = opts
+  const admin = createAdminClient()
+  if (studentIds.length === 0 || !message.trim()) return { sent: 0, failed: 0, noTelegram: 0 }
+
+  const text = lines([`📣 Сообщение от ${senderName}:`, '', message.trim()])
+  const groupIds = studentIds.map(() => crypto.randomUUID())
+  const groupIdByStudent = new Map(studentIds.map((id, i) => [id, groupIds[i]]))
+
+  // notifyUsers/notifyParent тихо пропускают получателя без telegram_chat_id
+  // (не пишут строку в лог вовсе) — считаем это заранее, иначе тост «отправлено
+  // 3» не объясняет пропавших 7: они не sent и не failed, а просто не в базе.
+  const { data: linked } = await admin
+    .from('profiles')
+    .select('id')
+    .in('id', studentIds)
+    .not('telegram_chat_id', 'is', null)
+  const noTelegram = studentIds.length - (linked ?? []).length
+
+  await notifyUsers({
+    admin, orgId, eventType: 'teacher_broadcast', userIds: studentIds, message: text,
+    groupIdByUser: groupIdByStudent,
+  })
+  await Promise.all(studentIds.map(id => notifyParent({
+    admin, orgId, eventType: 'teacher_broadcast', studentId: id,
+    groupId: groupIdByStudent.get(id),
+    message: text,
+  })))
+
+  const { data: rows } = await admin
+    .from('notification_log')
+    .select('status')
+    .in('group_id', groupIds)
+  return {
+    sent: (rows ?? []).filter(r => r.status === 'sent').length,
+    failed: (rows ?? []).filter(r => r.status !== 'sent').length,
+    noTelegram,
+  }
+}
+
 // Строка «работа завершена» для сообщений. Полный балл выносим отдельной
 // фразой: это единственная причина закрытия, которая для получателя выглядит
 // как достижение, а не как ограничение.

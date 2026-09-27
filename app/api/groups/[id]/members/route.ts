@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
+import { getAuthUser } from '@/lib/supabase/auth-user'
 
 type Params = { params: Promise<{ id: string }> }
 
@@ -7,7 +8,7 @@ export async function POST(request: Request, { params }: Params) {
   const { id: groupId } = await params
   const supabase = await createClient()
 
-  const { data: { user }, error: authError } = await supabase.auth.getUser()
+  const { data: { user }, error: authError } = await getAuthUser(supabase)
   if (authError || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { data: profile } = await supabase
@@ -72,7 +73,7 @@ export async function DELETE(request: Request, { params }: Params) {
   const { id: groupId } = await params
   const supabase = await createClient()
 
-  const { data: { user }, error: authError } = await supabase.auth.getUser()
+  const { data: { user }, error: authError } = await getAuthUser(supabase)
   if (authError || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { data: profile } = await supabase

@@ -4,6 +4,7 @@ import { zUuid } from '@/lib/uuid'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { analyzeTestUsage, deleteTest } from '@/lib/tests/delete'
+import { getAuthUser } from '@/lib/supabase/auth-user'
 
 const schema = z.object({
   test_ids: z.array(zUuid()).min(1).max(100),
@@ -15,7 +16,7 @@ const schema = z.object({
 // свои. Проверяем явно, потому что дальше работаем admin-клиентом в обход RLS.
 async function authorize(testIds: string[]) {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const { data: { user } } = await getAuthUser(supabase)
   if (!user) return { error: NextResponse.json({ error: 'Unauthorized' }, { status: 401 }) }
 
   const { data: profile } = await supabase

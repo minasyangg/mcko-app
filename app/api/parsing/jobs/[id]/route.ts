@@ -6,6 +6,7 @@ import { savePaddleOcrResult } from '@/lib/parsing/save-paddle-result'
 import type { PaddlePage } from '@/lib/parsing/exam-parsers'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Database } from '@/types/database'
+import { getAuthUser } from '@/lib/supabase/auth-user'
 
 // PDF-ветка импорта теста асинхронна: app/api/parsing/trigger только
 // отправляет документы на распознавание и сразу возвращается (см. комментарий
@@ -52,7 +53,7 @@ export async function GET(
     const {
       data: { user },
       error: authError,
-    } = await supabase.auth.getUser()
+    } = await getAuthUser(supabase)
 
     if (authError || !user) {
       return Response.json({ error: 'Unauthorized' }, { status: 401 })

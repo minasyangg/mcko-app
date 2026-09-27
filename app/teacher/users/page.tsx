@@ -2,12 +2,13 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { redirect } from 'next/navigation'
 import { UsersClient } from '@/components/teacher/UsersClient'
+import { getAuthUser } from '@/lib/supabase/auth-user'
 
 // Единая админ-панель пользователей: ученики + учителя на одной странице,
 // одна кнопка создания (выбор роли), карточки различаются по роли. Только admin.
 export default async function UsersPage() {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const { data: { user } } = await getAuthUser(supabase)
   if (!user) redirect('/login')
 
   const { data: profile } = await supabase

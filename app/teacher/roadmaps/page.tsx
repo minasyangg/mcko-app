@@ -1,12 +1,13 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { RoadmapClient, type RoadmapRow } from '@/components/teacher/RoadmapClient'
+import { getAuthUser } from '@/lib/supabase/auth-user'
 
 // Программы (road map) — только учитель. Админ смотрит кабинеты учителей через
 // раздел «Пользователи».
 export default async function RoadmapsPage() {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const { data: { user } } = await getAuthUser(supabase)
   if (!user) redirect('/login')
 
   const { data: profile } = await supabase

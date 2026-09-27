@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { getAuthUser } from '@/lib/supabase/auth-user'
 
 // PATCH — пользователь (любая роль) сохраняет свой ник Telegram и/или
 // персональный переключатель уведомлений. Смена ника сбрасывает chat_id:
@@ -8,7 +9,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 // Тело: { username?, notifications_enabled? } — оба поля опциональны.
 export async function PATCH(request: NextRequest) {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const { data: { user } } = await getAuthUser(supabase)
   if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await request.json().catch(() => null) as

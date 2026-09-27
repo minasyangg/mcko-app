@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { getAuthUser } from '@/lib/supabase/auth-user'
 
 // Единственная дверь на доску из mcko-app: GET, отдающий редирект, поэтому
 // ссылки остаются обычными <a href> и одноразовый тикет не попадает в JS.
@@ -50,7 +51,7 @@ export async function GET(req: Request) {
   }
 
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const { data: { user } } = await getAuthUser(supabase)
   if (!user?.email) {
     return NextResponse.redirect(new URL('/login?next=' + encodeURIComponent(url.pathname + url.search), url.origin))
   }

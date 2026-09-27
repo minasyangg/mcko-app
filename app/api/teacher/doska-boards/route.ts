@@ -1,6 +1,7 @@
 import { randomBytes } from 'crypto'
 import { createClient } from '@/lib/supabase/server'
 import { normalizeSubject } from '@/lib/doska/subjects'
+import { getAuthUser } from '@/lib/supabase/auth-user'
 
 // Заведение доски учителем:
 //   POST { studentId, subject, title? }  → доска на одного ученика
@@ -32,7 +33,7 @@ export async function POST(req: Request) {
   if (!subject) return Response.json({ error: 'Не указан предмет' }, { status: 400 })
 
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const { data: { user } } = await getAuthUser(supabase)
   if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { data: profile } = await supabase

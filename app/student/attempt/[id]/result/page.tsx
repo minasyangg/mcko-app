@@ -16,6 +16,7 @@ import { ImageGallery } from '@/components/shared/ImageGallery'
 import type { TaskMedia } from '@/types/domain'
 import { formatAnswerJsonRaw } from '@/lib/grading/format-answer-display'
 import { closedReasonLabel } from '@/lib/assignments/completion'
+import { getAuthUser } from '@/lib/supabase/auth-user'
 
 interface PageProps {
   params: Promise<{ id: string }>
@@ -25,7 +26,7 @@ export default async function ResultPage({ params }: PageProps) {
   const { id: assignmentId } = await params
   const supabase = await createClient()
 
-  const { data: { user }, error: authError } = await supabase.auth.getUser()
+  const { data: { user }, error: authError } = await getAuthUser(supabase)
   if (authError || !user) redirect('/login')
 
   const { data: assignment } = await supabase

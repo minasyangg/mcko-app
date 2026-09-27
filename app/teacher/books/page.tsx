@@ -5,10 +5,11 @@ import { Button } from '@/components/ui/button'
 import { ShieldCheck } from 'lucide-react'
 import { BooksCatalog, type CatalogBook } from '@/components/teacher/BooksCatalog'
 import { AddTargetBanner } from '@/components/teacher/AddTargetBanner'
+import { getAuthUser } from '@/lib/supabase/auth-user'
 
 export default async function BooksPage() {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const { data: { user } } = await getAuthUser(supabase)
   if (!user) redirect('/login')
 
   const { data: profile } = await supabase

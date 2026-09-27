@@ -2,12 +2,13 @@ import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { NotificationsAdminClient } from '@/components/teacher/NotificationsAdminClient'
 import { User, Baby, GraduationCap } from 'lucide-react'
+import { getAuthUser } from '@/lib/supabase/auth-user'
 
 // Админ-панель уведомлений: статус telegram-бота, тумблеры событий,
 // последние отправки (журнал).
 export default async function NotificationsPage() {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const { data: { user } } = await getAuthUser(supabase)
   if (!user) redirect('/login')
 
   const { data: profile } = await supabase

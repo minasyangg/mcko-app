@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { getAuthUser } from '@/lib/supabase/auth-user'
 
 type AdminClient = ReturnType<typeof createAdminClient>
 
@@ -21,7 +22,7 @@ export async function authorizeBookEdit(
 ): Promise<BookEditAuth> {
   const supabase = await createClient()
 
-  const { data: { user }, error: authError } = await supabase.auth.getUser()
+  const { data: { user }, error: authError } = await getAuthUser(supabase)
   if (authError || !user) {
     return { error: Response.json({ error: 'Unauthorized' }, { status: 401 }) }
   }
@@ -66,7 +67,7 @@ export async function authorizeBookDelete(
 ): Promise<BookEditAuth> {
   const supabase = await createClient()
 
-  const { data: { user }, error: authError } = await supabase.auth.getUser()
+  const { data: { user }, error: authError } = await getAuthUser(supabase)
   if (authError || !user) {
     return { error: Response.json({ error: 'Unauthorized' }, { status: 401 }) }
   }

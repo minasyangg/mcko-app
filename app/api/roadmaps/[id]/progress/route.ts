@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getRoadmapDetail } from '@/lib/roadmaps/progress'
+import { getAuthUser } from '@/lib/supabase/auth-user'
 
 // GET /api/roadmaps/[id]/progress — полная детализация программы для
 // мониторинга (темы → задания → статус/балл по каждому ученику).
@@ -14,7 +15,7 @@ export async function GET(
   const { id } = await params
   const supabase = await createClient()
 
-  const { data: { user } } = await supabase.auth.getUser()
+  const { data: { user } } = await getAuthUser(supabase)
   if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { data: profile } = await supabase

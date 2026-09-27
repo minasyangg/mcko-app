@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
 import type { Json } from '@/types/database'
+import { getAuthUser } from '@/lib/supabase/auth-user'
 
 export async function PATCH(
   request: Request,
@@ -10,7 +11,7 @@ export async function PATCH(
 
   const supabase = await createClient()
 
-  const { data: { user }, error: authError } = await supabase.auth.getUser()
+  const { data: { user }, error: authError } = await getAuthUser(supabase)
   if (authError || !user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }

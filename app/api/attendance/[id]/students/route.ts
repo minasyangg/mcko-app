@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { zUuid } from '@/lib/uuid'
 import { createClient } from '@/lib/supabase/server'
+import { getAuthUser } from '@/lib/supabase/auth-user'
 
 const postSchema = z.object({
   // Ученики сайта — списком id; «внешние» дети, которых нет в системе, — по ФИО
@@ -13,7 +14,7 @@ const deleteSchema = z.object({ row_id: zUuid() })
 
 async function requireJournal(id: string) {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const { data: { user } } = await getAuthUser(supabase)
   if (!user) return { error: NextResponse.json({ error: 'Unauthorized' }, { status: 401 }) }
 
   // RLS: невидимый журнал = отсутствующий

@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { zUuid } from '@/lib/uuid'
+import { getAuthUser } from '@/lib/supabase/auth-user'
 
 const schema = z.object({
   attempt_id: zUuid(),
@@ -12,7 +13,7 @@ const schema = z.object({
 export async function POST(request: Request) {
   const supabase = await createClient()
 
-  const { data: { user }, error: authError } = await supabase.auth.getUser()
+  const { data: { user }, error: authError } = await getAuthUser(supabase)
   if (authError || !user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }

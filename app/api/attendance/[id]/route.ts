@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createClient } from '@/lib/supabase/server'
+import { getAuthUser } from '@/lib/supabase/auth-user'
 
 const patchSchema = z.object({
   title: z.string().trim().min(1).max(200).optional(),
@@ -11,7 +12,7 @@ const patchSchema = z.object({
 // если строка не видна, значит журнала для этого пользователя не существует.
 async function loadJournal(id: string) {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const { data: { user } } = await getAuthUser(supabase)
   if (!user) return { error: NextResponse.json({ error: 'Unauthorized' }, { status: 401 }) }
 
   const { data: journal } = await supabase

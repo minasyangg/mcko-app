@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import type { Database } from '@/types/database'
 import { deleteTaskMediaFiles } from '@/app/api/parsing/trigger/route'
+import { getAuthUser } from '@/lib/supabase/auth-user'
 
 type TaskUpdate = Database['public']['Tables']['test_tasks']['Update']
 
@@ -17,7 +18,7 @@ export async function PATCH(
     const {
       data: { user },
       error: authError,
-    } = await supabase.auth.getUser()
+    } = await getAuthUser(supabase)
 
     if (authError || !user) {
       return Response.json({ error: 'Unauthorized' }, { status: 401 })
@@ -97,7 +98,7 @@ export async function DELETE(
     const {
       data: { user },
       error: authError,
-    } = await supabase.auth.getUser()
+    } = await getAuthUser(supabase)
 
     if (authError || !user) {
       return Response.json({ error: 'Unauthorized' }, { status: 401 })

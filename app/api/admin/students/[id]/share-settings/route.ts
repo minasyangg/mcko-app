@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { authorizeShareAdmin } from '@/lib/sharing/authorize'
 import { createClient } from '@/lib/supabase/server'
+import { getAuthUser } from '@/lib/supabase/auth-user'
 
 type Params = { params: Promise<{ id: string }> }
 
@@ -60,7 +61,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
   }
 
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const { data: { user } } = await getAuthUser(supabase)
   const updatedBy = user?.id ?? null
 
   const { error } = await admin.from('student_share_settings').upsert({

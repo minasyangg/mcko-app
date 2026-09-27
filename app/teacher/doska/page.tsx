@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { DoskaBoardsClient } from '@/components/teacher/DoskaBoardsClient'
 import { PenLine } from 'lucide-react'
+import { getAuthUser } from '@/lib/supabase/auth-user'
 
 // Список досок учителя. Раньше доска заводилась кнопкой напротив ученика в
 // списке учеников — одна на пару, без предмета и без возможности её увидеть
@@ -9,7 +10,7 @@ import { PenLine } from 'lucide-react'
 
 export default async function TeacherDoskaPage() {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const { data: { user } } = await getAuthUser(supabase)
   if (!user) return <div>Unauthorized</div>
 
   const { data: profile } = await supabase

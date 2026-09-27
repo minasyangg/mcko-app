@@ -2,11 +2,12 @@ import { createClient } from '@/lib/supabase/server'
 import { MonitorTable, type AttemptRow } from '@/components/teacher/MonitorTable'
 import type { AssignmentRow } from '@/components/teacher/AssignmentsPanel'
 import { getRoadmapSummaries } from '@/lib/roadmaps/progress'
+import { getAuthUser } from '@/lib/supabase/auth-user'
 
 export default async function MonitorPage() {
   const supabase = await createClient()
 
-  const { data: { user } } = await supabase.auth.getUser()
+  const { data: { user } } = await getAuthUser(supabase)
   const { data: profile } = user
     ? await supabase.from('profiles').select('role').eq('id', user.id).single()
     : { data: null }

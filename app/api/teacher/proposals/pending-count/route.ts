@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { getAuthUser } from '@/lib/supabase/auth-user'
 
 // Бейдж «Предложения агента» в TeacherNav — чтобы новое предложение ДЗ
 // (project_homework_agent) не потерялось, пока учитель не заглянул в
@@ -7,7 +8,7 @@ import { createClient } from '@/lib/supabase/server'
 export async function GET() {
   const supabase = await createClient()
 
-  const { data: { user }, error: authError } = await supabase.auth.getUser()
+  const { data: { user }, error: authError } = await getAuthUser(supabase)
   if (authError || !user) return Response.json({ count: 0 }, { status: 401 })
 
   const { data: profile } = await supabase

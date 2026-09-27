@@ -2,10 +2,11 @@ import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { TelegramSettings } from '@/components/shared/TelegramSettings'
 import { getBotUsername, telegramConfigured } from '@/lib/notifications/telegram'
+import { getAuthUser } from '@/lib/supabase/auth-user'
 
 export default async function StudentSettingsPage() {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const { data: { user } } = await getAuthUser(supabase)
   if (!user) redirect('/login')
 
   const { data: profile } = await supabase

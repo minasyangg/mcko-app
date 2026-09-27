@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createClient } from '@/lib/supabase/server'
+import { getAuthUser } from '@/lib/supabase/auth-user'
 
 const patchSchema = z.object({
   action: z.enum(['confirm', 'reject']).optional(),
@@ -32,7 +33,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
   const { id } = await params
   const supabase = await createClient()
 
-  const { data: { user }, error: authError } = await supabase.auth.getUser()
+  const { data: { user }, error: authError } = await getAuthUser(supabase)
   if (authError || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const parsed = patchSchema.safeParse(await request.json().catch(() => null))

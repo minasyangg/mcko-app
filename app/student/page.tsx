@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { StudentHome, type AssignmentCardData, type RoadmapGroup } from '@/components/student/StudentHome'
 import type { TimelineTopic } from '@/components/student/RoadmapTimeline'
+import { getAuthUser } from '@/lib/supabase/auth-user'
 
 type Search = { tab?: string }
 
@@ -70,7 +71,7 @@ function topicsInTreeOrder(allTopics: RoadmapTopicRow[], roadmapId: string): Roa
 export default async function StudentHomePage({ searchParams }: { searchParams: Promise<Search> }) {
   const { tab } = await searchParams
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const { data: { user } } = await getAuthUser(supabase)
   if (!user) return null
 
   const { data: memberships } = await supabase

@@ -3,6 +3,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { PenLine } from 'lucide-react'
+import { getAuthUser } from '@/lib/supabase/auth-user'
 
 // Доски, куда ученика добавили участником (041_doska_boards.sql). У одного
 // учителя их может быть несколько — по одной на предмет, поэтому предмет и
@@ -10,7 +11,7 @@ import { PenLine } from 'lucide-react'
 
 export default async function StudentBoardsPage() {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const { data: { user } } = await getAuthUser(supabase)
   if (!user) return null
 
   const { data: rows } = await supabase

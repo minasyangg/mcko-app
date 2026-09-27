@@ -3,11 +3,12 @@ import { StudentsClient as StudentsTableClient } from '@/components/teacher/Stud
 import { Button } from '@/components/ui/button'
 import { Users, Plus, UsersRound } from 'lucide-react'
 import Link from 'next/link'
+import { getAuthUser } from '@/lib/supabase/auth-user'
 
 export default async function StudentsPage() {
   const supabase = await createClient()
 
-  const { data: { user } } = await supabase.auth.getUser()
+  const { data: { user } } = await getAuthUser(supabase)
   if (!user) return <div>Unauthorized</div>
 
   const { data: profile } = await supabase

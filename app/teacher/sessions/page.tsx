@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { Badge } from '@/components/ui/badge'
 import { History } from 'lucide-react'
+import { getAuthUser } from '@/lib/supabase/auth-user'
 
 const roleLabel: Record<string, string> = {
   admin: 'Админ', teacher: 'Учитель', student: 'Ученик',
@@ -36,7 +37,7 @@ function fmt(iso: string) {
 // хранится 30 дней). Только admin — RLS отдаёт события своей организации.
 export default async function SessionsPage() {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const { data: { user } } = await getAuthUser(supabase)
   if (!user) redirect('/login')
 
   const { data: profile } = await supabase

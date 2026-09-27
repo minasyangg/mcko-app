@@ -6,6 +6,7 @@ import { enrichTaskMediaWithUrls, generateSignedUrls } from '@/lib/media/signed-
 import type { Json } from '@/types/database'
 import type { TestTask, TaskMediaWithUrl } from '@/types/domain'
 import type { SolutionPhoto } from '@/components/test-player/SolutionPhotoUpload'
+import { getAuthUser } from '@/lib/supabase/auth-user'
 
 interface PageProps {
   params: Promise<{ id: string }>
@@ -16,7 +17,7 @@ export default async function AttemptPage({ params }: PageProps) {
   const supabase = await createClient()
 
   // Auth check
-  const { data: { user }, error: authError } = await supabase.auth.getUser()
+  const { data: { user }, error: authError } = await getAuthUser(supabase)
   if (authError || !user) {
     redirect('/login')
   }

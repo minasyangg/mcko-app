@@ -17,6 +17,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import { ConfirmDeleteAction } from '@/components/shared/ConfirmDeleteAction'
 import { EditRoadmapDialog } from '@/components/teacher/EditRoadmapDialog'
+import { BroadcastDialog } from '@/components/teacher/BroadcastDialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { SearchableSelect } from '@/components/shared/SearchableSelect'
 import {
@@ -77,7 +78,7 @@ function buildTopicTree(topics: EditorTopic[]): TopicNode[] {
 interface TestOption { id: string; title: string }
 interface StudentOption { id: string; full_name: string; grade: string | null }
 interface GroupOption { id: string; name: string; student_ids: string[] }
-interface Roadmap { id: string; title: string; subject: string | null; description: string | null }
+interface Roadmap { id: string; title: string; subject: string | null; description: string | null; group_id: string | null }
 
 export function RoadmapEditor({ roadmap, topics, tests, students, memberIds, groups = [], sourceGroupIds = [] }: {
   roadmap: Roadmap
@@ -107,6 +108,12 @@ export function RoadmapEditor({ roadmap, topics, tests, students, memberIds, gro
   // «Отмена» откатывает его без сети (см. resetStudentsDialog).
   const [pendingLinkGroupIds, setPendingLinkGroupIds] = useState<Set<string>>(new Set())
   const memberCount = memberIds.length
+  // ФИ участников программы для диалога рассылки — пересечение memberIds
+  // (кто реально в системной группе программы) со students (профили,
+  // закреплённые за учителем); студент программы всегда входит в students,
+  // т.к. добавление в программу и так требует teacher_students-связи.
+  const memberIdSet = new Set(memberIds)
+  const broadcastMembers = students.filter(s => memberIdSet.has(s.id)).map(s => ({ id: s.id, full_name: s.full_name }))
 
   // Добавление целой группы. API принимает только закреплённых за учителем
   // учеников (teacher_students) и отклоняет весь запрос целиком, если попался
@@ -433,6 +440,13 @@ export function RoadmapEditor({ roadmap, topics, tests, students, memberIds, gro
           {roadmap.description && <p className="text-sm text-muted-foreground">{roadmap.description}</p>}
         </div>
         <div className="flex items-center gap-2">
+        {roadmap.group_id && (
+          <BroadcastDialog
+            groupId={roadmap.group_id}
+            groupLabel={`программе «${roadmap.title}»`}
+            members={broadcastMembers}
+          />
+        )}
         <EditRoadmapDialog
           roadmapId={roadmap.id}
           title={roadmap.title}

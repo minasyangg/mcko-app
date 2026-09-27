@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { NextRequest } from 'next/server'
+import { getAuthUser } from '@/lib/supabase/auth-user'
 
 // PATCH /api/library/problems/[id]
 // Body: { correct_answer: string }
@@ -11,7 +12,7 @@ export async function PATCH(
 ) {
   const { id } = await params
   const supabase = await createClient()
-  const { data: { user }, error: authError } = await supabase.auth.getUser()
+  const { data: { user }, error: authError } = await getAuthUser(supabase)
   if (authError || !user) return Response.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { data: profile } = await supabase
@@ -51,7 +52,7 @@ export async function GET(
 ) {
   const { id } = await params
   const supabase = await createClient()
-  const { data: { user }, error: authError } = await supabase.auth.getUser()
+  const { data: { user }, error: authError } = await getAuthUser(supabase)
   if (authError || !user) return Response.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { data: problem, error } = await supabase

@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Database } from '@/types/database'
+import { getAuthUser } from '@/lib/supabase/auth-user'
 
 export interface TestAttemptStats {
   totalAttempts: number
@@ -162,7 +163,7 @@ export async function getAttemptRows(
   // владельца назначения, не потребитель шаринга (для того — отдельный
   // "Расшарено мне", всегда readOnly) — фильтруем по assignments.created_by
   // для teacher, admin не ограничиваем (его доступ и так по организации).
-  const { data: { user } } = await supabase.auth.getUser()
+  const { data: { user } } = await getAuthUser(supabase)
   const { data: profile } = user
     ? await supabase.from('profiles').select('role').eq('id', user.id).single()
     : { data: null }

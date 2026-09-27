@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { getAuthUser } from '@/lib/supabase/auth-user'
 
 // Удаление доски учителем. Мягкое: содержимое и картинки лежат в файловом
 // хранилище самой доски, и физическое удаление строки оставило бы их сиротами,
@@ -14,7 +15,7 @@ export async function DELETE(_req: Request, ctx: { params: Promise<{ id: string 
   }
 
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const { data: { user } } = await getAuthUser(supabase)
   if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { data, error } = await supabase
