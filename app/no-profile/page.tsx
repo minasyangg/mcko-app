@@ -2,10 +2,11 @@ import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { LogoutButton } from '@/components/shared/LogoutButton'
 import { UserX } from 'lucide-react'
+import { getAuthUser } from '@/lib/supabase/auth-user'
 
 export default async function NoProfilePage() {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const { data: { user } } = await getAuthUser(supabase)
   if (!user) redirect('/login')
 
   // If they now have a profile, send them to the right place

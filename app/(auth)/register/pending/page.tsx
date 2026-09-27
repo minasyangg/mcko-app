@@ -3,6 +3,7 @@ import { Clock, XCircle, Send } from 'lucide-react'
 import { createClient } from '@/lib/supabase/server'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { getAuthUser } from '@/lib/supabase/auth-user'
 
 // Куда идёт человек сразу после отправки заявки — и куда middleware держит
 // его же, если админ заявку отклонил (см. proxy.ts). Текст и иконка теперь
@@ -11,7 +12,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 // и ждать больше нечего.
 export default async function RegistrationPendingPage() {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const { data: { user } } = await getAuthUser(supabase)
 
   const { data: profile } = user
     ? await supabase

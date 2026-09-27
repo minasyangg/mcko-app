@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { applyMatchingScoringRules } from '@/lib/parsing/pipeline-shared'
+import { getAuthUser } from '@/lib/supabase/auth-user'
 
 export async function POST(
   _req: NextRequest,
@@ -10,7 +11,7 @@ export async function POST(
   const { versionId } = await params
   const supabase = await createClient()
 
-  const { data: { user } } = await supabase.auth.getUser()
+  const { data: { user } } = await getAuthUser(supabase)
   if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single()

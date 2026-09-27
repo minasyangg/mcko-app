@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { closeAssignment, reopenAssignment } from '@/lib/assignments/close'
 import { notifyAttemptFinalized } from '@/lib/notifications/send'
+import { getAuthUser } from '@/lib/supabase/auth-user'
 
 // Скоуп тот же, что у DELETE /api/assignments/[id]: учитель распоряжается
 // своими назначениями, админ — любыми в организации. Мониторинг показывает
@@ -10,7 +11,7 @@ import { notifyAttemptFinalized } from '@/lib/notifications/send'
 // своих учеников), поэтому владение проверяем явно, а не полагаемся на видимость.
 async function authorize(assignmentId: string) {
   const supabase = await createClient()
-  const { data: { user }, error: authError } = await supabase.auth.getUser()
+  const { data: { user }, error: authError } = await getAuthUser(supabase)
   if (authError || !user) {
     return { error: NextResponse.json({ error: 'Unauthorized' }, { status: 401 }) }
   }

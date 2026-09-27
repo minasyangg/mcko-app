@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { generateAndSaveAnswer } from '@/lib/ai/generate-answer'
 import { NextRequest } from 'next/server'
+import { getAuthUser } from '@/lib/supabase/auth-user'
 
 // Решение DeepSeek занимает 5-30 c — дефолтного таймаута может не хватить
 export const maxDuration = 60
@@ -16,7 +17,7 @@ export async function POST(
 ) {
   const { id } = await params
   const supabase = await createClient()
-  const { data: { user }, error: authError } = await supabase.auth.getUser()
+  const { data: { user }, error: authError } = await getAuthUser(supabase)
   if (authError || !user) return Response.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { data: profile } = await supabase

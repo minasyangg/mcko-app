@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge'
 import { ArrowLeft, Route, PenLine, BookOpen, Clock } from 'lucide-react'
 import { getRoadmapDetail } from '@/lib/roadmaps/progress'
 import { ProgramProgressView } from '@/components/teacher/ProgramProgressView'
+import { getAuthUser } from '@/lib/supabase/auth-user'
 
 function fmtDateTime(iso: string | null) {
   if (!iso) return null
@@ -35,7 +36,7 @@ const TEST_STATUS_LABEL: Record<string, string> = {
 export default async function TeacherCabinetPage({ params }: { params: Promise<{ teacherId: string }> }) {
   const { teacherId } = await params
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const { data: { user } } = await getAuthUser(supabase)
   if (!user) redirect('/login')
 
   const { data: me } = await supabase.from('profiles').select('role, organization_id').eq('id', user.id).single()

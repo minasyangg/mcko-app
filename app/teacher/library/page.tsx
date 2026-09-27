@@ -2,10 +2,11 @@ import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { LibraryClient } from '@/components/teacher/LibraryClient'
 import { AddTargetBanner } from '@/components/teacher/AddTargetBanner'
+import { getAuthUser } from '@/lib/supabase/auth-user'
 
 export default async function LibraryPage() {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const { data: { user } } = await getAuthUser(supabase)
   if (!user) redirect('/login')
 
   // Загружаем только канонические темы (ФИПИ КЭС) для фильтрации

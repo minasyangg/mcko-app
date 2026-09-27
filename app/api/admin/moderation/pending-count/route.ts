@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { getAuthUser } from '@/lib/supabase/auth-user'
 
 // Счётчик заявок на модерации — для бейджа на пункте «Пользователи».
 // Возвращает ровно то число, что показывает таб «На модерации».
@@ -11,7 +12,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 export async function GET() {
   const supabase = await createClient()
 
-  const { data: { user }, error: authError } = await supabase.auth.getUser()
+  const { data: { user }, error: authError } = await getAuthUser(supabase)
   if (authError || !user) return Response.json({ count: 0 }, { status: 401 })
 
   const { data: profile } = await supabase

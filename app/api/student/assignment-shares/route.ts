@@ -3,12 +3,13 @@ import { z } from 'zod'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { authorizeStudentShare } from '@/lib/sharing/authorize'
+import { getAuthUser } from '@/lib/supabase/auth-user'
 
 // GET ?assignment_id=... — активные гранты ученика по этому назначению (кому
 // уже расшарено, для отображения "до {дата}" и кнопки "Отозвать").
 export async function GET(request: NextRequest) {
   const supabase = await createClient()
-  const { data: { user }, error: authError } = await supabase.auth.getUser()
+  const { data: { user }, error: authError } = await getAuthUser(supabase)
   if (authError || !user) return NextResponse.json({ shares: [] }, { status: 401 })
 
   const assignmentId = request.nextUrl.searchParams.get('assignment_id')
@@ -75,7 +76,7 @@ const deleteSchema = z.object({ id: z.string().uuid() })
 // DELETE — отозвать свой грант (soft: revoked_at, история сохраняется).
 export async function DELETE(request: NextRequest) {
   const supabase = await createClient()
-  const { data: { user }, error: authError } = await supabase.auth.getUser()
+  const { data: { user }, error: authError } = await getAuthUser(supabase)
   if (authError || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const parsed = deleteSchema.safeParse(await request.json().catch(() => null))

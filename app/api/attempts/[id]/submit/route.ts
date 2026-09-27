@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { NextResponse, after } from 'next/server'
 import { finalizeAttempt } from '@/lib/grading/finalize'
 import { notifyAttemptFinalized } from '@/lib/notifications/send'
+import { getAuthUser } from '@/lib/supabase/auth-user'
 
 // Ученик сдаёт свою попытку. Проверка владения + статуса, затем общая
 // финализация (авто-проверка + пересчёт итога) в lib/grading/finalize.
@@ -13,7 +14,7 @@ export async function POST(
 
   const supabase = await createClient()
 
-  const { data: { user }, error: authError } = await supabase.auth.getUser()
+  const { data: { user }, error: authError } = await getAuthUser(supabase)
   if (authError || !user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }

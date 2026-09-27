@@ -1,12 +1,13 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { AttendanceListClient, type JournalRow } from '@/components/teacher/AttendanceListClient'
+import { getAuthUser } from '@/lib/supabase/auth-user'
 
 // Журналы посещаемости. Видимость — на RLS (attendance_journals: owner or
 // admin): учитель видит свои журналы, админ — все в организации.
 export default async function AttendancePage() {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const { data: { user } } = await getAuthUser(supabase)
   if (!user) redirect('/login')
 
   const { data: profile } = await supabase

@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { analyzeTestUsage, deleteTest } from '@/lib/tests/delete'
+import { getAuthUser } from '@/lib/supabase/auth-user'
 
 // PATCH /api/tests/[id] — update test metadata
 export async function PATCH(
@@ -11,7 +12,7 @@ export async function PATCH(
   const { id: testId } = await params
   const supabase = await createClient()
 
-  const { data: { user } } = await supabase.auth.getUser()
+  const { data: { user } } = await getAuthUser(supabase)
   if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { data: profile } = await supabase
@@ -70,7 +71,7 @@ export async function DELETE(
     const {
       data: { user },
       error: authError,
-    } = await supabase.auth.getUser()
+    } = await getAuthUser(supabase)
 
     if (authError || !user) {
       return Response.json({ error: 'Unauthorized' }, { status: 401 })

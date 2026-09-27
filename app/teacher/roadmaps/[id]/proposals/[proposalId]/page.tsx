@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect, notFound } from 'next/navigation'
 import { ProposalReviewCard, type ProposalStatus } from '@/components/teacher/ProposalReviewCard'
+import { getAuthUser } from '@/lib/supabase/auth-user'
 
 // Страница подтверждения/правки предложения ДЗ от агента автосборки
 // (project_homework_agent). MVP-путь без inline-кнопок в Telegram: ссылка
@@ -14,7 +15,7 @@ export default async function ProposalReviewPage({
 }) {
   const { id, proposalId } = await params
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const { data: { user } } = await getAuthUser(supabase)
   if (!user) redirect('/login')
 
   const { data: proposal } = await supabase

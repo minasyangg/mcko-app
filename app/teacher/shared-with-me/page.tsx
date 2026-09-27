@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { SharedWithMeTable, type SharedRow } from '@/components/teacher/SharedWithMeTable'
+import { getAuthUser } from '@/lib/supabase/auth-user'
 
 // «Расшарено мне» — сданные работы, которыми ученики поделились с этим
 // учителем (assignment_shares, 087). RLS ("ashares: teacher reads own as
@@ -16,7 +17,7 @@ import { SharedWithMeTable, type SharedRow } from '@/components/teacher/SharedWi
 // плитка-счётчик на дашборде (см. app/teacher/page.tsx).
 export default async function SharedWithMePage() {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const { data: { user } } = await getAuthUser(supabase)
   if (!user) redirect('/login')
 
   const { data: profile } = await supabase

@@ -9,6 +9,7 @@ import { savePaddleOcrResult } from '@/lib/parsing/save-paddle-result'
 import { getExamType, cleanupSourceDocuments, applyMatchingScoringRules } from '@/lib/parsing/pipeline-shared'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Database } from '@/types/database'
+import { getAuthUser } from '@/lib/supabase/auth-user'
 
 // Загрузка файлов и отправка PDF-документов в PaddleOCR — быстрые операции
 // (секунды), сам OCR-job не ждём здесь (см. PDF-ветку ниже и
@@ -502,7 +503,7 @@ export async function POST(request: NextRequest) {
   try {
     const supabase = await createClient()
 
-    const { data: { user }, error: authError } = await supabase.auth.getUser()
+    const { data: { user }, error: authError } = await getAuthUser(supabase)
     if (authError || !user) return Response.json({ error: 'Unauthorized' }, { status: 401 })
 
     const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single()

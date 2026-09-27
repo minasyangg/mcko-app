@@ -23,7 +23,12 @@ export async function proxy(request: NextRequest) {
     }
   )
 
-  const { data: { user } } = await supabase.auth.getUser()
+  // getClaims() вместо getUser(): JWT (ES256) проверяется локально по
+  // закешированному JWKS, без сетевого запроса в Auth на каждую навигацию.
+  // Истёкший токен он сначала обновляет через getSession() — новые cookie
+  // уходят через setAll выше, как и раньше.
+  const { data: claimsData } = await supabase.auth.getClaims()
+  const user = claimsData?.claims?.sub ? { id: claimsData.claims.sub } : null
 
   // Redirect unauthenticated users from protected routes
   if (!user) {

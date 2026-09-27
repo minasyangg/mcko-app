@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
+import { getAuthUser } from '@/lib/supabase/auth-user'
 
 const schema = z.object({
   title: z.string().trim().min(2, 'Введите название'),
@@ -13,7 +14,7 @@ const schema = z.object({
 // скрытая системная группа (её участники = ученики road map).
 export async function POST(request: Request) {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const { data: { user } } = await getAuthUser(supabase)
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { data: profile } = await supabase

@@ -3,6 +3,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { redirect, notFound } from 'next/navigation'
 import { BookReader } from '@/components/teacher/BookReader'
 import { BookEditorsPanel } from '@/components/teacher/BookEditorsPanel'
+import { getAuthUser } from '@/lib/supabase/auth-user'
 
 export default async function BookPage({
   params,
@@ -15,7 +16,7 @@ export default async function BookPage({
   const { id } = await params
   const { section, task, pid } = await searchParams
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const { data: { user } } = await getAuthUser(supabase)
   if (!user) redirect('/login')
 
   const { data: book } = await supabase

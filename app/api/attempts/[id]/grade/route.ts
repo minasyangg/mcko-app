@@ -4,6 +4,7 @@ import { NextRequest } from 'next/server'
 import { after } from 'next/server'
 import { notifyAttemptFinalized } from '@/lib/notifications/send'
 import { updateCumulativeResult } from '@/lib/grading/finalize'
+import { getAuthUser } from '@/lib/supabase/auth-user'
 
 // PATCH /api/attempts/[id]/grade
 // Body: { answers: [{ answer_id, awarded_score, is_correct, teacher_comment? }], finalize?: boolean }
@@ -14,7 +15,7 @@ export async function PATCH(
   const { id: attemptId } = await params
 
   const supabase = await createClient()
-  const { data: { user }, error: authError } = await supabase.auth.getUser()
+  const { data: { user }, error: authError } = await getAuthUser(supabase)
   if (authError || !user) return Response.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { data: profile } = await supabase

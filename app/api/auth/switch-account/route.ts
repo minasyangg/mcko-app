@@ -6,6 +6,7 @@ import type { Database } from '@/types/database'
 import {
   SWITCHABLE_ACCOUNTS, findSwitchable, isSwitchAllowed, requiresPassword,
 } from '@/lib/auth/switch-accounts'
+import { getAuthUser } from '@/lib/supabase/auth-user'
 
 // Быстрое переключение между двумя аккаунтами одного человека.
 // Модель безопасности и список разрешённых id — в lib/auth/switch-accounts.ts.
@@ -27,7 +28,7 @@ function cookiesFromRequest(request: Request) {
 
 export async function POST(request: Request) {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const { data: { user } } = await getAuthUser(supabase)
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await request.json().catch(() => null) as
@@ -144,7 +145,7 @@ export async function POST(request: Request) {
 // Пустой массив — для всех, кого нет в белом списке: кнопка просто не рисуется.
 export async function GET() {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const { data: { user } } = await getAuthUser(supabase)
   if (!user || !findSwitchable(user.id)) {
     return NextResponse.json({ accounts: [] })
   }

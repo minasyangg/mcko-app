@@ -4,12 +4,13 @@ import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { ArrowLeft } from 'lucide-react'
 import { BookPermissionsClient } from '@/components/teacher/BookPermissionsClient'
+import { getAuthUser } from '@/lib/supabase/auth-user'
 
 // Права доступа к книгам — только admin. Централизованно: для каждой книги
 // какие учителя могут редактировать и удалять её. Просмотр остаётся общим.
 export default async function BookPermissionsPage() {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const { data: { user } } = await getAuthUser(supabase)
   if (!user) redirect('/login')
 
   const { data: profile } = await supabase

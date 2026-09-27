@@ -2,11 +2,12 @@ import { createClient } from '@/lib/supabase/server'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { BookOpen, Users, ClipboardList, MessageSquare, History, Share2 } from 'lucide-react'
 import Link from 'next/link'
+import { getAuthUser } from '@/lib/supabase/auth-user'
 
 export default async function TeacherDashboard() {
   const supabase = await createClient()
 
-  const { data: { user } } = await supabase.auth.getUser()
+  const { data: { user } } = await getAuthUser(supabase)
   const { data: me } = user
     ? await supabase.from('profiles').select('role').eq('id', user.id).single()
     : { data: null }

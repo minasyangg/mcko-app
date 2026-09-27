@@ -3,6 +3,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { generateAndSaveAnswer } from '@/lib/ai/generate-answer'
 import { addLibraryProblemToVersion } from '@/lib/tests/add-problem-to-version'
 import { NextRequest, after } from 'next/server'
+import { getAuthUser } from '@/lib/supabase/auth-user'
 
 // Фоновая ИИ-генерация ответа (after) может занять до 30 c
 export const maxDuration = 60
@@ -18,7 +19,7 @@ export async function POST(
   const { id: libraryProblemId } = await params
   const supabase = await createClient()
 
-  const { data: { user }, error: authError } = await supabase.auth.getUser()
+  const { data: { user }, error: authError } = await getAuthUser(supabase)
   if (authError || !user) return Response.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { data: profile } = await supabase
