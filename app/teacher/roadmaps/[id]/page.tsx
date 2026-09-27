@@ -78,7 +78,7 @@ export default async function RoadmapEditPage({ params }: { params: Promise<{ id
 
   return (
     <RoadmapEditor
-      roadmap={{ id: roadmap.id, title: roadmap.title, subject: roadmap.subject, description: roadmap.description }}
+      roadmap={{ id: roadmap.id, title: roadmap.title, subject: roadmap.subject, description: roadmap.description, group_id: roadmap.group_id }}
       topics={editorTopics}
       tests={tests ?? []}
       students={students ?? []}

@@ -7,6 +7,7 @@ import { ArrowLeft, Users } from 'lucide-react'
 import { GroupMembersEditor } from '@/components/teacher/GroupMembersEditor'
 import { DeleteGroupButton } from '@/components/teacher/DeleteGroupButton'
 import { EditGroupDialog } from '@/components/teacher/EditGroupDialog'
+import { BroadcastDialog } from '@/components/teacher/BroadcastDialog'
 
 interface Props {
   params: Promise<{ id: string }>
@@ -73,6 +74,11 @@ export default async function GroupDetailPage({ params }: Props) {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <BroadcastDialog
+            groupId={groupId}
+            groupLabel={`группе «${group.name}»`}
+            members={memberList.map((m) => ({ id: m.user_id, full_name: m.profiles.full_name }))}
+          />
           <EditGroupDialog
             groupId={groupId}
             groupName={group.name}

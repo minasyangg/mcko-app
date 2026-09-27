@@ -10,6 +10,7 @@ export type NotificationEventType =
   | 'attempt_submitted'   // учителю: работа ждёт ручной проверки
   | 'attempt_auto_checked' // учителю: работа сдана и проверена автоматически
   | 'homework_proposed'   // учителю: агент предложил тему для автосборки ДЗ
+  | 'teacher_broadcast'   // ученикам группы/программы: разовое сообщение от учителя
 
 export const NOTIFICATION_EVENTS: {
   type: NotificationEventType
