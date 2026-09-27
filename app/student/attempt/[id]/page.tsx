@@ -144,6 +144,17 @@ export default async function AttemptPage({ params }: PageProps) {
 
   const now = new Date().toISOString()
 
+  // Задания теста зависят только от назначения — запускаем загрузку сразу,
+  // параллельно с созданием попытки/переносом ответов ниже, а не после них.
+  // .then() обязателен: запрос Supabase ленивый и без него ушёл бы только при
+  // await ниже — то есть снова последовательно.
+  const tasksPromise = supabase
+    .from('test_tasks')
+    .select('*')
+    .eq('test_version_id', assignment.test_version_id)
+    .order('sort_order', { ascending: true })
+    .then((res) => res)
+
   if (!attempt) {
     // Create a new attempt
     const { data: newAttempt, error: createError } = await supabase
@@ -208,12 +219,8 @@ export default async function AttemptPage({ params }: PageProps) {
     attempt = { ...attempt, status: 'in_progress', started_at: now }
   }
 
-  // Load tasks
-  const { data: tasks, error: tasksError } = await supabase
-    .from('test_tasks')
-    .select('*')
-    .eq('test_version_id', assignment.test_version_id)
-    .order('sort_order', { ascending: true })
+  // Load tasks (запрос запущен выше, параллельно с подготовкой попытки)
+  const { data: tasks, error: tasksError } = await tasksPromise
 
   if (tasksError || !tasks) {
     redirect('/student')
@@ -221,9 +228,19 @@ export default async function AttemptPage({ params }: PageProps) {
 
   const taskIds = tasks.map((t) => t.id)
 
-  // Load saved answers (with lock status), task media, and previously
-  // attached solution photos in parallel
-  const [{ data: savedAnswers }, { data: rawMedia }, { data: rawSolutionMedia }] = await Promise.all([
+  // Обратная связь с прошлой попытки: балл и комментарий учителя по каждому
+  // НЕзаблокированному заданию. На странице результата это видно, а в режиме
+  // решения не было — ученик видел разблокированное задание и не понимал, что
+  // именно в нём не так. Берём с прошлой завершённой попытки, а не с текущей:
+  // перенос ответов (carry forward выше) копирует балл, но не teacher_comment.
+  const prevCompleted = [...(existingAttempts ?? [])]
+    .sort((a, b) => new Date(b.started_at ?? 0).getTime() - new Date(a.started_at ?? 0).getTime())
+    .find((a) => a.status === 'submitted' || a.status === 'checked')
+
+  // Load saved answers (with lock status), task media, previously attached
+  // solution photos and prior-attempt feedback in parallel. Сохранённые ответы
+  // читаются ПОСЛЕ переноса ответов выше — иначе перенесённых не будет видно.
+  const [{ data: savedAnswers }, { data: rawMedia }, { data: rawSolutionMedia }, { data: prevGraded }] = await Promise.all([
     supabase
       .from('attempt_task_answers')
       .select('task_id, answer_json, is_locked, awarded_score')
@@ -238,31 +255,22 @@ export default async function AttemptPage({ params }: PageProps) {
       .select('id, task_id, storage_path, sort_order')
       .eq('attempt_id', attempt.id)
       .order('sort_order', { ascending: true }),
+    prevCompleted && prevCompleted.id !== attempt.id
+      ? supabase
+          .from('attempt_task_answers')
+          .select('task_id, awarded_score, teacher_comment, is_locked')
+          .eq('attempt_id', prevCompleted.id)
+      : Promise.resolve({ data: null }),
   ])
 
-  // Обратная связь с прошлой попытки: балл и комментарий учителя по каждому
-  // НЕзаблокированному заданию. На странице результата это видно, а в режиме
-  // решения не было — ученик видел разблокированное задание и не понимал, что
-  // именно в нём не так. Берём с прошлой завершённой попытки, а не с текущей:
-  // перенос ответов (carry forward выше) копирует балл, но не teacher_comment.
-  const prevCompleted = [...(existingAttempts ?? [])]
-    .sort((a, b) => new Date(b.started_at ?? 0).getTime() - new Date(a.started_at ?? 0).getTime())
-    .find((a) => a.status === 'submitted' || a.status === 'checked')
-
   const priorFeedback: Record<string, { awardedScore: number; teacherComment: string | null }> = {}
-  if (prevCompleted && prevCompleted.id !== attempt.id) {
-    const { data: prevGraded } = await supabase
-      .from('attempt_task_answers')
-      .select('task_id, awarded_score, teacher_comment, is_locked')
-      .eq('attempt_id', prevCompleted.id)
-    for (const a of prevGraded ?? []) {
-      if (!a.task_id || a.awarded_score == null) continue
-      // заблокированные (полный балл) тоже включаем: комментарий учителя к ним
-      // бывает полезным советом на будущее и иначе в режиме решения не виден
-      priorFeedback[a.task_id] = {
-        awardedScore: a.awarded_score,
-        teacherComment: a.teacher_comment,
-      }
+  for (const a of prevGraded ?? []) {
+    if (!a.task_id || a.awarded_score == null) continue
+    // заблокированные (полный балл) тоже включаем: комментарий учителя к ним
+    // бывает полезным советом на будущее и иначе в режиме решения не виден
+    priorFeedback[a.task_id] = {
+      awardedScore: a.awarded_score,
+      teacherComment: a.teacher_comment,
     }
   }
 
@@ -278,8 +286,16 @@ export default async function AttemptPage({ params }: PageProps) {
     }
   }
 
-  // Generate signed URLs for all task media
-  const mediaWithUrls = await enrichTaskMediaWithUrls(supabase, rawMedia ?? [])
+  // Signed URLs: картинки заданий и фото решения (photo, не screenshot доски —
+  // см. attempt_answer_media), прикреплённые в предыдущих сессиях/до
+  // перезагрузки страницы — приватный бакет. Два независимых запроса — разом.
+  const [mediaWithUrls, solutionMediaUrls] = await Promise.all([
+    enrichTaskMediaWithUrls(supabase, rawMedia ?? []),
+    generateSignedUrls(
+      supabase,
+      (rawSolutionMedia ?? []).map((m) => ({ storage_path: m.storage_path, bucket: 'student-solution-media' as const }))
+    ),
+  ])
 
   const taskMediaMap: Record<string, TaskMediaWithUrl[]> = {}
   for (const m of mediaWithUrls) {
@@ -288,13 +304,6 @@ export default async function AttemptPage({ params }: PageProps) {
     taskMediaMap[m.task_id].push(m)
   }
 
-  // Фото решения (photo, не screenshot доски — см. attempt_answer_media)
-  // прикреплённые в предыдущих сессиях/до перезагрузки страницы — приватный
-  // бакет, нужны подписанные ссылки.
-  const solutionMediaUrls = await generateSignedUrls(
-    supabase,
-    (rawSolutionMedia ?? []).map((m) => ({ storage_path: m.storage_path, bucket: 'student-solution-media' as const }))
-  )
   const solutionPhotosMap: Record<string, SolutionPhoto[]> = {}
   for (const m of rawSolutionMedia ?? []) {
     if (!m.task_id) continue
