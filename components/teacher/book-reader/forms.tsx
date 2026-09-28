@@ -1,8 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { toast } from 'sonner'
-import { Sparkles, Loader2 } from 'lucide-react'
+import { Sparkles, Loader2, Pencil, Check, X } from 'lucide-react'
 import MarkdownContent from '@/components/shared/MarkdownContent'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -32,6 +32,127 @@ function answerToEditText(correctAnswer: ProblemAnchor['correct_answer']): strin
   if (typeof correctAnswer.text === 'string') return correctAnswer.text
   const json = correctAnswer as unknown as Json
   return formatCompositeAnswerForEdit(json) ?? formatAnswerJsonRaw(json)
+}
+
+// ─── Ответ сразу под условием (по образцу LibraryProblemCard) ─────────────────
+// Раньше единственным способом узнать ответ было раскрыть полную форму
+// редактирования задания (текст + ответ + метод проверки разом) — в библиотеке
+// ФИПИ/ЕГЭ ответ виден сразу под условием, в книгах нет. Показываем строку
+// «Ответ: …» так же, как в LibraryProblemCard, с редактированием по наведению
+// (карандаш), независимо от ProblemEditForm — та остаётся для правки текста
+// задания и метода проверки.
+export function InlineAnswer({
+  problem, canEdit, onSaved,
+}: {
+  problem: ProblemAnchor
+  canEdit: boolean
+  onSaved: () => void
+}) {
+  const [editing, setEditing] = useState(false)
+  const [input, setInput] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  const answerText = answerToEditText(problem.correct_answer)
+  const hasAnswer = answerText.trim() !== ''
+
+  function startEditing() {
+    setInput(answerText)
+    setEditing(true)
+    setError(null)
+    setTimeout(() => inputRef.current?.focus(), 0)
+  }
+
+  function cancelEditing() {
+    setEditing(false)
+    setInput('')
+    setError(null)
+  }
+
+  async function save() {
+    setSaving(true)
+    setError(null)
+    try {
+      const res = await fetch(`/api/books/problems/${problem.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ correct_answer: input }),
+      })
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}))
+        setError(d.error ?? 'Ошибка сохранения')
+        return
+      }
+      setEditing(false)
+      onSaved()
+    } catch {
+      setError('Ошибка соединения')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (editing) {
+    return (
+      <div className="space-y-1 mt-1" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-muted-foreground shrink-0">Ответ:</span>
+          <Input
+            ref={inputRef}
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') save(); if (e.key === 'Escape') cancelEditing() }}
+            className="h-7 text-sm flex-1"
+            placeholder="Введите ответ..."
+            disabled={saving}
+          />
+          <button onClick={save} disabled={saving} title="Сохранить"
+            className="text-green-600 hover:text-green-700 disabled:opacity-50">
+            <Check className="h-4 w-4" />
+          </button>
+          <button onClick={cancelEditing} disabled={saving} title="Отмена"
+            className="text-muted-foreground hover:text-foreground">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        {error && <p className="text-xs text-destructive">{error}</p>}
+      </div>
+    )
+  }
+
+  if (!hasAnswer) {
+    if (!canEdit) return null
+    return (
+      <button
+        type="button"
+        onClick={(e) => { e.stopPropagation(); startEditing() }}
+        className="mt-1 text-xs text-muted-foreground hover:text-primary transition-colors flex items-center gap-1"
+      >
+        <Pencil className="h-3 w-3" />
+        Добавить ответ
+      </button>
+    )
+  }
+
+  return (
+    <div className="flex items-center gap-2 mt-1">
+      <p className="text-sm">
+        <span className="text-muted-foreground">Ответ: </span>
+        <span className="font-medium">{answerText}</span>
+      </p>
+      {canEdit && (
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); startEditing() }}
+          title="Изменить ответ"
+          className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-foreground"
+        >
+          <Pencil className="h-3 w-3" />
+        </button>
+      )}
+    </div>
+  )
 }
 
 // ─── Формы редактирования читалки (по образцу EditTaskForm из тестов) ─────────
