@@ -32,7 +32,7 @@ import {
   type Book, type Section, type PageData, type ProblemAnchor, type SearchResult,
   stripTaskNumber,
 } from './book-reader/shared'
-import { ProblemEditForm, ProblemCreateForm, PageEditForm } from './book-reader/forms'
+import { ProblemEditForm, ProblemCreateForm, PageEditForm, InlineAnswer } from './book-reader/forms'
 
 // ─── TOC tree ─────────────────────────────────────────────────────────────────
 
@@ -563,6 +563,11 @@ function PageBlock({
               </div>
             </div>
             <MarkdownContent content={stripTaskNumber(seg.md, seg.problem.task_number)} />
+            <InlineAnswer
+              problem={seg.problem}
+              canEdit={canEdit}
+              onSaved={onChanged}
+            />
             {editingProblemId === seg.problem.id && (
               <ProblemEditForm
                 problem={seg.problem}

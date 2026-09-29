@@ -6,9 +6,12 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { ClipboardList, Route } from 'lucide-react'
+import { cn } from '@/lib/utils'
 import { closedReasonLabel } from '@/lib/assignments/completion'
+import { cardKind, CARD_KIND_CLASS } from '@/lib/assignments/card-style'
 import { RoadmapTimeline, type TimelineTopic } from '@/components/student/RoadmapTimeline'
 import { ShareAssignmentDialog } from '@/components/student/ShareAssignmentDialog'
+import { DeadlineNote } from '@/components/student/DeadlineNote'
 
 export type AssignmentStatus = 'not_started' | 'in_progress' | 'submitted' | 'checked'
 
@@ -26,8 +29,11 @@ export interface AssignmentCardData {
   max_score: number | null
   attempts_used: number
   max_attempts: number
+  created_at: string | null
   ends_at: string | null
   closed_reason: string | null
+  /** Последняя попытка сдана после assignment.ends_at. null — срока не было. */
+  submitted_late: boolean | null
 }
 
 export interface RoadmapGroup {
@@ -62,9 +68,10 @@ function AssignmentCard({ a }: { a: AssignmentCardData }) {
   const attemptsLeft = a.max_attempts - a.attempts_used
   const isClosed = a.closed_reason != null
   const canStart = !isClosed && attemptsLeft > 0 && !['in_progress', 'submitted'].includes(a.status)
+  const kind = cardKind({ status: a.status, score: a.score, maxScore: a.max_score, isClosed })
 
   return (
-    <Card className="flex flex-col">
+    <Card className={cn('flex flex-col', CARD_KIND_CLASS[kind])}>
       <CardHeader className="pb-2">
         <div className="flex items-start justify-between gap-2">
           <CardTitle className="text-base leading-tight">{a.test_title}</CardTitle>
@@ -80,14 +87,23 @@ function AssignmentCard({ a }: { a: AssignmentCardData }) {
           </p>
         )}
       </CardHeader>
-      <CardContent className="flex-1 text-sm text-muted-foreground space-y-2">
+      {/* flex-col + h-full: блок действий внизу (mt-auto) выравнивается по
+          нижнему краю карточки независимо от того, сколько строк метаданных
+          выше — раньше карточки в одном ряду сетки съезжали, потому что
+          высота текста над кнопкой отличалась (срок/попытки есть не у всех). */}
+      <CardContent className="flex-1 flex flex-col text-sm text-muted-foreground space-y-2">
         {/* накопительный итог, а не балл последней попытки — то же число,
             что на странице результата */}
-        <StatusBadge status={a.status} score={a.score} maxScore={a.max_score} />
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <StatusBadge status={a.status} score={a.score} maxScore={a.max_score} />
+          {a.submitted_late && isDone && (
+            <span className="text-[11px] text-muted-foreground">сдано с опозданием</span>
+          )}
+        </div>
 
         <div className="space-y-1 text-xs">
           {a.time_limit_sec && <p>Время: {Math.round(a.time_limit_sec / 60)} мин</p>}
-          {a.ends_at && <p>До: {new Date(a.ends_at).toLocaleDateString('ru-RU')}</p>}
+          {!isClosed && !isDone && <DeadlineNote createdAt={a.created_at} endsAt={a.ends_at} />}
           {isClosed
             ? ((a.max_attempts ?? 1) > 1 || a.closed_reason !== 'attempts_exhausted') && (
                 <p className="font-medium text-emerald-700 dark:text-emerald-400">
@@ -99,7 +115,7 @@ function AssignmentCard({ a }: { a: AssignmentCardData }) {
               )}
         </div>
 
-        <div className="pt-2 space-y-2">
+        <div className="pt-2 space-y-2 mt-auto">
           {isDone && (
             <div className="flex items-center gap-1.5">
               <Button asChild variant="outline" size="sm" className="flex-1">
@@ -156,10 +172,14 @@ const TABS: { key: Tab; label: string }[] = [
 // стадию, чтобы ученик сразу понимал, почему работы ещё нет в «Проверено».
 type Section = 'todo' | 'review' | 'checked'
 
-const SECTIONS: { key: Section; title: string; hint: string }[] = [
-  { key: 'todo', title: 'Нужно сделать', hint: 'Ещё не начато или в процессе' },
-  { key: 'review', title: 'На проверке', hint: 'Отправлено, ждёт учителя' },
-  { key: 'checked', title: 'Проверено', hint: 'Есть результат' },
+// accent — цветная полоса-акцент слева от заголовка секции, чтобы «Нужно
+// сделать»/«Проверено» не терялись на фоне карточек (раньше все три
+// заголовка были одним и тем же приглушённым серым весом, что и подписи
+// полей внутри самих карточек — визуально неотличимы от второстепенного текста).
+const SECTIONS: { key: Section; title: string; hint: string; accent: string }[] = [
+  { key: 'todo', title: 'Нужно сделать', hint: 'Ещё не начато или в процессе', accent: 'border-primary' },
+  { key: 'review', title: 'На проверке', hint: 'Отправлено, ждёт учителя', accent: 'border-orange-400' },
+  { key: 'checked', title: 'Проверено', hint: 'Есть результат', accent: 'border-emerald-500' },
 ]
 
 function sectionOf(a: AssignmentCardData): Section {
@@ -193,13 +213,19 @@ export function StudentHome({
         </p>
       </div>
 
-      <div className="flex gap-1 border-b">
+      {/* overflow-x-auto ТОЛЬКО ниже sm: 4 коротких таба и на самом узком
+          экране умещаются в ширину без переноса, лента со скроллом там не
+          нужна — overflow-x-auto без переключения на overflow-visible на
+          больших экранах заставлял браузер рисовать нативные стрелки
+          прокрутки, даже когда контент физически помещался и скроллить
+          было нечего. sm:overflow-visible явно гасит это на десктопе. */}
+      <div className="flex gap-1 border-b overflow-x-auto sm:overflow-visible -mx-4 px-4 sm:mx-0 sm:px-0">
         {TABS.map(t => (
           <button
             key={t.key}
             onClick={() => setTab(t.key)}
             className={
-              'px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ' +
+              'px-4 py-2.5 sm:py-2 text-sm font-medium border-b-2 -mb-px transition-colors shrink-0 ' +
               (tab === t.key
                 ? 'border-primary text-primary'
                 : 'border-transparent text-muted-foreground hover:text-foreground')
@@ -243,12 +269,12 @@ export function StudentHome({
             if (items.length === 0) return null
             return (
               <section key={sec.key} className="space-y-3">
-                <div className="flex items-baseline gap-2">
-                  <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+                <div className={cn('flex items-baseline gap-2 border-l-4 pl-3 py-0.5', sec.accent)}>
+                  <h2 className="text-base font-semibold text-foreground">
                     {sec.title}
                   </h2>
-                  <span className="text-xs text-muted-foreground/70">{sec.hint}</span>
-                  <Badge variant="outline" className="ml-auto text-[11px]">{items.length}</Badge>
+                  <span className="text-xs text-muted-foreground/70 hidden sm:inline">{sec.hint}</span>
+                  <Badge className="ml-auto text-[11px]">{items.length}</Badge>
                 </div>
                 <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                   {items.map(a => <AssignmentCard key={a.assignment_id} a={a} />)}

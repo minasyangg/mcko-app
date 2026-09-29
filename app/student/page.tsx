@@ -29,7 +29,16 @@ interface RoadmapTopicRow {
 // Заодно применяет видимость (visible_to_students, 092) — эффективно скрыта
 // тема, если скрыта ОНА САМА или ЛЮБОЙ её предок (скрытие главы прячет все
 // подтемы, даже если у них самих флаг true).
-function topicsInTreeOrder(allTopics: RoadmapTopicRow[], roadmapId: string): RoadmapTopicRow[] {
+//
+// Возвращает и глубину вложенности каждой темы (0 — корень программы) — она
+// уже посчитана этим же DFS-обходом (глубина = число раз, что visit
+// углубился в parentId), раньше просто не прокидывалась наружу. Раньше
+// вложенность («Область определения…» — подтема «Функции») терялась именно
+// здесь: RoadmapTimeline получал плоский список без depth и рисовал все темы
+// одним уровнем, хотя parent_id в БД был проставлен верно.
+function topicsInTreeOrder(
+  allTopics: RoadmapTopicRow[], roadmapId: string
+): { topic: RoadmapTopicRow; depth: number }[] {
   const own = allTopics.filter(t => t.roadmap_id === roadmapId)
   const ownIds = new Set(own.map(t => t.id))
 
@@ -49,15 +58,15 @@ function topicsInTreeOrder(allTopics: RoadmapTopicRow[], roadmapId: string): Roa
   }
   for (const arr of byParent.values()) arr.sort((a, b) => a.sort_order - b.sort_order)
 
-  const result: RoadmapTopicRow[] = []
-  function visit(parentId: string | null, hiddenAncestor: boolean) {
+  const result: { topic: RoadmapTopicRow; depth: number }[] = []
+  function visit(parentId: string | null, depth: number, hiddenAncestor: boolean) {
     for (const t of byParent.get(parentId) ?? []) {
       const hidden = hiddenAncestor || !t.visible_to_students
-      if (!hidden) result.push(t)
-      visit(t.id, hidden)
+      if (!hidden) result.push({ topic: t, depth })
+      visit(t.id, depth + 1, hidden)
     }
   }
-  visit(null, false)
+  visit(null, 0, false)
   return result
 }
 
@@ -166,7 +175,7 @@ export default async function StudentHomePage({ searchParams }: { searchParams: 
     ? await Promise.all([
         supabase
           .from('attempts')
-          .select('id, assignment_id, status, score, max_score')
+          .select('id, assignment_id, status, score, max_score, submitted_late')
           .in('assignment_id', allAssignmentIds)
           .eq('student_id', user.id)
           .order('created_at', { ascending: false }),
@@ -178,7 +187,7 @@ export default async function StudentHomePage({ searchParams }: { searchParams: 
       ])
     : [{ data: [] }, { data: [] }]
 
-  type AttemptRow = { id: string; assignment_id: string | null; status: string; score: number | null; max_score: number | null }
+  type AttemptRow = { id: string; assignment_id: string | null; status: string; score: number | null; max_score: number | null; submitted_late: boolean | null }
   const attemptMap = new Map<string, AttemptRow>()
   const usedByAssignment = new Map<string, number>()
   for (const a of (attempts ?? []) as AttemptRow[]) {
@@ -223,8 +232,10 @@ export default async function StudentHomePage({ searchParams }: { searchParams: 
       max_score: fin?.max_score ?? attempt?.max_score ?? null,
       attempts_used: attemptsUsed,
       max_attempts: a.max_attempts ?? 1,
+      created_at: a.created_at,
       ends_at: a.ends_at,
       closed_reason: closedReason,
+      submitted_late: attempt?.submitted_late ?? null,
     })
   }
 
@@ -252,8 +263,10 @@ export default async function StudentHomePage({ searchParams }: { searchParams: 
       max_score: fin?.max_score ?? attempt?.max_score ?? null,
       attempts_used: attemptsUsed,
       max_attempts: a.max_attempts ?? 1,
+      created_at: a.created_at,
       ends_at: a.ends_at,
       closed_reason: closedReason,
+      submitted_late: attempt?.submitted_late ?? null,
     })
   }
 
@@ -283,8 +296,10 @@ export default async function StudentHomePage({ searchParams }: { searchParams: 
       max_score: fin?.max_score ?? attempt?.max_score ?? null,
       attempts_used: Math.max(fin?.attempt_count ?? 0, usedByAssignment.get(a.id) ?? 0),
       max_attempts: a.max_attempts ?? 1,
+      created_at: a.created_at,
       ends_at: a.ends_at,
       closed_reason: fin?.closed_reason ?? (a.closed_at ? 'forced' : null),
+      submitted_late: attempt?.submitted_late ?? null,
     })
     itemsByTopic.set(tid, arr)
   }
@@ -298,14 +313,14 @@ export default async function StudentHomePage({ searchParams }: { searchParams: 
     // parent_id, поэтому глобальная сортировка перемешивала бы ветки.
     // Скрытые темы (visible_to_students=false у неё самой или предка) сюда
     // уже не попадают.
-    topics: topicsInTreeOrder((topics ?? []) as RoadmapTopicRow[], r.id).map((t): TimelineTopic => {
+    topics: topicsInTreeOrder((topics ?? []) as RoadmapTopicRow[], r.id).map(({ topic: t, depth }): TimelineTopic => {
       const its = itemsByTopic.get(t.id) ?? []
       const state: TimelineTopic['state'] = its.length > 0 && its.every(i => i.status === 'checked')
         ? 'done'
         : its.some(i => ['in_progress', 'submitted', 'checked'].includes(i.status))
           ? 'active'
           : 'pending'
-      return { id: t.id, title: t.title, state, items: its }
+      return { id: t.id, title: t.title, state, items: its, depth }
     }),
   }))
 
