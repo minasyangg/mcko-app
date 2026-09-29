@@ -124,110 +124,124 @@ function AttemptsInfo({ it }: { it: TimelineItem }) {
   )
 }
 
-// Отступ на уровень вложенности — ограничен 2 уровнями (0, 1, 2+ считается
-// как 2): на мобильной ширине третий уровень съедал бы слишком много и без
-// того узкой колонки, дальнейшая вложенность и так видна по размеру узла и
-// более тонкой линии, без необходимости сдвигать текст ещё дальше.
-const MAX_VISUAL_DEPTH = 2
-const INDENT_PER_DEPTH = 24
-
+// Раньше узел (кружок/засечка) и линия позиционировались абсолютно поверх
+// текста через вручную подобранные пиксельные left-координаты — на подтемах
+// с длинным заголовком и на предпросмотре узкой ширины кружок наезжал на
+// текст (номер "1" перекрывал первые буквы заголовка "Пробный тест"), а
+// засечка подтемы визуально терялась и не читалась как вложенность вообще.
+//
+// Теперь тема — это grid-строка "рельс | контент": рельс (кружок + линия) и
+// текст — РАЗНЫЕ ячейки грида, а не наложенные слои, поэтому пересечься
+// физически не могут независимо от длины заголовка. Все подтемы (depth>0,
+// в реальных программах их сейчас максимум один уровень) рендерятся ВНУТРИ
+// карточки родителя единым плоским списком — глубже второго уровня визуально
+// не выделяем: программа с 3+ уровнями вложенности пока не встречалась, а
+// вычислять для неё лесенку отступов раньше и обернулось наездом текста.
 export function RoadmapTimeline({ topics }: { topics: TimelineTopic[] }) {
   if (topics.length === 0) {
     return <p className="text-sm text-muted-foreground py-2">В программе пока нет тем.</p>
   }
-  // Нумеруем только темы верхнего уровня — сквозная нумерация вместе с
-  // подтемами выглядела бы так, будто подтема равноправна с главной темой
-  // программы (та самая путаница со скриншота: "Область определения..."
-  // получала номер 3 наравне с "Функции", хотя на деле — её часть).
-  let topLevelCounter = 0
-  return (
-    <ol className="relative">
-      {topics.map((t, i) => {
-        const last = i === topics.length - 1
-        const nextDepth = topics[i + 1]?.depth ?? 0
-        // линия ведёт к следующему узлу, только если он остаётся на том же
-        // уровне или уходит глубже (следующий — потомок этого) — когда
-        // следующий узел мельче (мы вышли из ветки), линия обрывается здесь,
-        // иначе она визуально "протыкала" бы соседнюю тему верхнего уровня
-        const connectsToNext = !last && nextDepth >= t.depth
-        const depth = Math.min(t.depth, MAX_VISUAL_DEPTH)
-        const isSub = t.depth > 0
-        if (t.depth === 0) topLevelCounter++
 
+  // Группируем по темам верхнего уровня — подтемы (depth>0) рендерятся
+  // ВНУТРИ карточки родителя, а не отдельным элементом списка с ложным
+  // отступом. Порядок внутри группы — тот же DFS-порядок, что пришёл из
+  // topicsInTreeOrder (server), просто перегруппированный без потери
+  // последовательности.
+  const groups: { top: TimelineTopic; subs: TimelineTopic[] }[] = []
+  for (const t of topics) {
+    if (t.depth === 0) groups.push({ top: t, subs: [] })
+    else groups[groups.length - 1]?.subs.push(t)
+  }
+
+  return (
+    <ol className="space-y-3">
+      {groups.map((g, i) => {
+        const last = i === groups.length - 1
         return (
-          <li key={t.id} className="relative pb-6" style={{ paddingLeft: `${10 + depth * INDENT_PER_DEPTH + (isSub ? 30 : 0)}px` }}>
-            {/* вертикальная линия */}
-            {connectsToNext && (
-              <span
-                className={cn('absolute top-7 bottom-0 w-px bg-border', isSub && 'opacity-60')}
-                style={{ left: `${15 + depth * INDENT_PER_DEPTH}px` }}
-              />
-            )}
-            {/* узел темы: полный кружок с номером/галочкой для темы верхнего
-                уровня, компактная засечка на линии для подтемы — чтобы не
-                спорить визуально с номерами родителя */}
-            {isSub ? (
-              <span
-                className={cn(
-                  'absolute top-2.5 flex h-3 w-3 items-center justify-center rounded-full border-2',
-                  t.state === 'done'
-                    ? 'bg-emerald-500 border-emerald-500'
-                    : t.state === 'active'
-                      ? 'border-blue-500 bg-background'
-                      : 'border-border bg-background'
-                )}
-                style={{ left: `${15 + depth * INDENT_PER_DEPTH - 6}px` }}
-              />
-            ) : (
+          <li key={g.top.id} className="grid grid-cols-[2rem_1fr] gap-x-3">
+            {/* Рельс: узел темы + линия к следующей теме — своя колонка
+                грида фиксированной ширины, никогда не задевает контент. */}
+            <div className="flex flex-col items-center">
               <span className={cn(
-                'absolute left-0 top-1 flex h-8 w-8 items-center justify-center rounded-full border-2 text-xs font-semibold',
-                t.state === 'done'
+                'flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-2 text-xs font-semibold',
+                g.top.state === 'done'
                   ? 'bg-emerald-500 border-emerald-500 text-white'
-                  : t.state === 'active'
+                  : g.top.state === 'active'
                     ? 'border-blue-500 text-blue-600 bg-background'
                     : 'border-border text-muted-foreground bg-background'
               )}>
-                {t.state === 'done' ? <Check className="h-4 w-4" /> : topLevelCounter}
+                {g.top.state === 'done' ? <Check className="h-4 w-4" /> : i + 1}
               </span>
-            )}
+              {!last && <span className="w-px flex-1 bg-border mt-1" />}
+            </div>
 
-            <div className="pt-1">
-              <h3 className={cn(
-                isSub ? 'text-sm font-medium' : 'font-medium',
-                t.state === 'done' && 'text-muted-foreground'
-              )}>{t.title}</h3>
+            <div className={cn('min-w-0', !last && 'pb-3')}>
+              <h3 className={cn('font-medium pt-1', g.top.state === 'done' && 'text-muted-foreground')}>
+                {g.top.title}
+              </h3>
               <div className="mt-2 space-y-1.5">
-                {t.items.length === 0 ? (
-                  <p className="text-xs text-muted-foreground">Заданий нет</p>
-                ) : (
-                  t.items.map(it => (
-                    // Ниже ~480px строка «бейдж + название + статус + действие»
-                    // не помещается в один ряд предсказуемо — flex-wrap
-                    // переносил элементы в случайном порядке в зависимости от
-                    // длины названия. Явная раскладка: название всегда сверху
-                    // отдельной строкой, статус+действие снизу — вместо
-                    // надежды на автоматический перенос.
-                    <div key={it.assignment_id} className={cn('space-y-1.5 rounded-md border px-3 py-2', rowStatusClass(it))}>
-                      <div className="flex items-start gap-2">
-                        <Badge variant={it.kind === 'homework' ? 'outline' : 'secondary'} className="text-[11px] shrink-0 mt-0.5">
-                          {it.kind === 'homework' ? 'ДЗ' : 'Тест'}
-                        </Badge>
-                        <span className="text-sm flex-1 min-w-0 wrap-break-word">{it.test_title}</span>
-                      </div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <ItemStatus it={it} />
-                        <LateNote it={it} />
-                        <span className="ml-auto"><ItemAction it={it} /></span>
-                      </div>
-                      <AttemptsInfo it={it} />
-                    </div>
-                  ))
-                )}
+                <TopicItems items={g.top.items} />
               </div>
+
+              {/* Подтемы: видимая скобка слева + лёгкая подложка — читается
+                  как "часть темы выше" на любой ширине, без вычисления
+                  отступа текста по пикселям под конкретную глубину. */}
+              {g.subs.length > 0 && (
+                <div className="mt-3 space-y-3">
+                  {g.subs.map(sub => (
+                    <div key={sub.id} className="border-l-2 border-border/70 pl-3 ml-1">
+                      <h4 className={cn(
+                        'text-sm font-medium flex items-center gap-1.5',
+                        sub.state === 'done' && 'text-muted-foreground'
+                      )}>
+                        <span className={cn(
+                          'inline-block h-2 w-2 shrink-0 rounded-full',
+                          sub.state === 'done' ? 'bg-emerald-500' : sub.state === 'active' ? 'bg-blue-500' : 'bg-border'
+                        )} />
+                        {sub.title}
+                      </h4>
+                      <div className="mt-1.5 space-y-1.5">
+                        <TopicItems items={sub.items} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </li>
         )
       })}
     </ol>
+  )
+}
+
+function TopicItems({ items }: { items: TimelineItem[] }) {
+  if (items.length === 0) {
+    return <p className="text-xs text-muted-foreground">Заданий нет</p>
+  }
+  return (
+    <>
+      {items.map(it => (
+        // Ниже ~480px строка «бейдж + название + статус + действие» не
+        // помещается в один ряд предсказуемо — flex-wrap переносил элементы
+        // в случайном порядке в зависимости от длины названия. Явная
+        // раскладка: название всегда сверху отдельной строкой, статус+
+        // действие снизу — вместо надежды на автоматический перенос.
+        <div key={it.assignment_id} className={cn('space-y-1.5 rounded-md border px-3 py-2', rowStatusClass(it))}>
+          <div className="flex items-start gap-2">
+            <Badge variant={it.kind === 'homework' ? 'outline' : 'secondary'} className="text-[11px] shrink-0 mt-0.5">
+              {it.kind === 'homework' ? 'ДЗ' : 'Тест'}
+            </Badge>
+            <span className="text-sm flex-1 min-w-0 wrap-break-word">{it.test_title}</span>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <ItemStatus it={it} />
+            <LateNote it={it} />
+            <span className="ml-auto"><ItemAction it={it} /></span>
+          </div>
+          <AttemptsInfo it={it} />
+        </div>
+      ))}
+    </>
   )
 }
