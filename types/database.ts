@@ -14,6 +14,30 @@ export type Database = {
   }
   public: {
     Tables: {
+      _rls_policy_backup_095: {
+        Row: {
+          policyname: unknown
+          qual: string | null
+          schemaname: unknown
+          tablename: unknown
+          with_check: string | null
+        }
+        Insert: {
+          policyname?: unknown
+          qual?: string | null
+          schemaname?: unknown
+          tablename?: unknown
+          with_check?: string | null
+        }
+        Update: {
+          policyname?: unknown
+          qual?: string | null
+          schemaname?: unknown
+          tablename?: unknown
+          with_check?: string | null
+        }
+        Relationships: []
+      }
       assignment_shares: {
         Row: {
           assignment_id: string
@@ -332,6 +356,7 @@ export type Database = {
           status: string
           student_id: string
           submitted_at: string | null
+          submitted_late: boolean | null
           teacher_comment: string | null
           teacher_reviewed_at: string | null
         }
@@ -349,6 +374,7 @@ export type Database = {
           status?: string
           student_id: string
           submitted_at?: string | null
+          submitted_late?: boolean | null
           teacher_comment?: string | null
           teacher_reviewed_at?: string | null
         }
@@ -366,6 +392,7 @@ export type Database = {
           status?: string
           student_id?: string
           submitted_at?: string | null
+          submitted_late?: boolean | null
           teacher_comment?: string | null
           teacher_reviewed_at?: string | null
         }

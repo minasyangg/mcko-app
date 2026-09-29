@@ -99,7 +99,7 @@ export async function finalizeAttempt(
 
   const { data: assignment } = await admin
     .from('assignments')
-    .select('id, test_version_id, max_attempts, test_versions!test_version_id(tests!test_id(scoring_rule_id))')
+    .select('id, test_version_id, max_attempts, ends_at, test_versions!test_version_id(tests!test_id(scoring_rule_id))')
     .eq('id', attempt.assignment_id)
     .single()
   if (!assignment) return null
@@ -238,12 +238,21 @@ export async function finalizeAttempt(
 
   const newStatus: 'checked' | 'submitted' = allAutoChecked ? 'checked' : 'submitted'
 
+  // Факт «сдано после дедлайна» — фиксируется один раз здесь, единственном
+  // месте, где попытка переходит in_progress → submitted/checked. null, если
+  // у назначения нет срока (нечего сравнивать), а не false — чтобы отличать
+  // «сдано вовремя» от «срок вообще не был задан» в будущей статистике.
+  const submittedLate = assignment.ends_at != null
+    ? new Date(now).getTime() > new Date(assignment.ends_at).getTime()
+    : null
+
   await admin.from('attempts').update({
     status: newStatus,
     submitted_at: now,
     score: totalScore,
     max_score: totalMaxScore,
     last_activity_at: now,
+    submitted_late: submittedLate,
     ...(allAutoChecked ? { checked_at: now } : {}),
   }).eq('id', attemptId)
 
