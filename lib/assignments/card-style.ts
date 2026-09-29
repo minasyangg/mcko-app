@@ -25,6 +25,15 @@ export function cardKind({ status, score, maxScore, isClosed }: CardStatusInput)
   return 'todo'
 }
 
+// «Незакончено» — задание ещё не в финальном состоянии (не начато, в
+// процессе или на проверке учителя). Используется для решения, какие темы
+// программы раскрывать по умолчанию (RoadmapTimeline) — тема с хотя бы
+// одним незаконченным заданием разворачивается сразу, полностью
+// пройденная сворачивается.
+export function isUnfinishedKind(kind: CardKind): boolean {
+  return kind === 'todo' || kind === 'active' || kind === 'review'
+}
+
 // Классы фона/рамки на карточку целиком — по образцу rowStatusClass, теперь
 // делит одну точку правды на оба места, где рисуется задание.
 export const CARD_KIND_CLASS: Record<CardKind, string> = {

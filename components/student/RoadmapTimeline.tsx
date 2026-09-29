@@ -1,10 +1,13 @@
+'use client'
+
+import { useState } from 'react'
 import Link from 'next/link'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Check } from 'lucide-react'
+import { Check, ChevronDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { closedReasonLabel } from '@/lib/assignments/completion'
-import { cardKind, CARD_KIND_CLASS } from '@/lib/assignments/card-style'
+import { cardKind, CARD_KIND_CLASS, isUnfinishedKind } from '@/lib/assignments/card-style'
 import { ShareAssignmentDialog } from '@/components/student/ShareAssignmentDialog'
 import { DeadlineNote } from '@/components/student/DeadlineNote'
 
@@ -31,6 +34,18 @@ export interface TimelineTopic {
   items: TimelineItem[]
   /** Глубина вложенности в дереве программы, 0 — тема верхнего уровня. */
   depth: number
+}
+
+// Задание «незакончено» — тот же критерий, что делит карточки на секции
+// «Нужно сделать»/«На проверке»/«Проверено» в StudentHome (sectionOf):
+// не начато, в процессе или на проверке учителя, и назначение не закрыто
+// досрочно. Используется, чтобы решить, какие шаги раскрывать при первой
+// загрузке — шаг с хотя бы одним таким заданием разворачивается сразу,
+// полностью пройденный сворачивается.
+function itemUnfinished(it: TimelineItem): boolean {
+  return isUnfinishedKind(cardKind({
+    status: it.status, score: it.score, maxScore: it.max_score, isClosed: it.closed_reason != null,
+  }))
 }
 
 function ItemStatus({ it }: { it: TimelineItem }) {
@@ -175,6 +190,7 @@ export function RoadmapTimeline({ topics }: { topics: TimelineTopic[] }) {
   // Сквозная нумерация шагов по ВСЕЙ программе (не с обнулением на каждом
   // разделе) — так ученик видит "шаг 4 из 12", а не три независимых "шаг 1".
   let stepCounter = 0
+  const allSteps = groups.flatMap(g => g.steps)
 
   return (
     <div className="space-y-6">
@@ -188,46 +204,96 @@ export function RoadmapTimeline({ topics }: { topics: TimelineTopic[] }) {
               stepCounter++
               const last = i === g.steps.length - 1
               return (
-                <li key={step.id} className="grid grid-cols-[2rem_1fr] gap-x-3">
-                  {/* Рельс: узел шага + линия к следующему — своя колонка
-                      грида, физически не может пересечься с текстом справа
-                      независимо от его длины. */}
-                  <div className="flex flex-col items-center">
-                    <span className={cn(
-                      'flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-2 text-xs font-semibold',
-                      step.state === 'done'
-                        ? 'bg-emerald-500 border-emerald-500 text-white'
-                        : step.state === 'active'
-                          ? 'border-blue-500 text-blue-600 bg-background'
-                          : 'border-border text-muted-foreground bg-background'
-                    )}>
-                      {step.state === 'done' ? <Check className="h-4 w-4" /> : stepCounter}
-                    </span>
-                    {!last && <span className="w-px flex-1 bg-border mt-1" />}
-                  </div>
-
-                  <div className={cn('min-w-0', !last && 'pb-4')}>
-                    <h3 className={cn('font-medium pt-1', step.state === 'done' && 'text-muted-foreground')}>
-                      {step.title}
-                    </h3>
-                    <div className="mt-2 space-y-1.5">
-                      <TopicItems items={step.items} />
-                    </div>
-                  </div>
-                </li>
+                <TimelineStep
+                  key={step.id}
+                  step={step}
+                  number={stepCounter}
+                  connectsToNext={!last}
+                  defaultExpanded={step.items.some(itemUnfinished)}
+                />
               )
             })}
           </ol>
         </section>
       ))}
+      {allSteps.length > 0 && allSteps.every(s => s.items.length === 0) && (
+        <p className="text-sm text-muted-foreground">В программе пока нет заданий.</p>
+      )}
     </div>
   )
 }
 
+function TimelineStep({
+  step, number, connectsToNext, defaultExpanded,
+}: {
+  step: { id: string; title: string; state: TimelineTopic['state']; items: TimelineItem[] }
+  number: number
+  connectsToNext: boolean
+  defaultExpanded: boolean
+}) {
+  // Раскрыт по умолчанию, если в шаге есть хоть одно незаконченное задание —
+  // так ученик сразу видит, что ему осталось сделать, а полностью пройденные
+  // темы не занимают экран. Состояние — по шагу (id), не по всему таймлайну:
+  // "скрыть вложенные элементы" относится к конкретной теме, не переключает
+  // всё разом.
+  const [expanded, setExpanded] = useState(defaultExpanded)
+  const hasItems = step.items.length > 0
+
+  return (
+    <li className="grid grid-cols-[2rem_1fr] gap-x-3">
+      {/* Рельс: узел шага + линия к следующему — своя колонка грида,
+          физически не может пересечься с текстом справа независимо от его
+          длины. */}
+      <div className="flex flex-col items-center">
+        <span className={cn(
+          'flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-2 text-xs font-semibold',
+          step.state === 'done'
+            ? 'bg-emerald-500 border-emerald-500 text-white'
+            : step.state === 'active'
+              ? 'border-blue-500 text-blue-600 bg-background'
+              : 'border-border text-muted-foreground bg-background'
+        )}>
+          {step.state === 'done' ? <Check className="h-4 w-4" /> : number}
+        </span>
+        {connectsToNext && <span className="w-px flex-1 bg-border mt-1" />}
+      </div>
+
+      <div className={cn('min-w-0', connectsToNext && 'pb-4')}>
+        <button
+          type="button"
+          onClick={() => hasItems && setExpanded(v => !v)}
+          disabled={!hasItems}
+          className={cn(
+            'flex w-full items-center gap-1.5 text-left pt-1 -ml-1 pl-1 rounded',
+            hasItems && 'hover:bg-muted/50 transition-colors cursor-pointer'
+          )}
+        >
+          <h3 className={cn('font-medium flex-1 min-w-0', step.state === 'done' && 'text-muted-foreground')}>
+            {step.title}
+          </h3>
+          {hasItems && (
+            <>
+              <span className="text-xs text-muted-foreground shrink-0">{step.items.length}</span>
+              <ChevronDown className={cn('h-4 w-4 shrink-0 text-muted-foreground transition-transform', expanded && 'rotate-180')} />
+            </>
+          )}
+        </button>
+        {hasItems && expanded && (
+          <div className="mt-2 space-y-1.5">
+            <TopicItems items={step.items} />
+          </div>
+        )}
+        {!hasItems && (
+          <p className="mt-2 text-xs text-muted-foreground">Заданий нет</p>
+        )}
+      </div>
+    </li>
+  )
+}
+
+// Вызывается только когда items непусто (TimelineStep решает это до вызова
+// — пустой список ведёт к отдельной ветке "Заданий нет" без кнопки сворачивания).
 function TopicItems({ items }: { items: TimelineItem[] }) {
-  if (items.length === 0) {
-    return <p className="text-xs text-muted-foreground">Заданий нет</p>
-  }
   return (
     <>
       {items.map(it => (
