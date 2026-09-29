@@ -124,94 +124,103 @@ function AttemptsInfo({ it }: { it: TimelineItem }) {
   )
 }
 
-// Раньше узел (кружок/засечка) и линия позиционировались абсолютно поверх
-// текста через вручную подобранные пиксельные left-координаты — на подтемах
-// с длинным заголовком и на предпросмотре узкой ширины кружок наезжал на
-// текст (номер "1" перекрывал первые буквы заголовка "Пробный тест"), а
-// засечка подтемы визуально терялась и не читалась как вложенность вообще.
+// Три уровня, три явно разных визуальных веса — раньше раздел и подтема
+// были почти одинаковыми по размеру шрифта, а нумерованный узел стоял у
+// раздела (контейнера-рубрики вроде "Функции"), хотя реальный прогресс
+// ученик проходит по подтемам/заданиям внутри него — нумерация у раздела
+// ничего не объясняла, а у подтемы её как раз не хватало.
 //
-// Теперь тема — это grid-строка "рельс | контент": рельс (кружок + линия) и
-// текст — РАЗНЫЕ ячейки грида, а не наложенные слои, поэтому пересечься
-// физически не могут независимо от длины заголовка. Все подтемы (depth>0,
-// в реальных программах их сейчас максимум один уровень) рендерятся ВНУТРИ
-// карточки родителя единым плоским списком — глубже второго уровня визуально
-// не выделяем: программа с 3+ уровнями вложенности пока не встречалась, а
-// вычислять для неё лесенку отступов раньше и обернулось наездом текста.
+//  1. РАЗДЕЛ ("Функции", "Геометрия") — крупный заголовок-разделитель без
+//     узла таймлайна вообще: это рубрика, не шаг прогресса, нумеровать её
+//     как шаг — вводит в заблуждение.
+//  2. ШАГ ("Область определения...", "Нули функции...", либо задание
+//     раздела без своей подтемы) — вот что реально нумеруется: полноценный
+//     узел с кружком-номером, самый заметный элемент таймлайна после
+//     заголовка раздела.
+//  3. ЗАДАНИЕ (карточка теста/ДЗ внутри шага) — заметно мельче названия
+//     шага и всегда визуально "внутри" него (общий отступ и общий фон блока
+//     шага), а не отдельная строка того же веса.
 export function RoadmapTimeline({ topics }: { topics: TimelineTopic[] }) {
   if (topics.length === 0) {
     return <p className="text-sm text-muted-foreground py-2">В программе пока нет тем.</p>
   }
 
-  // Группируем по темам верхнего уровня — подтемы (depth>0) рендерятся
-  // ВНУТРИ карточки родителя, а не отдельным элементом списка с ложным
-  // отступом. Порядок внутри группы — тот же DFS-порядок, что пришёл из
-  // topicsInTreeOrder (server), просто перегруппированный без потери
-  // последовательности.
-  const groups: { top: TimelineTopic; subs: TimelineTopic[] }[] = []
+  // Сначала — честное дерево: раздел (depth=0) + его прямые подтемы
+  // (depth>0, в текущих данных ровно один уровень). Дальше на его основе
+  // решаем, что в этом разделе считать "шагом":
+  //  - есть подтемы → шаги это подтемы; задания, назначенные прямо на
+  //    раздел (не на конкретную подтему), идут первым безымянным шагом
+  //    "Общие задания" — такие в данных теоретически возможны
+  //    (school-topic назначение без привязки к подтеме) и не должны молча
+  //    потеряться;
+  //  - подтем нет → раздел сам единственный шаг (случай "Входного пробника"
+  //    на скриншоте: задания есть, подтемы нет).
+  interface Step { id: string; title: string; state: TimelineTopic['state']; items: TimelineItem[] }
+  const tree: { section: TimelineTopic; subs: TimelineTopic[] }[] = []
   for (const t of topics) {
-    if (t.depth === 0) groups.push({ top: t, subs: [] })
-    else groups[groups.length - 1]?.subs.push(t)
+    if (t.depth === 0) tree.push({ section: t, subs: [] })
+    else tree[tree.length - 1]?.subs.push(t)
   }
+  const groups: { sectionTitle: string; steps: Step[] }[] = tree.map(({ section, subs }) => {
+    if (subs.length === 0) {
+      return { sectionTitle: section.title, steps: [{ id: section.id, title: section.title, state: section.state, items: section.items }] }
+    }
+    const steps: Step[] = subs.map(s => ({ id: s.id, title: s.title, state: s.state, items: s.items }))
+    if (section.items.length > 0) {
+      steps.unshift({ id: section.id, title: 'Общие задания', state: section.state, items: section.items })
+    }
+    return { sectionTitle: section.title, steps }
+  })
+
+  // Сквозная нумерация шагов по ВСЕЙ программе (не с обнулением на каждом
+  // разделе) — так ученик видит "шаг 4 из 12", а не три независимых "шаг 1".
+  let stepCounter = 0
 
   return (
-    <ol className="space-y-3">
-      {groups.map((g, i) => {
-        const last = i === groups.length - 1
-        return (
-          <li key={g.top.id} className="grid grid-cols-[2rem_1fr] gap-x-3">
-            {/* Рельс: узел темы + линия к следующей теме — своя колонка
-                грида фиксированной ширины, никогда не задевает контент. */}
-            <div className="flex flex-col items-center">
-              <span className={cn(
-                'flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-2 text-xs font-semibold',
-                g.top.state === 'done'
-                  ? 'bg-emerald-500 border-emerald-500 text-white'
-                  : g.top.state === 'active'
-                    ? 'border-blue-500 text-blue-600 bg-background'
-                    : 'border-border text-muted-foreground bg-background'
-              )}>
-                {g.top.state === 'done' ? <Check className="h-4 w-4" /> : i + 1}
-              </span>
-              {!last && <span className="w-px flex-1 bg-border mt-1" />}
-            </div>
+    <div className="space-y-6">
+      {groups.map(g => (
+        <section key={g.sectionTitle}>
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground/80 mb-3">
+            {g.sectionTitle}
+          </h2>
+          <ol className="space-y-0">
+            {g.steps.map((step, i) => {
+              stepCounter++
+              const last = i === g.steps.length - 1
+              return (
+                <li key={step.id} className="grid grid-cols-[2rem_1fr] gap-x-3">
+                  {/* Рельс: узел шага + линия к следующему — своя колонка
+                      грида, физически не может пересечься с текстом справа
+                      независимо от его длины. */}
+                  <div className="flex flex-col items-center">
+                    <span className={cn(
+                      'flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-2 text-xs font-semibold',
+                      step.state === 'done'
+                        ? 'bg-emerald-500 border-emerald-500 text-white'
+                        : step.state === 'active'
+                          ? 'border-blue-500 text-blue-600 bg-background'
+                          : 'border-border text-muted-foreground bg-background'
+                    )}>
+                      {step.state === 'done' ? <Check className="h-4 w-4" /> : stepCounter}
+                    </span>
+                    {!last && <span className="w-px flex-1 bg-border mt-1" />}
+                  </div>
 
-            <div className={cn('min-w-0', !last && 'pb-3')}>
-              <h3 className={cn('font-medium pt-1', g.top.state === 'done' && 'text-muted-foreground')}>
-                {g.top.title}
-              </h3>
-              <div className="mt-2 space-y-1.5">
-                <TopicItems items={g.top.items} />
-              </div>
-
-              {/* Подтемы: видимая скобка слева + лёгкая подложка — читается
-                  как "часть темы выше" на любой ширине, без вычисления
-                  отступа текста по пикселям под конкретную глубину. */}
-              {g.subs.length > 0 && (
-                <div className="mt-3 space-y-3">
-                  {g.subs.map(sub => (
-                    <div key={sub.id} className="border-l-2 border-border/70 pl-3 ml-1">
-                      <h4 className={cn(
-                        'text-sm font-medium flex items-center gap-1.5',
-                        sub.state === 'done' && 'text-muted-foreground'
-                      )}>
-                        <span className={cn(
-                          'inline-block h-2 w-2 shrink-0 rounded-full',
-                          sub.state === 'done' ? 'bg-emerald-500' : sub.state === 'active' ? 'bg-blue-500' : 'bg-border'
-                        )} />
-                        {sub.title}
-                      </h4>
-                      <div className="mt-1.5 space-y-1.5">
-                        <TopicItems items={sub.items} />
-                      </div>
+                  <div className={cn('min-w-0', !last && 'pb-4')}>
+                    <h3 className={cn('font-medium pt-1', step.state === 'done' && 'text-muted-foreground')}>
+                      {step.title}
+                    </h3>
+                    <div className="mt-2 space-y-1.5">
+                      <TopicItems items={step.items} />
                     </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </li>
-        )
-      })}
-    </ol>
+                  </div>
+                </li>
+              )
+            })}
+          </ol>
+        </section>
+      ))}
+    </div>
   )
 }
 
