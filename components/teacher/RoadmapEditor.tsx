@@ -18,6 +18,7 @@ import {
 import { ConfirmDeleteAction } from '@/components/shared/ConfirmDeleteAction'
 import { EditRoadmapDialog } from '@/components/teacher/EditRoadmapDialog'
 import { BroadcastDialog } from '@/components/teacher/BroadcastDialog'
+import { TestPreviewModalById } from '@/components/teacher/TestPreviewModalById'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { SearchableSelect } from '@/components/shared/SearchableSelect'
 import {
@@ -33,7 +34,7 @@ export interface EditorTopic {
   sort_order: number
   parent_id: string | null
   visible_to_students: boolean
-  items: { assignment_id: string; test_title: string; kind: 'homework' | 'test'; max_attempts: number; ends_at: string | null }[]
+  items: { assignment_id: string; test_id: string | null; test_title: string; kind: 'homework' | 'test'; max_attempts: number; ends_at: string | null }[]
 }
 
 interface TopicNode extends EditorTopic {
@@ -93,6 +94,10 @@ export function RoadmapEditor({ roadmap, topics, tests, students, memberIds, gro
 }) {
   const router = useRouter()
   const [busy, setBusy] = useState(false)
+  // Предпросмотр состава ДЗ/теста по клику на его название в списке темы —
+  // переиспользует read-only TestPreviewModal (как на странице теста),
+  // загружая tasks по testId вместо уже готового пропа.
+  const [previewTestId, setPreviewTestId] = useState<string | null>(null)
 
   // — Ученики —
   const [studentsOpen, setStudentsOpen] = useState(false)
@@ -508,6 +513,7 @@ export function RoadmapEditor({ roadmap, topics, tests, students, memberIds, gro
               onRename={renameTopic} onDelete={deleteTopic} onAddChild={addTopicUnder}
               onOpenItem={openItem} onRemoveItem={removeItem} onToggleVisible={toggleTopicVisible}
               onDropTopic={handleTopicDrop} onMoveItem={moveItemToTopic} drag={drag} setDrag={setDrag}
+              onPreviewTest={setPreviewTestId}
             />
           ))}
         </div>
@@ -530,6 +536,8 @@ export function RoadmapEditor({ roadmap, topics, tests, students, memberIds, gro
           </Button>
         </div>
       </div>
+
+      <TestPreviewModalById testId={previewTestId} onClose={() => setPreviewTestId(null)} />
 
       {/* Диалог состава учеников */}
       <Dialog open={studentsOpen} onOpenChange={(v) => { if (!v) resetStudentsDialog() }}>
@@ -722,7 +730,7 @@ type DragState = { id: string; kind: 'topic' | 'item' } | null
 
 function TopicTreeItem({
   node, depth, roadmapId, busy, onRename, onDelete, onAddChild, onOpenItem, onRemoveItem, onToggleVisible,
-  onDropTopic, onMoveItem, drag, setDrag,
+  onDropTopic, onMoveItem, drag, setDrag, onPreviewTest,
 }: {
   node: TopicNode
   depth: number
@@ -738,6 +746,7 @@ function TopicTreeItem({
   onMoveItem: (assignmentId: string, topicId: string) => void
   drag: DragState
   setDrag: (d: DragState) => void
+  onPreviewTest: (testId: string) => void
 }) {
   const [open, setOpen] = useState(depth < 1)
   const hasChildren = node.children.length > 0
@@ -996,8 +1005,29 @@ function TopicTreeItem({
                   <Badge variant={it.kind === 'homework' ? 'outline' : 'secondary'} className="text-[11px] shrink-0">
                     {it.kind === 'homework' ? 'ДЗ' : 'Тест'}
                   </Badge>
-                  <span className="flex-1 truncate">{it.test_title}</span>
+                  {it.test_id ? (
+                    <button
+                      type="button"
+                      className="flex-1 truncate text-left hover:underline underline-offset-2"
+                      title="Просмотреть состав"
+                      onClick={() => onPreviewTest(it.test_id!)}
+                    >
+                      {it.test_title}
+                    </button>
+                  ) : (
+                    <span className="flex-1 truncate">{it.test_title}</span>
+                  )}
                   <span className="text-xs text-muted-foreground shrink-0">{it.max_attempts} поп.</span>
+                  {it.test_id && (
+                    <Link
+                      href={`/teacher/tests/${it.test_id}`}
+                      className="shrink-0 text-muted-foreground hover:text-foreground"
+                      title="Открыть тест"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <Eye className="h-3.5 w-3.5" />
+                    </Link>
+                  )}
                   <Button size="icon" variant="ghost" className="h-6 w-6 text-muted-foreground hover:text-destructive"
                     onClick={() => onRemoveItem(node.id, it.assignment_id)}>
                     <X className="h-3.5 w-3.5" />
@@ -1021,6 +1051,7 @@ function TopicTreeItem({
               onRename={onRename} onDelete={onDelete} onAddChild={onAddChild}
               onOpenItem={onOpenItem} onRemoveItem={onRemoveItem} onToggleVisible={onToggleVisible}
               onDropTopic={onDropTopic} onMoveItem={onMoveItem} drag={drag} setDrag={setDrag}
+              onPreviewTest={onPreviewTest}
             />
           ))}
         </div>
