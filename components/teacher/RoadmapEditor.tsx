@@ -1008,26 +1008,17 @@ function TopicTreeItem({
                   {it.test_id ? (
                     <button
                       type="button"
-                      className="flex-1 truncate text-left hover:underline underline-offset-2"
+                      className="flex-1 min-w-0 flex items-center gap-1.5 text-left hover:underline underline-offset-2"
                       title="Просмотреть состав"
                       onClick={() => onPreviewTest(it.test_id!)}
                     >
-                      {it.test_title}
+                      <span className="truncate">{it.test_title}</span>
+                      <Eye className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                     </button>
                   ) : (
                     <span className="flex-1 truncate">{it.test_title}</span>
                   )}
                   <span className="text-xs text-muted-foreground shrink-0">{it.max_attempts} поп.</span>
-                  {it.test_id && (
-                    <Link
-                      href={`/teacher/tests/${it.test_id}`}
-                      className="shrink-0 text-muted-foreground hover:text-foreground"
-                      title="Открыть тест"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <Eye className="h-3.5 w-3.5" />
-                    </Link>
-                  )}
                   <Button size="icon" variant="ghost" className="h-6 w-6 text-muted-foreground hover:text-destructive"
                     onClick={() => onRemoveItem(node.id, it.assignment_id)}>
                     <X className="h-3.5 w-3.5" />
