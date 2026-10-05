@@ -204,6 +204,59 @@ for (const table of msTables) {
 }
 
 // ── Сборка строк для вставки ────────────────────────────────────────────────
+//
+// Ответ хранится как GFM markdown-таблица (не plain-текст через ' | ') —
+// LibraryProblemCard рендерит его через MarkdownContent (remark-gfm уже
+// подключён), что превращает "простыню" в читаемую таблицу Шаг/Критерий/
+// Баллы/AO. Строки-счётчики баллов вида "(3)"/"(8 marks)" и служебное
+// "Notes:" в табличные строки не включаются — это дубль колонки "Баллы",
+// а не содержательный шаг оценивания.
+const MARKS_COUNT_LINE_RE = /^\(\s*\d+(\s*marks?)?\s*\)$/i
+const NOTES_LINE_RE = /^notes:?$/i
+
+function schemeToMarkdownTable(lines) {
+  // "Notes:" маркирует конец табличной scheme и начало текстовых заметок
+  // для экзаменатора (M1:/A1:/B1: с пояснениями) — структурно это уже не
+  // Question/Scheme/Marks/AOs таблица, а произвольный текст, который при
+  // попытке впихнуть в те же колонки ломает выравнивание всех строк ниже
+  // (видно было на вопросах с рубрикой (a)/(b)/(c) внутри Notes). Обрезаем
+  // здесь целиком, а не просто фильтруем строку "Notes:" саму по себе.
+  const notesAt = lines.findIndex(l => NOTES_LINE_RE.test(l.split('|')[0].trim()))
+  const tableLines = notesAt === -1 ? lines : lines.slice(0, notesAt)
+
+  const rows = tableLines
+    .map(l => l.split('|').map(c => c.trim()))
+    .filter(cells => {
+      const joined = cells.join(' ').trim()
+      return joined && !MARKS_COUNT_LINE_RE.test(joined)
+    })
+  if (rows.length === 0) return lines.join('\n') // fallback — не должно случаться
+
+  const maxCols = Math.max(...rows.map(r => r.length))
+  const headers = ['Шаг', 'Критерий оценивания', 'Баллы', 'AO'].slice(0, maxCols)
+  while (headers.length < maxCols) headers.push(`Кол. ${headers.length + 1}`)
+
+  // Markdown-таблица не переносит внутристрочные переводы строк (ни
+  // настоящие \n, ни буквальные "\n" — OCR-текст из HTML-ячеек иногда несёт
+  // именно двухсимвольную последовательность) — заменяем на <br> (GFM внутри
+  // ячейки допускает простой HTML, rehype-raw в MarkdownContent его
+  // отрендерит), иначе перенос разорвал бы строку таблицы.
+  const escapeCell = s => s.replace(/\\n|\n/g, '<br>').replace(/\|/g, '\\|')
+  const toRow = cells => {
+    // Короткая строка (без метки "Шаг"/без AO) — это ПРОДОЛЖЕНИЕ предыдущего
+    // подпункта (новый M1/A1-критерий внутри того же (b)/(c)), а не начало
+    // нового — недостающие ячейки добавляем СЛЕВА (колонка «Шаг» пустая),
+    // не справа, иначе «Баллы»/AO этой строки уезжали бы в чужие колонки.
+    const padded = Array(maxCols - cells.length).fill('').concat(cells)
+    return `| ${padded.map(escapeCell).join(' | ')} |`
+  }
+
+  return [
+    toRow(headers),
+    `| ${headers.map(() => '---').join(' | ')} |`,
+    ...rows.map(toRow),
+  ].join('\n')
+}
 
 const rows = []
 const missing = { noScheme: [], noQuestion: [] }
@@ -217,7 +270,7 @@ for (const num of [...allNums].sort((a, b) => a - b)) {
   rows.push({
     task_number: num,
     prompt_text: prompt,
-    correct_answer: scheme.join('\n'),
+    correct_answer: schemeToMarkdownTable(scheme),
   })
 }
 
