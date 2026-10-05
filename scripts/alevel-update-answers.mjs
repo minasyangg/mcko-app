@@ -73,8 +73,13 @@ for (const row of rows) {
   const id = idByTaskNum.get(key)
   if (!id) { skipped++; continue }
   if (dryRun) { updated++; continue }
+  // correct_answer — jsonb-колонка со строковым значением (markdown-
+  // таблица). supabase-js сам сериализует JS-строку в jsonb корректно —
+  // ручной JSON.stringify() здесь удваивал экранирование (кавычки и "\n"
+  // как текст вместо настоящих переносов строк), что и привело к тому, что
+  // первый прогон записал в БД строку-в-строке вместо самой таблицы.
   const { error: updErr } = await withRetry(
-    () => db.from('library_problems').update({ correct_answer: JSON.stringify(row.correct_answer) }).eq('id', id),
+    () => db.from('library_problems').update({ correct_answer: row.correct_answer }).eq('id', id),
     `update ${key}`
   )
   if (updErr) { console.error(`update ${key} (${id}) — все попытки неудачны:`, updErr.message); failed++; continue }

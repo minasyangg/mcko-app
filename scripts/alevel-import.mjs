@@ -369,7 +369,10 @@ const problemRows = rows.map(r => ({
   prompt_text: r.prompt_text,
   task_type: 'manual_review',
   grading_method: 'manual',
-  correct_answer: JSON.stringify(r.correct_answer),
+  // jsonb-колонка со строковым значением — supabase-js сам сериализует JS-
+  // строку в jsonb корректно; JSON.stringify() здесь удваивал экранирование
+  // (кавычки и "\n" как буквальный текст вместо настоящих переносов строк).
+  correct_answer: r.correct_answer,
   organization_id: null, // глобальная библиотека
 }))
 
