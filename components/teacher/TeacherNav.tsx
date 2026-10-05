@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import { usePathname, useSearchParams } from 'next/navigation'
 import { LogoutButton } from '@/components/shared/LogoutButton'
 import { SwitchAccountButton } from '@/components/shared/SwitchAccountButton'
 import { BookOpen, Users, GraduationCap, Monitor, BarChart2, TrendingUp, Menu, X, ListChecks, Library, Bell, Settings, PenLine, ChevronDown, ClipboardCheck, Share2 } from 'lucide-react'
@@ -43,6 +43,7 @@ const navItems: NavItem[] = [
     href: '/teacher/library', label: 'Библиотека', icon: Library,
     children: [
       { href: '/teacher/library', label: 'ОГЭ/ЕГЭ' },
+      { href: '/teacher/library?exam_type=A-Level', label: 'A-Level' },
       { href: '/teacher/books',   label: 'Книги' },
     ],
   },
@@ -94,7 +95,17 @@ function NavLink({
   onClick?: () => void
 }) {
   const pathname = usePathname()
-  const active = exact ? pathname === href : pathname.startsWith(href)
+  const searchParams = useSearchParams()
+  // href с query (напр. "/teacher/library?exam_type=A-Level") — обычные
+  // startsWith/=== сравнивают только pathname и не различали бы этот пункт
+  // от соседнего "ОГЭ/ЕГЭ" на том же /teacher/library (оба подсветились бы
+  // одновременно, а A-Level не подсвечивался бы вовсе). Разбираем href на
+  // путь и query, сравниваем query отдельно — для "ОГЭ/ЕГЭ" (без query в
+  // href) активность требует ОТСУТСТВИЯ exam_type в адресной строке.
+  const [hrefPath, hrefQuery] = href.split('?')
+  const pathMatches = exact ? pathname === hrefPath : pathname.startsWith(hrefPath)
+  const hrefExamType = hrefQuery ? new URLSearchParams(hrefQuery).get('exam_type') : null
+  const active = pathMatches && (hrefExamType ?? '') === (searchParams.get('exam_type') ?? '')
 
   return (
     <Link

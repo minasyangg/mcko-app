@@ -78,3 +78,13 @@ export function formatAnswerJson(json: Json | null | undefined): string {
 export function formatAnswerJsonRaw(json: Json | null | undefined): string {
   return stringifyJson(json, false)
 }
+
+// Составные A-Level-ответы (mark scheme с критериями M1/A1/B1 — см.
+// alevel-import.mjs) хранятся как GFM markdown-таблица, не как короткое
+// значение — показ через MathText (инлайн-LaTeX без таблиц) дал бы
+// нечитаемую простыню с буквальными "|"/"---". Отличаем по наличию
+// табличного разделителя "|" на двух строках подряд: строка заголовка и
+// строка-разделитель markdown table syntax ("---").
+export function isTableAnswer(text: string): boolean {
+  return /^\s*\|.+\|\s*$/m.test(text) && /^\s*\|[\s:|-]+\|\s*$/m.test(text)
+}

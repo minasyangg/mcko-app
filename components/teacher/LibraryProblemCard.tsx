@@ -5,9 +5,11 @@ import { ChevronDown, ChevronUp, ExternalLink, CheckCircle2, BookOpen, Pencil, C
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
 import MarkdownContent from '@/components/shared/MarkdownContent'
 import { AddToTestDialog } from '@/components/teacher/AddToTestDialog'
+import { isTableAnswer } from '@/lib/grading/format-answer-display'
 
 interface Problem {
   id: string
@@ -40,6 +42,7 @@ function answerText(answer: unknown): string {
   }
   return JSON.stringify(answer)
 }
+
 
 export function LibraryProblemCard({ problem }: Props) {
   const [expanded,    setExpanded]    = useState(false)
@@ -185,45 +188,90 @@ export function LibraryProblemCard({ problem }: Props) {
         {/* Ответ */}
         {editingAns ? (
           <div className="space-y-1">
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-muted-foreground shrink-0">Ответ:</span>
-              <Input
-                ref={inputRef}
-                value={ansInput}
-                onChange={e => setAnsInput(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter') saveAnswer(); if (e.key === 'Escape') cancelEditing() }}
-                className="h-7 text-sm flex-1"
-                placeholder="Введите ответ..."
-                disabled={saving}
-              />
-              <button onClick={saveAnswer} disabled={saving}
-                className="text-green-600 hover:text-green-700 disabled:opacity-50">
-                <Check className="h-4 w-4" />
-              </button>
-              <button onClick={cancelEditing} disabled={saving}
-                className="text-muted-foreground hover:text-foreground">
-                <X className="h-4 w-4" />
-              </button>
-            </div>
+            {isTableAnswer(ansInput) ? (
+              <div className="space-y-1.5">
+                <span className="text-sm text-muted-foreground">Ответ (markdown-таблица):</span>
+                <Textarea
+                  value={ansInput}
+                  onChange={e => setAnsInput(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Escape') cancelEditing() }}
+                  className="text-sm font-mono min-h-32"
+                  disabled={saving}
+                  autoFocus
+                />
+                <div className="flex items-center gap-2">
+                  <button onClick={saveAnswer} disabled={saving}
+                    className="text-green-600 hover:text-green-700 disabled:opacity-50">
+                    <Check className="h-4 w-4" />
+                  </button>
+                  <button onClick={cancelEditing} disabled={saving}
+                    className="text-muted-foreground hover:text-foreground">
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-muted-foreground shrink-0">Ответ:</span>
+                <Input
+                  ref={inputRef}
+                  value={ansInput}
+                  onChange={e => setAnsInput(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') saveAnswer(); if (e.key === 'Escape') cancelEditing() }}
+                  className="h-7 text-sm flex-1"
+                  placeholder="Введите ответ..."
+                  disabled={saving}
+                />
+                <button onClick={saveAnswer} disabled={saving}
+                  className="text-green-600 hover:text-green-700 disabled:opacity-50">
+                  <Check className="h-4 w-4" />
+                </button>
+                <button onClick={cancelEditing} disabled={saving}
+                  className="text-muted-foreground hover:text-foreground">
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            )}
             {saveError && <p className="text-xs text-destructive">{saveError}</p>}
           </div>
         ) : hasAns ? (
-          <div className="flex items-center gap-2 group">
-            <p className="text-sm">
-              <span className="text-muted-foreground">Ответ: </span>
-              <span className="font-medium">{answerText(localAnswer)}</span>
-            </p>
-            {localSource === 'ai' && (
-              <Badge variant="outline" className="text-[10px] h-4 px-1 gap-0.5 text-violet-600 border-violet-300 dark:text-violet-400 dark:border-violet-700" title="Ответ сгенерирован ИИ — проверьте и при необходимости исправьте">
-                <Sparkles className="h-2.5 w-2.5" />
-                ИИ
-              </Badge>
-            )}
-            <button onClick={startEditing}
-              className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-foreground">
-              <Pencil className="h-3 w-3" />
-            </button>
-          </div>
+          isTableAnswer(answerText(localAnswer)) ? (
+            <div className="space-y-1.5 group">
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-muted-foreground">Ответ (схема оценивания):</span>
+                {localSource === 'ai' && (
+                  <Badge variant="outline" className="text-[10px] h-4 px-1 gap-0.5 text-violet-600 border-violet-300 dark:text-violet-400 dark:border-violet-700" title="Ответ сгенерирован ИИ — проверьте и при необходимости исправьте">
+                    <Sparkles className="h-2.5 w-2.5" />
+                    ИИ
+                  </Badge>
+                )}
+                <button onClick={startEditing}
+                  className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-foreground">
+                  <Pencil className="h-3 w-3" />
+                </button>
+              </div>
+              <div className="text-sm overflow-x-auto [&_table]:text-xs [&_th]:px-2 [&_th]:py-1 [&_td]:px-2 [&_td]:py-1 [&_table]:border-collapse [&_th]:border [&_td]:border [&_th]:border-border [&_td]:border-border">
+                <MarkdownContent content={answerText(localAnswer)} />
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 group">
+              <p className="text-sm">
+                <span className="text-muted-foreground">Ответ: </span>
+                <span className="font-medium">{answerText(localAnswer)}</span>
+              </p>
+              {localSource === 'ai' && (
+                <Badge variant="outline" className="text-[10px] h-4 px-1 gap-0.5 text-violet-600 border-violet-300 dark:text-violet-400 dark:border-violet-700" title="Ответ сгенерирован ИИ — проверьте и при необходимости исправьте">
+                  <Sparkles className="h-2.5 w-2.5" />
+                  ИИ
+                </Badge>
+              )}
+              <button onClick={startEditing}
+                className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-foreground">
+                <Pencil className="h-3 w-3" />
+              </button>
+            </div>
+          )
         ) : (
           <div className="space-y-1">
             <div className="flex items-center gap-3">
