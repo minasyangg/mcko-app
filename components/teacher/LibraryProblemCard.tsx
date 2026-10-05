@@ -9,6 +9,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
 import MarkdownContent from '@/components/shared/MarkdownContent'
 import { AddToTestDialog } from '@/components/teacher/AddToTestDialog'
+import { isTableAnswer } from '@/lib/grading/format-answer-display'
 
 interface Problem {
   id: string
@@ -42,13 +43,6 @@ function answerText(answer: unknown): string {
   return JSON.stringify(answer)
 }
 
-// Составные ответы A-Level (mark scheme с критериями M1/A1/B1) хранятся как
-// markdown-таблица — отличаем их от обычного короткого ответа по наличию
-// табличного разделителя "|" на нескольких строках подряд (сам markdown
-// table syntax: строка заголовка, строка-разделитель "---", строки данных).
-function isTableAnswer(text: string): boolean {
-  return /^\s*\|.+\|\s*$/m.test(text) && /^\s*\|[\s:|-]+\|\s*$/m.test(text)
-}
 
 export function LibraryProblemCard({ problem }: Props) {
   const [expanded,    setExpanded]    = useState(false)

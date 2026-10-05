@@ -47,7 +47,7 @@ import {
 } from 'lucide-react'
 import MarkdownContent from '@/components/shared/MarkdownContent'
 import { MathText } from '@/components/shared/MathText'
-import { wrapBareLatex } from '@/lib/grading/format-answer-display'
+import { wrapBareLatex, isTableAnswer } from '@/lib/grading/format-answer-display'
 import { derivePromptText } from '@/lib/tasks/prompt'
 import { ImageGallery } from '@/components/shared/ImageGallery'
 import { TestPreviewModal } from '@/components/teacher/TestPreviewModal'
@@ -366,12 +366,20 @@ function EditTaskForm({ task, onSave, onCancel }: EditTaskFormProps) {
       </div>
       <div className="space-y-1">
         <Label className="text-xs">Правильный ответ</Label>
-        <Input
-          value={correctAnswer}
-          onChange={(e) => setCorrectAnswer(e.target.value)}
-          className="h-8 text-sm"
-          placeholder="Оставьте пустым чтобы не изменять"
-        />
+        {isTableAnswer(correctAnswer) ? (
+          <Textarea
+            value={correctAnswer}
+            onChange={(e) => setCorrectAnswer(e.target.value)}
+            className="text-sm font-mono min-h-32"
+          />
+        ) : (
+          <Input
+            value={correctAnswer}
+            onChange={(e) => setCorrectAnswer(e.target.value)}
+            className="h-8 text-sm"
+            placeholder="Оставьте пустым чтобы не изменять"
+          />
+        )}
       </div>
       <div className="space-y-1">
         <Label className="text-xs">Метод проверки</Label>
@@ -550,12 +558,12 @@ function TaskCard({
           </div>
         </div>
 
-        {/* Task text preview */}
+        {/* Task text preview — MarkdownContent и для чистого prompt_text
+            (не только prompt_html): A-Level-импорт (alevel-import.mjs)
+            кладёт сюда LaTeX ($...$) без html-версии, а голый <p> его не
+            рендерит вовсе — формулы показывались бы сырым текстом. */}
         <div className={`mt-2 text-sm ${expanded ? '' : 'line-clamp-3 overflow-hidden'}`}>
-          {task.prompt_html
-            ? <MarkdownContent content={task.prompt_html} />
-            : <p>{task.prompt_text}</p>
-          }
+          <MarkdownContent content={task.prompt_html ?? task.prompt_text} />
         </div>
 
         {/* Картинки задания в режиме ПРОСМОТРА. Раньше тут был сырой <img>
@@ -575,9 +583,21 @@ function TaskCard({
           </div>
         )}
 
+        {/* Составной A-Level-ответ (mark scheme с критериями M1/A1/B1,
+            markdown-таблица — см. alevel-import.mjs) не помещается инлайн
+            рядом с "Балл"/"Проверка": рендерится отдельным блоком выше, через
+            MarkdownContent (remark-gfm), а не MathText (та не умеет таблицы
+            и дала бы сплошной текст с буквальными "|"). */}
+        {task.correct_answer != null && isTableAnswer(task.correct_answer) && (
+          <div className="mt-2 text-xs overflow-x-auto [&_table]:text-xs [&_th]:px-2 [&_th]:py-1 [&_td]:px-2 [&_td]:py-1 [&_table]:border-collapse [&_th]:border [&_td]:border [&_th]:border-border [&_td]:border-border">
+            <span className="text-muted-foreground">Ответ (схема оценивания):</span>
+            <MarkdownContent content={task.correct_answer} />
+          </div>
+        )}
+
         {/* Answer / score row */}
         <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-          {task.correct_answer != null && task.correct_answer !== '' && (
+          {task.correct_answer != null && task.correct_answer !== '' && !isTableAnswer(task.correct_answer) && (
             <span>
               Ответ:{' '}
               {/* task.correct_answer собран через formatAnswerJsonRaw
