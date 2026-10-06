@@ -16,6 +16,8 @@ const schema = z.object({
   ends_at: z.string().optional().nullable(),
   max_attempts: z.number().min(1).default(1),
   preserve_answers: z.boolean().default(false),
+  // Явный выбор учителя в форме назначения; без него — тип самого теста
+  kind: z.enum(['homework', 'test']).optional(),
 })
 
 export async function POST(request: Request) {
@@ -43,7 +45,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: parsed.error.issues[0]?.message ?? 'Invalid body' }, { status: 400 })
   }
 
-  const { test_id, target_type, roadmap_topic_id, group_id, student_id, starts_at, ends_at, max_attempts, preserve_answers } = parsed.data
+  const { test_id, target_type, roadmap_topic_id, group_id, student_id, starts_at, ends_at, max_attempts, preserve_answers, kind } = parsed.data
 
   if (target_type === 'roadmap_topic' && !roadmap_topic_id) {
     return NextResponse.json({ error: 'Выберите тему программы' }, { status: 400 })
@@ -164,10 +166,11 @@ export async function POST(request: Request) {
   // items/route.ts уже учитывает явным полем формы. Этот общий роут
   // assignments.kind не проставлял вовсе — назначение через программу
   // молча падало в дефолт 'test' из-за ?? 'test' на экране ученика, даже
-  // если сам тест был создан как ДЗ (tests.kind='homework'). Источник
-  // истины — сам тест: назначение наследует его тип, не гадает заново.
+  // если сам тест был создан как ДЗ (tests.kind='homework'). Тип выбирает
+  // учитель в форме (по умолчанию там подставлен тип теста); запрос без
+  // поля kind наследует тип самого теста, а не гадает заново.
   const { data: testKindRow } = await admin.from('tests').select('kind').eq('id', test_id).single()
-  const assignmentKind = testKindRow?.kind === 'homework' ? 'homework' : 'test'
+  const assignmentKind = kind ?? (testKindRow?.kind === 'homework' ? 'homework' : 'test')
 
   const { data: assignment, error } = await admin.from('assignments').insert({
     test_version_id: test.current_published_version_id,

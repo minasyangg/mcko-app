@@ -8,6 +8,7 @@ import { SwitchAccountButton } from '@/components/shared/SwitchAccountButton'
 import { BookOpen, Users, GraduationCap, Monitor, BarChart2, TrendingUp, Menu, X, ListChecks, Library, Bell, Settings, PenLine, ChevronDown, ClipboardCheck, Share2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useLiveCount } from '@/lib/hooks/usePolling'
+import { sectionOfExamTypes } from '@/lib/library/sections'
 
 interface NavItem {
   href: string
@@ -42,10 +43,8 @@ const navItems: NavItem[] = [
   {
     href: '/teacher/library', label: 'Библиотека', icon: Library,
     children: [
-      // 'ОГЭ/ЕГЭ' здесь — значение query-параметра exam_type, разворачиваемое
-      // в LibraryClient в exam_type=ОГЭ&exam_type=ЕГЭ при запросе к API (без
-      // него страница показывала вообще все типы без фильтра, включая A-Level).
-      { href: '/teacher/library?exam_type=ОГЭ%2FЕГЭ', label: 'ОГЭ/ЕГЭ' },
+      // Без exam_type страница открывает раздел ОГЭ/ЕГЭ (lib/library/sections.ts)
+      { href: '/teacher/library', label: 'ОГЭ/ЕГЭ' },
       { href: '/teacher/library?exam_type=A-Level', label: 'A-Level' },
       { href: '/teacher/books',   label: 'Книги' },
     ],
@@ -102,19 +101,16 @@ function NavLink({
   // href с query (напр. "/teacher/library?exam_type=A-Level") — обычные
   // startsWith/=== сравнивают только pathname и не различали бы этот пункт
   // от соседнего "ОГЭ/ЕГЭ" на том же /teacher/library (оба подсветились бы
-  // одновременно, а A-Level не подсвечивался бы вовсе). Разбираем href на
-  // путь и query, сравниваем query отдельно — для "ОГЭ/ЕГЭ" (без query в
-  // href) активность требует ОТСУТСТВИЯ exam_type в адресной строке.
+  // одновременно). Разбираем href на путь и query и сравниваем query отдельно.
   const [hrefPath, hrefQuery] = href.split('?')
   const pathMatches = exact ? pathname === hrefPath : pathname.startsWith(hrefPath)
-  const hrefExamType = hrefQuery ? new URLSearchParams(hrefQuery).get('exam_type') : null
-  // "ОГЭ/ЕГЭ" разворачивается LibraryClient в URL как ДВА отдельных
-  // exam_type=ОГЭ&exam_type=ЕГЭ (API .in(), см. app/api/library/problems) —
-  // getAll, не get(), иначе пункт меню гас бы сразу после первого фильтра.
-  const currentExamTypes = searchParams.getAll('exam_type')
-  const examTypeMatches = hrefExamType === 'ОГЭ/ЕГЭ'
-    ? currentExamTypes.length === 2 && currentExamTypes.includes('ОГЭ') && currentExamTypes.includes('ЕГЭ')
-    : (hrefExamType ?? '') === (currentExamTypes[0] ?? '') && currentExamTypes.length <= 1
+  const hrefExamTypes = hrefQuery ? new URLSearchParams(hrefQuery).getAll('exam_type') : []
+  // Библиотека: пункт подсвечен по РАЗДЕЛУ, а не по точному exam_type —
+  // внутри «ОГЭ/ЕГЭ» адрес меняется фильтром (exam_type=ОГЭ&exam_type=ЕГЭ,
+  // только ОГЭ и т.п.), раздел при этом тот же.
+  const examTypeMatches = hrefPath === '/teacher/library'
+    ? sectionOfExamTypes(hrefExamTypes) === sectionOfExamTypes(searchParams.getAll('exam_type'))
+    : (hrefExamTypes[0] ?? '') === (searchParams.get('exam_type') ?? '')
   const active = pathMatches && examTypeMatches
 
   return (
@@ -150,7 +146,8 @@ function NavLink({
 function NavGroup({ item, onLinkClick, childBadges }: { item: NavItem; onLinkClick?: () => void; childBadges?: Record<string, number> }) {
   const pathname = usePathname()
   const children = item.children ?? []
-  const childActive = children.some(c => pathname.startsWith(c.href))
+  // Только путь: у подпунктов библиотеки в href есть query (?exam_type=A-Level)
+  const childActive = children.some(c => pathname.startsWith(c.href.split('?')[0]))
   // Храним только РУЧНОЕ переключение, а фактическую открытость выводим:
   // группа с активным подпунктом открыта всегда. Раньше активность
   // синхронизировалась в состояние через useEffect — лишний каскад рендеров

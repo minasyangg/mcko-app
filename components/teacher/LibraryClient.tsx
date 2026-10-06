@@ -8,7 +8,10 @@ import { Badge } from '@/components/ui/badge'
 import { Loader2, Search, SlidersHorizontal, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { LibraryProblemCard } from './LibraryProblemCard'
-import { LibraryFilter, type Topic, type LibraryFilters, COMBINED_OGE_EGE, OGE_EGE_TYPES } from './LibraryFilter'
+import { LibraryFilter, type Topic, type LibraryFilters } from './LibraryFilter'
+import {
+  type LibrarySection, COMBINED_OGE_EGE, OGE_EGE_TYPES, sectionDefaultExamType,
+} from '@/lib/library/sections'
 
 interface Problem {
   id: string
@@ -26,6 +29,8 @@ interface Problem {
 }
 
 interface Props {
+  /** Раздел меню: «ОГЭ/ЕГЭ» или «A-Level» — страница пересоздаёт компонент при его смене (key) */
+  section: LibrarySection
   initialTopics: Topic[]
   totalProblems: number
 }
@@ -55,11 +60,15 @@ function filtersToParams(f: LibraryFilters, sourceId: string): URLSearchParams {
   return p
 }
 
-function filtersFromParams(sp: URLSearchParams): { filters: LibraryFilters; sourceId: string } {
+// exam_type в URL ограничен разделом: в A-Level — только A-Level, в ОГЭ/ЕГЭ —
+// одиночный ОГЭ/ЕГЭ или их объединение (по умолчанию, в т.ч. без параметра).
+function filtersFromParams(sp: URLSearchParams, section: LibrarySection): { filters: LibraryFilters; sourceId: string } {
   const examTypes = sp.getAll('exam_type')
-  const examType = examTypes.length > 1 && OGE_EGE_TYPES.every(et => examTypes.includes(et))
-    ? COMBINED_OGE_EGE
-    : (examTypes[0] ?? '')
+  const examType = section === 'alevel'
+    ? sectionDefaultExamType(section)
+    : examTypes.length === 1 && OGE_EGE_TYPES.includes(examTypes[0])
+      ? examTypes[0]
+      : COMBINED_OGE_EGE
   return {
     filters: {
       subject:     sp.get('subject')    ?? '',
@@ -74,13 +83,14 @@ function filtersFromParams(sp: URLSearchParams): { filters: LibraryFilters; sour
   }
 }
 
-export function LibraryClient({ initialTopics, totalProblems }: Props) {
+export function LibraryClient({ section, initialTopics, totalProblems }: Props) {
   const router   = useRouter()
   const pathname = usePathname()
   const sp       = useSearchParams()
+  const defaultExamType = sectionDefaultExamType(section)
 
   // Initialise from URL params so filters survive refresh and are shareable
-  const { filters: initFilters, sourceId: initSourceId } = filtersFromParams(sp)
+  const { filters: initFilters, sourceId: initSourceId } = filtersFromParams(sp, section)
 
   const [filters,    setFilters]    = useState<LibraryFilters>(initFilters)
   const [sourceId,   setSourceId]   = useState(initSourceId)
@@ -155,7 +165,7 @@ export function LibraryClient({ initialTopics, totalProblems }: Props) {
 
   // Active filter chips
   const hasFilters = !!(
-    filters.subject || filters.examType ||
+    filters.subject || filters.examType !== defaultExamType ||
     filters.source !== 'all' || filters.hasAnswer !== 'all' ||
     filters.siteDomain !== 'all' || filters.topicIds.length || sourceId
   )
@@ -165,7 +175,7 @@ export function LibraryClient({ initialTopics, totalProblems }: Props) {
   )
   const activeChips: { label: string; onRemove: () => void }[] = []
   if (filters.subject)           activeChips.push({ label: filters.subject,  onRemove: () => handleFilterChange({ subject: '', topicIds: [] }) })
-  if (filters.examType)          activeChips.push({ label: filters.examType, onRemove: () => handleFilterChange({ examType: '', topicIds: [] }) })
+  if (filters.examType !== defaultExamType) activeChips.push({ label: filters.examType, onRemove: () => handleFilterChange({ examType: defaultExamType, topicIds: [] }) })
   if (filters.source !== 'all')  activeChips.push({ label: filters.source === 'verified' ? 'Глобальные' : 'Мои задачи', onRemove: () => handleFilterChange({ source: 'all' }) })
   if (filters.hasAnswer !== 'all') activeChips.push({ label: filters.hasAnswer === 'yes' ? 'С ответом' : 'Без ответа', onRemove: () => handleFilterChange({ hasAnswer: 'all' }) })
   if (filters.siteDomain !== 'all') activeChips.push({ label: filters.siteDomain === 'fipi' ? 'ФИПИ' : 'Сдамгиа', onRemove: () => handleFilterChange({ siteDomain: 'all' }) })
@@ -187,6 +197,7 @@ export function LibraryClient({ initialTopics, totalProblems }: Props) {
 
   const filterPanel = (
     <LibraryFilter
+      section={section}
       filters={filters}
       onChange={handleFilterChange}
       topics={initialTopics}
@@ -200,9 +211,11 @@ export function LibraryClient({ initialTopics, totalProblems }: Props) {
       {/* Header */}
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold">Библиотека задач</h1>
+          <h1 className="text-2xl font-semibold">
+            Библиотека задач · {section === 'alevel' ? 'A-Level' : 'ОГЭ/ЕГЭ'}
+          </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            {totalProblems.toLocaleString('ru-RU')} задач · ОГЭ/ЕГЭ Математика, Физика
+            {totalProblems.toLocaleString('ru-RU')} задач в разделе
           </p>
         </div>
         <Button
@@ -289,7 +302,7 @@ export function LibraryClient({ initialTopics, totalProblems }: Props) {
               ))}
               {activeChips.length > 1 && (
                 <button
-                  onClick={() => { handleFilterChange({ subject: '', examType: '', source: 'all', hasAnswer: 'all', siteDomain: 'all', topicIds: [], topicSearch: '' }); setSourceId('') }}
+                  onClick={() => { handleFilterChange({ subject: '', examType: defaultExamType, source: 'all', hasAnswer: 'all', siteDomain: 'all', topicIds: [], topicSearch: '' }); setSourceId('') }}
                   className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2"
                 >
                   Сбросить все
@@ -314,7 +327,7 @@ export function LibraryClient({ initialTopics, totalProblems }: Props) {
               <Search className="h-10 w-10 opacity-30" />
               <p className="text-sm">Задачи не найдены. Попробуйте изменить фильтры.</p>
               {hasFilters && (
-                <Button variant="outline" size="sm" onClick={() => handleFilterChange({ subject: '', examType: '', source: 'all', hasAnswer: 'all', siteDomain: 'all', topicIds: [] })}>
+                <Button variant="outline" size="sm" onClick={() => handleFilterChange({ subject: '', examType: defaultExamType, source: 'all', hasAnswer: 'all', siteDomain: 'all', topicIds: [] })}>
                   Сбросить фильтры
                 </Button>
               )}

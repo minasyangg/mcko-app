@@ -107,7 +107,7 @@ export default async function StudentHomePage({ searchParams }: { searchParams: 
   let plainQuery = supabase
     .from('assignments')
     .select(`
-      id, starts_at, ends_at, max_attempts, closed_at, created_at, group_id,
+      id, starts_at, ends_at, max_attempts, closed_at, created_at, group_id, kind,
       groups ( name ),
       test_versions!test_version_id (
         id, time_limit_sec,
@@ -222,7 +222,9 @@ export default async function StudentHomePage({ searchParams }: { searchParams: 
       test_title: test?.title ?? 'Тест',
       subject: test?.subject ?? null,
       exam_type: test?.exam_type ?? null,
-      kind: test?.kind === 'homework' ? 'homework' : 'test',
+      // Тип, выбранный учителем при назначении, важнее типа самого теста;
+      // у старых назначений поле пустое — берётся тип теста.
+      kind: (a.kind ?? test?.kind) === 'homework' ? 'homework' : 'test',
       // Персональное назначение и назначение без группы (не должно
       // случаться, но на всякий) источник не показывают — незачем.
       source: group?.name ? `Группа «${group.name}»` : null,
