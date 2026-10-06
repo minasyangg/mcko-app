@@ -152,6 +152,9 @@ export interface ProgramTopic {
   id: string
   title: string
   sort_order: number
+  /** Глубина в дереве тем (0 — корень) — для отступа в UI, чтобы вложенные
+   *  темы (миграция 085) не выглядели самостоятельными родителями. */
+  depth: number
   items: ProgramTopicItem[]
 }
 
@@ -174,7 +177,7 @@ export async function getRoadmapDetail(supabase: Client, roadmapId: string): Pro
 
   const { data: topics } = await supabase
     .from('roadmap_topics')
-    .select('id, title, sort_order')
+    .select('id, title, sort_order, parent_id')
     .eq('roadmap_id', roadmapId)
     .order('sort_order', { ascending: true })
 
@@ -363,7 +366,41 @@ export async function getRoadmapDetail(supabase: Client, roadmapId: string): Pro
     title: roadmap.title,
     subject: roadmap.subject,
     students: (profiles ?? []).map(p => ({ id: p.id, full_name: p.full_name })),
-    topics: (topics ?? []).map(t => ({ id: t.id, title: t.title, sort_order: t.sort_order, items: itemsByTopic.get(t.id) ?? [] })),
+    topics: topicsInTreeOrder(topics ?? []).map(({ topic: t, depth }) => ({
+      id: t.id, title: t.title, sort_order: t.sort_order, depth, items: itemsByTopic.get(t.id) ?? [],
+    })),
     statuses,
   }
+}
+
+// DFS-порядок тем с глубиной — учительский контекст (эта функция, в отличие
+// от visibleTopicsInTreeOrder в lib/roadmaps/topic-order.ts, не фильтрует по
+// visible_to_students: учитель должен видеть все темы программы, включая
+// скрытые от учеников). sort_order уникален только среди siblings одного
+// parent_id — плоская сортировка по нему вперемешку с другими ветками дерева
+// убирает визуальную иерархию «глава → подтема» (см. жалобу пользователя на
+// скриншоте мониторинга: «Механика | Кинематика» выглядела самостоятельным
+// родителем наравне с «МЕХАНИКА»).
+function topicsInTreeOrder<T extends { id: string; parent_id: string | null; sort_order: number }>(
+  allTopics: T[]
+): { topic: T; depth: number }[] {
+  const byId = new Set(allTopics.map(t => t.id))
+  const byParent = new Map<string | null, T[]>()
+  for (const t of allTopics) {
+    const key = t.parent_id && byId.has(t.parent_id) ? t.parent_id : null
+    const arr = byParent.get(key) ?? []
+    arr.push(t)
+    byParent.set(key, arr)
+  }
+  for (const arr of byParent.values()) arr.sort((a, b) => a.sort_order - b.sort_order)
+
+  const result: { topic: T; depth: number }[] = []
+  function visit(parentId: string | null, depth: number) {
+    for (const t of byParent.get(parentId) ?? []) {
+      result.push({ topic: t, depth })
+      visit(t.id, depth + 1)
+    }
+  }
+  visit(null, 0)
+  return result
 }

@@ -221,7 +221,8 @@ async function loadAssignmentRows(supabase: ServerClient, userId: string | null,
     const sfr = !isGroup && a.student_id ? asgnFinalMap.get(`${a.student_id}_${a.id}`) : undefined
     const liveCompleted = allAttempts.filter(at => ['submitted', 'checked'].includes(at.status)).length
     const completedCount = isGroup ? 0 : Math.max(sfr?.attempt_count ?? 0, liveCompleted)
-    // метка назначения важнее типа теста (roadmap может назначить тест как ДЗ)
+    // Тип выбирает учитель в форме назначения (assignments.kind) — он важнее
+    // типа самого теста; у старых назначений поле пустое → тип теста.
     const kind: 'test' | 'homework' = (a.kind ?? test?.kind) === 'homework' ? 'homework' : 'test'
     return {
       id: a.id,

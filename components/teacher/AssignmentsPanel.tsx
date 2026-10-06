@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { usePagination } from '@/lib/hooks/usePagination'
 import { LoadMoreControl } from '@/components/shared/LoadMoreControl'
 import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
@@ -97,7 +98,7 @@ export function AssignmentsPanel({
           <Button asChild size="sm">
             <Link href="/teacher/assignments/new">
               <Plus className="h-4 w-4 mr-2" />
-              Назначить тест
+              Назначить
             </Link>
           </Button>
         )}
@@ -140,7 +141,7 @@ export function AssignmentsPanel({
               {filteredRows.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-16 text-center text-muted-foreground gap-3">
                   <ClipboardList className="h-10 w-10 opacity-40" />
-                  <p>Нет назначений. Назначьте тест группе или ученику.</p>
+                  <p>Нет назначений. Назначьте тест или ДЗ группе или ученику.</p>
                 </div>
               ) : (
                 <div className="rounded-md border overflow-hidden">
@@ -148,7 +149,7 @@ export function AssignmentsPanel({
                     <table className="w-full text-sm">
                       <thead className="bg-muted/50">
                         <tr>
-                          <th className="text-left px-4 py-3 font-medium">Тест</th>
+                          <th className="text-left px-4 py-3 font-medium">Задание</th>
                           <th className="text-left px-4 py-3 font-medium">Для кого</th>
                           <th className="text-left px-4 py-3 font-medium">Сроки</th>
                           <th className="text-left px-4 py-3 font-medium">Попыток</th>
@@ -166,7 +167,16 @@ export function AssignmentsPanel({
                             : closedReasonLabel(a.closed_reason)
                           return (
                           <tr key={a.id} className="hover:bg-muted/30 transition-colors">
-                            <td className="px-4 py-3 font-medium">{a.test_title}</td>
+                            <td className="px-4 py-3 font-medium">
+                              {/* Тип виден в каждой строке — заголовок колонки «Тест» раньше
+                                  читался как тип всех назначений, включая ДЗ */}
+                              <span className="flex items-center gap-2">
+                                <Badge variant={a.kind === 'homework' ? 'outline' : 'secondary'} className="text-[11px] shrink-0">
+                                  {a.kind === 'homework' ? 'ДЗ' : 'Тест'}
+                                </Badge>
+                                <span>{a.test_title}</span>
+                              </span>
+                            </td>
                             <td className="px-4 py-3 text-muted-foreground">{a.target}</td>
                             <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{fmtRange(a.starts_at, a.ends_at)}</td>
                             <td className="px-4 py-3">

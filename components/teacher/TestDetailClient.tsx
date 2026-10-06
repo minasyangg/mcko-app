@@ -1280,7 +1280,7 @@ export function TestDetailClient({
           {/* «Назначить» активна только после публикации */}
           {isPublished ? (
             <Button asChild size="sm" variant="outline">
-              <Link href={`/teacher/assignments/new?test=${testId}`}>
+              <Link href={`/teacher/assignments/new?test=${testId}&kind=${isHomework ? 'homework' : 'test'}`}>
                 <UserPlus className="h-4 w-4 mr-1.5" />
                 Назначить
               </Link>

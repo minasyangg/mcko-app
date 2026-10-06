@@ -6,6 +6,9 @@ import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { ChevronDown, ChevronRight, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import {
+  type LibrarySection, COMBINED_OGE_EGE, OGE_EGE_TYPES, sectionDefaultExamType,
+} from '@/lib/library/sections'
 
 export interface Topic {
   id: string
@@ -29,6 +32,7 @@ export interface LibraryFilters {
 }
 
 interface Props {
+  section: LibrarySection
   filters: LibraryFilters
   onChange: (patch: Partial<LibraryFilters>) => void
   topics: Topic[]
@@ -45,7 +49,8 @@ const SUBJECTS_BY_EXAM: Record<string, string[]> = {
   'A-Level': ['Pure Mathematics 1', 'Pure Mathematics 2', 'Statistics and Probability'],
 }
 const ALL_SUBJECTS = ['Математика', 'Математика (база)', 'Физика', 'Химия', 'Биология', 'История', 'Обществознание', 'Информатика', 'Русский язык', 'Литература', 'География', 'Английский язык', 'Pure Mathematics 1', 'Pure Mathematics 2', 'Statistics and Probability']
-const EXAM_TYPES   = ['ОГЭ', 'ЕГЭ', 'ВПР', 'ГВЭ', 'A-Level']
+// Переключатель экзамена внутри раздела «ОГЭ/ЕГЭ» (в A-Level его нет)
+const RU_EXAM_OPTIONS: [string, string][] = [[COMBINED_OGE_EGE, 'Все ОГЭ/ЕГЭ'], ['ОГЭ', 'ОГЭ'], ['ЕГЭ', 'ЕГЭ']]
 
 function ToggleGroup({
   label,
@@ -82,17 +87,27 @@ function ToggleGroup({
   )
 }
 
-export function LibraryFilter({ filters, onChange, topics, expandedSections, onToggleSection }: Props) {
-  const { subject, examType, source, hasAnswer, siteDomain, topicIds, topicSearch } = filters
+// COMBINED_OGE_EGE разворачивается в оба типа — сравнения exam_type и выбор
+// доступных предметов должны учитывать это, а не только точное совпадение.
+function examTypesOf(examType: string): string[] {
+  return examType === COMBINED_OGE_EGE ? OGE_EGE_TYPES : examType ? [examType] : []
+}
 
-  // Subjects available for the selected exam type
-  const subjectOptions = examType ? (SUBJECTS_BY_EXAM[examType] ?? ALL_SUBJECTS) : ALL_SUBJECTS
+export function LibraryFilter({ section, filters, onChange, topics, expandedSections, onToggleSection }: Props) {
+  const { subject, examType, source, hasAnswer, siteDomain, topicIds, topicSearch } = filters
+  const examTypeList = examTypesOf(examType)
+  const defaultExamType = sectionDefaultExamType(section)
+
+  // Subjects available for the selected exam type(s)
+  const subjectOptions = examTypeList.length === 0
+    ? ALL_SUBJECTS
+    : [...new Set(examTypeList.flatMap(et => SUBJECTS_BY_EXAM[et] ?? ALL_SUBJECTS))]
 
   // Canonical sections for selected subject+examType
   const sections = topics.filter(t =>
     t.parent_id === null &&
     (!subject  || t.subject   === subject) &&
-    (!examType || t.exam_type === examType)
+    (examTypeList.length === 0 || examTypeList.includes(t.exam_type))
   )
 
   const subtopicsOf = useCallback((sectionId: string) =>
@@ -123,34 +138,22 @@ export function LibraryFilter({ filters, onChange, topics, expandedSections, onT
   }
 
   const hasFilters = !!(
-    subject || examType || source !== 'all' || hasAnswer !== 'all' ||
+    subject || examType !== defaultExamType || source !== 'all' || hasAnswer !== 'all' ||
     siteDomain !== 'all' || topicIds.length
   )
 
   return (
     <div className="space-y-4">
 
-      {/* Экзамен */}
-      <div className="space-y-1.5">
-        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Экзамен</p>
-        <div className="flex rounded-md border divide-x overflow-hidden text-xs">
-          {['', ...EXAM_TYPES].map(et => (
-            <button
-              key={et || '_all'}
-              type="button"
-              onClick={() => onChange({ examType: et, subject: '', topicIds: [] })}
-              className={cn(
-                'flex-1 py-1.5 text-center transition-colors',
-                examType === et
-                  ? 'bg-primary text-primary-foreground font-medium'
-                  : 'hover:bg-muted text-muted-foreground'
-              )}
-            >
-              {et || 'Все'}
-            </button>
-          ))}
-        </div>
-      </div>
+      {/* Экзамен — только в разделе ОГЭ/ЕГЭ; в A-Level выбирать нечего */}
+      {section === 'ru' && (
+        <ToggleGroup
+          label="Экзамен"
+          options={RU_EXAM_OPTIONS}
+          value={examType}
+          onChange={et => onChange({ examType: et, subject: '', topicIds: [] })}
+        />
+      )}
 
       {/* Предмет — опции зависят от выбранного типа экзамена */}
       <div className="space-y-1.5">
@@ -279,7 +282,7 @@ export function LibraryFilter({ filters, onChange, topics, expandedSections, onT
           variant="ghost"
           size="sm"
           onClick={() => onChange({
-            subject: '', examType: '', source: 'all',
+            subject: '', examType: defaultExamType, source: 'all',
             hasAnswer: 'all', siteDomain: 'all', topicIds: [], topicSearch: '',
           })}
           className="w-full text-xs h-7"

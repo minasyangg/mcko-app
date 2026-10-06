@@ -19,6 +19,7 @@ import Link from 'next/link'
 
 const schema = z.object({
   test_id: z.string().min(1, 'Выберите тест'),
+  kind: z.enum(['homework', 'test']),
   target_type: z.enum(['roadmap_topic', 'group', 'student']),
   roadmap_topic_id: z.string().optional(),
   group_id: z.string().optional(),
@@ -41,7 +42,11 @@ const schema = z.object({
 
 type FormData = z.infer<typeof schema>
 
-interface TestOption { id: string; title: string }
+interface TestOption { id: string; title: string; kind: string | null }
+
+function kindOf(test: TestOption | undefined): 'homework' | 'test' {
+  return test?.kind === 'homework' ? 'homework' : 'test'
+}
 interface GroupOption { id: string; name: string }
 interface StudentOption { id: string; full_name: string; grade: string | null }
 interface RoadmapOption { id: string; title: string }
@@ -63,11 +68,16 @@ export default function NewAssignmentPage() {
   // URL уже передавался с 2026-09-х (TestDetailClient.tsx), но эта форма
   // никогда не читала searchParams и требовала выбрать тест заново.
   const presetTestId = searchParams.get('test') ?? undefined
+  // Тип приходит из кнопки «Назначить» на карточке теста/ДЗ — форма сразу
+  // открывается с ним; без параметра берётся тип выбранного теста.
+  const kindParam = searchParams.get('kind')
+  const presetKind = kindParam === 'homework' || kindParam === 'test' ? kindParam : undefined
 
   const { register, handleSubmit, control, watch, setValue, formState: { errors, isSubmitting } } = useForm<FormData>({
     resolver: zodResolver(schema),
     defaultValues: {
       test_id: presetTestId,
+      kind: presetKind ?? 'test',
       // По умолчанию — «Программа» (решение пользователя, 2026-09-23);
       // если у учителя нет ни одной программы с видимой темой — переключаем
       // на «Группе» после загрузки данных (см. эффект ниже), не оставляем
@@ -78,6 +88,7 @@ export default function NewAssignmentPage() {
     },
   })
   const targetType = watch('target_type')
+  const kind = watch('kind')
   const testId = watch('test_id')
   const studentId = watch('student_id')
   const groupId = watch('group_id')
@@ -175,7 +186,7 @@ export default function NewAssignmentPage() {
 
         const org = profile.organization_id
         const [{ data: testsData }, { data: grps }, { data: studs }, { data: roadmaps }] = await Promise.all([
-          supabase.from('tests').select('id, title')
+          supabase.from('tests').select('id, title, kind')
             .eq('organization_id', org).eq('status', 'published').eq('is_active', true)
             .not('current_published_version_id', 'is', null).order('created_at', { ascending: false }),
           supabase.from('groups').select('id, name').eq('organization_id', org).is('roadmap_id', null).order('name'),
@@ -188,6 +199,9 @@ export default function NewAssignmentPage() {
         ])
 
         setTests(testsData ?? [])
+        if (presetTestId && !presetKind) {
+          setValue('kind', kindOf((testsData ?? []).find(t => t.id === presetTestId)))
+        }
         setGroups(grps ?? [])
         setStudents(studs ?? [])
 
@@ -251,7 +265,7 @@ export default function NewAssignmentPage() {
         <Button asChild variant="ghost" size="sm">
           <Link href="/teacher/assignments"><ArrowLeft className="h-4 w-4 mr-1" />Назад</Link>
         </Button>
-        <h1 className="text-2xl font-semibold">Назначить тест</h1>
+        <h1 className="text-2xl font-semibold">{kind === 'homework' ? 'Назначить ДЗ' : 'Назначить тест'}</h1>
       </div>
 
       {loadError && (
@@ -272,20 +286,41 @@ export default function NewAssignmentPage() {
 
               {/* Тест */}
               <div className="space-y-1">
-                <Label>Тест *</Label>
+                <Label>Тест / ДЗ *</Label>
                 {/* Тесты приходят отсортированными по дате создания, поэтому
                     первые в списке — недавно созданные: их назначают чаще всего */}
                 <Controller name="test_id" control={control} render={({ field }) => (
                   <SearchableSelect
-                    options={tests.map(t => ({ value: t.id, label: t.title }))}
+                    options={tests.map(t => ({ value: t.id, label: t.title, badge: kindOf(t) === 'homework' ? 'ДЗ' : 'Тест' }))}
                     value={field.value ?? ''}
-                    onChange={field.onChange}
-                    placeholder="Выберите тест"
+                    onChange={(v) => {
+                      field.onChange(v)
+                      // Новый тест — тип назначения по умолчанию снова его собственный
+                      setValue('kind', kindOf(tests.find(t => t.id === v)))
+                    }}
+                    placeholder="Выберите тест или ДЗ"
                     recentLabel="Недавно созданные"
                     emptyText="Нет опубликованных тестов"
                   />
                 )} />
                 {errors.test_id && <p className="text-sm text-destructive">{errors.test_id.message}</p>}
+              </div>
+
+              {/* Тип назначения — у ученика задание ляжет в раздел «ДЗ» или «Тесты» */}
+              <div className="space-y-1">
+                <Label>Тип назначения *</Label>
+                <Controller name="kind" control={control} render={({ field }) => (
+                  <Select value={field.value} onValueChange={field.onChange}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="homework">Домашнее задание</SelectItem>
+                      <SelectItem value="test">Тест</SelectItem>
+                    </SelectContent>
+                  </Select>
+                )} />
+                <p className="text-xs text-muted-foreground">
+                  По умолчанию — как у выбранного задания. Определяет раздел, в котором его увидит ученик.
+                </p>
               </div>
 
               {/* Кому назначить */}
