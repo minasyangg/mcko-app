@@ -45,7 +45,12 @@ const SUBJECTS_BY_EXAM: Record<string, string[]> = {
   'A-Level': ['Pure Mathematics 1', 'Pure Mathematics 2', 'Statistics and Probability'],
 }
 const ALL_SUBJECTS = ['Математика', 'Математика (база)', 'Физика', 'Химия', 'Биология', 'История', 'Обществознание', 'Информатика', 'Русский язык', 'Литература', 'География', 'Английский язык', 'Pure Mathematics 1', 'Pure Mathematics 2', 'Statistics and Probability']
-const EXAM_TYPES   = ['ОГЭ', 'ЕГЭ', 'ВПР', 'ГВЭ', 'A-Level']
+// 'ОГЭ/ЕГЭ' — составной маркер (не значение library_topics.exam_type в БД),
+// разворачивается в ['ОГЭ','ЕГЭ'] в LibraryClient при запросе/фильтрации тем
+// — тот же объединённый раздел, что пункт меню «ОГЭ/ЕГЭ» (TeacherNav.tsx).
+export const COMBINED_OGE_EGE = 'ОГЭ/ЕГЭ'
+export const OGE_EGE_TYPES = ['ОГЭ', 'ЕГЭ']
+const EXAM_TYPES   = [COMBINED_OGE_EGE, 'ОГЭ', 'ЕГЭ', 'ВПР', 'ГВЭ', 'A-Level']
 
 function ToggleGroup({
   label,
@@ -82,17 +87,26 @@ function ToggleGroup({
   )
 }
 
+// COMBINED_OGE_EGE разворачивается в оба типа — сравнения exam_type и выбор
+// доступных предметов должны учитывать это, а не только точное совпадение.
+function examTypesOf(examType: string): string[] {
+  return examType === COMBINED_OGE_EGE ? OGE_EGE_TYPES : examType ? [examType] : []
+}
+
 export function LibraryFilter({ filters, onChange, topics, expandedSections, onToggleSection }: Props) {
   const { subject, examType, source, hasAnswer, siteDomain, topicIds, topicSearch } = filters
+  const examTypeList = examTypesOf(examType)
 
-  // Subjects available for the selected exam type
-  const subjectOptions = examType ? (SUBJECTS_BY_EXAM[examType] ?? ALL_SUBJECTS) : ALL_SUBJECTS
+  // Subjects available for the selected exam type(s)
+  const subjectOptions = examTypeList.length === 0
+    ? ALL_SUBJECTS
+    : [...new Set(examTypeList.flatMap(et => SUBJECTS_BY_EXAM[et] ?? ALL_SUBJECTS))]
 
   // Canonical sections for selected subject+examType
   const sections = topics.filter(t =>
     t.parent_id === null &&
     (!subject  || t.subject   === subject) &&
-    (!examType || t.exam_type === examType)
+    (examTypeList.length === 0 || examTypeList.includes(t.exam_type))
   )
 
   const subtopicsOf = useCallback((sectionId: string) =>

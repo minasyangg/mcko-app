@@ -34,6 +34,14 @@ export function ProgramProgressView({ program, readOnly = false, onSelectAttempt
 
   const allItems = program.topics.flatMap(t => t.items)
   const statusByKey = new Map(program.statuses.map(s => [`${s.assignment_id}_${s.student_id}`, s]))
+  // Номер только у корневых тем (depth=0) — вложенная тема, пронумерованная
+  // сквозной цифрой наравне с родителем, выглядит как самостоятельный раздел,
+  // а не подтема (миграция 085: иерархия тем).
+  const rootNumberByTopicId = new Map<string, number>()
+  let rootCounter = 0
+  for (const t of program.topics) {
+    if (t.depth === 0) rootNumberByTopicId.set(t.id, ++rootCounter)
+  }
 
   async function grantAccess(topicId: string, assignmentId: string, studentId: string) {
     const key = `${assignmentId}_${studentId}`
@@ -90,9 +98,15 @@ export function ProgramProgressView({ program, readOnly = false, onSelectAttempt
 
             {isOpen && (
               <div className="border-t divide-y">
-                {program.topics.map((topic, i) => (
-                  <div key={topic.id} className="px-3 py-2.5 space-y-1.5">
-                    <p className="text-sm font-medium">{i + 1}. {topic.title}</p>
+                {program.topics.map((topic) => (
+                  <div
+                    key={topic.id}
+                    className="px-3 py-2.5 space-y-1.5"
+                    style={topic.depth > 0 ? { paddingLeft: `${12 + topic.depth * 16}px` } : undefined}
+                  >
+                    <p className={cn('text-sm', topic.depth > 0 ? 'text-muted-foreground' : 'font-medium')}>
+                      {topic.depth === 0 ? `${rootNumberByTopicId.get(topic.id)}. ` : ''}{topic.title}
+                    </p>
                     {topic.items.length === 0 ? (
                       <p className="text-xs text-muted-foreground">заданий нет</p>
                     ) : (

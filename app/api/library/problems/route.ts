@@ -22,7 +22,10 @@ export async function GET(request: NextRequest) {
 
   const sp         = new URL(request.url).searchParams
   const subject    = sp.get('subject')
-  const exam_type  = sp.get('exam_type')
+  // exam_type — повторяемый параметр (?exam_type=ОГЭ&exam_type=ЕГЭ для
+  // объединённого раздела «ОГЭ/ЕГЭ» в меню), одиночное значение (A-Level)
+  // по-прежнему работает — getAll на один повтор вернёт массив из одного.
+  const examTypes  = sp.getAll('exam_type').filter(Boolean)
   const grade      = sp.get('grade')
   const topicIds   = sp.getAll('canonical_topic_id').filter(Boolean)
   const source     = sp.get('source')       // 'all' | 'verified' | 'custom'
@@ -73,9 +76,9 @@ export async function GET(request: NextRequest) {
       : query.is('organization_id', null)
   }
 
-  if (subject)            query = query.eq('subject',    subject)
-  if (exam_type)          query = query.eq('exam_type',  exam_type)
-  if (grade)              query = query.eq('grade',      grade)
+  if (subject)              query = query.eq('subject', subject)
+  if (examTypes.length > 0) query = query.in('exam_type', examTypes)
+  if (grade)                query = query.eq('grade', grade)
   if (topicIds.length > 0) query = query.in('canonical_topic_id', topicIds)
   if (hasAnswer === 'true')  query = query.eq('has_answer', true)
   if (hasAnswer === 'false') query = query.eq('has_answer', false)

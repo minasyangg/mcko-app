@@ -8,7 +8,7 @@ import { Badge } from '@/components/ui/badge'
 import { Loader2, Search, SlidersHorizontal, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { LibraryProblemCard } from './LibraryProblemCard'
-import { LibraryFilter, type Topic, type LibraryFilters } from './LibraryFilter'
+import { LibraryFilter, type Topic, type LibraryFilters, COMBINED_OGE_EGE, OGE_EGE_TYPES } from './LibraryFilter'
 
 interface Problem {
   id: string
@@ -38,10 +38,15 @@ const MORE_PAGE  = 5
 const DEBOUNCE   = 350  // ms — wait before firing fetch on filter change
 
 // ── URL ↔ state helpers ─────────────────────────────────────────────────────
+// COMBINED_OGE_EGE ('ОГЭ/ЕГЭ') — не значение library_topics.exam_type в БД,
+// составной маркер раздела меню/фильтра. В URL и в запросе к API разворачиваем
+// его в повторяемый exam_type=ОГЭ&exam_type=ЕГЭ (API поддерживает .in(), см.
+// app/api/library/problems/route.ts), при чтении URL обратно сворачиваем.
 function filtersToParams(f: LibraryFilters, sourceId: string): URLSearchParams {
   const p = new URLSearchParams()
-  if (f.subject)        p.set('subject',    f.subject)
-  if (f.examType)       p.set('exam_type',  f.examType)
+  if (f.subject) p.set('subject', f.subject)
+  if (f.examType === COMBINED_OGE_EGE) OGE_EGE_TYPES.forEach(et => p.append('exam_type', et))
+  else if (f.examType) p.set('exam_type', f.examType)
   if (f.source !== 'all')     p.set('source',    f.source)
   if (f.hasAnswer !== 'all')  p.set('has_answer', f.hasAnswer)
   if (f.siteDomain !== 'all') p.set('site_domain', f.siteDomain)
@@ -51,10 +56,14 @@ function filtersToParams(f: LibraryFilters, sourceId: string): URLSearchParams {
 }
 
 function filtersFromParams(sp: URLSearchParams): { filters: LibraryFilters; sourceId: string } {
+  const examTypes = sp.getAll('exam_type')
+  const examType = examTypes.length > 1 && OGE_EGE_TYPES.every(et => examTypes.includes(et))
+    ? COMBINED_OGE_EGE
+    : (examTypes[0] ?? '')
   return {
     filters: {
       subject:     sp.get('subject')    ?? '',
-      examType:    sp.get('exam_type')  ?? '',
+      examType,
       source:      sp.get('source')     ?? 'all',
       hasAnswer:   sp.get('has_answer') ?? 'all',
       siteDomain:  sp.get('site_domain') ?? 'all',

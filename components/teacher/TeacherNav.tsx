@@ -42,7 +42,10 @@ const navItems: NavItem[] = [
   {
     href: '/teacher/library', label: 'Библиотека', icon: Library,
     children: [
-      { href: '/teacher/library', label: 'ОГЭ/ЕГЭ' },
+      // 'ОГЭ/ЕГЭ' здесь — значение query-параметра exam_type, разворачиваемое
+      // в LibraryClient в exam_type=ОГЭ&exam_type=ЕГЭ при запросе к API (без
+      // него страница показывала вообще все типы без фильтра, включая A-Level).
+      { href: '/teacher/library?exam_type=ОГЭ%2FЕГЭ', label: 'ОГЭ/ЕГЭ' },
       { href: '/teacher/library?exam_type=A-Level', label: 'A-Level' },
       { href: '/teacher/books',   label: 'Книги' },
     ],
@@ -105,7 +108,14 @@ function NavLink({
   const [hrefPath, hrefQuery] = href.split('?')
   const pathMatches = exact ? pathname === hrefPath : pathname.startsWith(hrefPath)
   const hrefExamType = hrefQuery ? new URLSearchParams(hrefQuery).get('exam_type') : null
-  const active = pathMatches && (hrefExamType ?? '') === (searchParams.get('exam_type') ?? '')
+  // "ОГЭ/ЕГЭ" разворачивается LibraryClient в URL как ДВА отдельных
+  // exam_type=ОГЭ&exam_type=ЕГЭ (API .in(), см. app/api/library/problems) —
+  // getAll, не get(), иначе пункт меню гас бы сразу после первого фильтра.
+  const currentExamTypes = searchParams.getAll('exam_type')
+  const examTypeMatches = hrefExamType === 'ОГЭ/ЕГЭ'
+    ? currentExamTypes.length === 2 && currentExamTypes.includes('ОГЭ') && currentExamTypes.includes('ЕГЭ')
+    : (hrefExamType ?? '') === (currentExamTypes[0] ?? '') && currentExamTypes.length <= 1
+  const active = pathMatches && examTypeMatches
 
   return (
     <Link

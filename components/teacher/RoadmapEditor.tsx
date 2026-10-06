@@ -19,11 +19,12 @@ import { ConfirmDeleteAction } from '@/components/shared/ConfirmDeleteAction'
 import { EditRoadmapDialog } from '@/components/teacher/EditRoadmapDialog'
 import { BroadcastDialog } from '@/components/teacher/BroadcastDialog'
 import { TestPreviewModalById } from '@/components/teacher/TestPreviewModalById'
+import { AssignmentStatsModal } from '@/components/teacher/AssignmentStatsModal'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { SearchableSelect } from '@/components/shared/SearchableSelect'
 import {
   ArrowLeft, Plus, Trash2, Pencil, Check, ChevronRight, ChevronDown as ChevronDownIcon,
-  Users, Loader2, X, AlertTriangle, Search, GripVertical, Eye, EyeOff,
+  Users, Loader2, X, AlertTriangle, Search, GripVertical, Eye, EyeOff, Info,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -98,6 +99,9 @@ export function RoadmapEditor({ roadmap, topics, tests, students, memberIds, gro
   // переиспользует read-only TestPreviewModal (как на странице теста),
   // загружая tasks по testId вместо уже готового пропа.
   const [previewTestId, setPreviewTestId] = useState<string | null>(null)
+  // Статистика одного назначения (иконка Info рядом с заданием) — когда
+  // создано, дедлайн, попытки, кто из учеников уже решил.
+  const [statsAssignmentId, setStatsAssignmentId] = useState<string | null>(null)
 
   // — Ученики —
   const [studentsOpen, setStudentsOpen] = useState(false)
@@ -513,7 +517,7 @@ export function RoadmapEditor({ roadmap, topics, tests, students, memberIds, gro
               onRename={renameTopic} onDelete={deleteTopic} onAddChild={addTopicUnder}
               onOpenItem={openItem} onRemoveItem={removeItem} onToggleVisible={toggleTopicVisible}
               onDropTopic={handleTopicDrop} onMoveItem={moveItemToTopic} drag={drag} setDrag={setDrag}
-              onPreviewTest={setPreviewTestId}
+              onPreviewTest={setPreviewTestId} onOpenStats={setStatsAssignmentId}
             />
           ))}
         </div>
@@ -538,6 +542,7 @@ export function RoadmapEditor({ roadmap, topics, tests, students, memberIds, gro
       </div>
 
       <TestPreviewModalById testId={previewTestId} onClose={() => setPreviewTestId(null)} />
+      <AssignmentStatsModal assignmentId={statsAssignmentId} onClose={() => setStatsAssignmentId(null)} />
 
       {/* Диалог состава учеников */}
       <Dialog open={studentsOpen} onOpenChange={(v) => { if (!v) resetStudentsDialog() }}>
@@ -730,7 +735,7 @@ type DragState = { id: string; kind: 'topic' | 'item' } | null
 
 function TopicTreeItem({
   node, depth, roadmapId, busy, onRename, onDelete, onAddChild, onOpenItem, onRemoveItem, onToggleVisible,
-  onDropTopic, onMoveItem, drag, setDrag, onPreviewTest,
+  onDropTopic, onMoveItem, drag, setDrag, onPreviewTest, onOpenStats,
 }: {
   node: TopicNode
   depth: number
@@ -747,6 +752,7 @@ function TopicTreeItem({
   drag: DragState
   setDrag: (d: DragState) => void
   onPreviewTest: (testId: string) => void
+  onOpenStats: (assignmentId: string) => void
 }) {
   const [open, setOpen] = useState(depth < 1)
   const hasChildren = node.children.length > 0
@@ -1019,6 +1025,10 @@ function TopicTreeItem({
                     <span className="flex-1 truncate">{it.test_title}</span>
                   )}
                   <span className="text-xs text-muted-foreground shrink-0">{it.max_attempts} поп.</span>
+                  <Button size="icon" variant="ghost" className="h-6 w-6 text-muted-foreground"
+                    title="Статистика назначения" onClick={() => onOpenStats(it.assignment_id)}>
+                    <Info className="h-3.5 w-3.5" />
+                  </Button>
                   <Button size="icon" variant="ghost" className="h-6 w-6 text-muted-foreground hover:text-destructive"
                     onClick={() => onRemoveItem(node.id, it.assignment_id)}>
                     <X className="h-3.5 w-3.5" />
@@ -1042,7 +1052,7 @@ function TopicTreeItem({
               onRename={onRename} onDelete={onDelete} onAddChild={onAddChild}
               onOpenItem={onOpenItem} onRemoveItem={onRemoveItem} onToggleVisible={onToggleVisible}
               onDropTopic={onDropTopic} onMoveItem={onMoveItem} drag={drag} setDrag={setDrag}
-              onPreviewTest={onPreviewTest}
+              onPreviewTest={onPreviewTest} onOpenStats={onOpenStats}
             />
           ))}
         </div>
