@@ -45,8 +45,19 @@ export function extractNumericValue(s: string): string | null {
   return m ? m[1].replace(',', '.') : null
 }
 
-// Split correct answer alternatives ("–1012 или –1210" → ["–1012", "–1210"])
+// Вариант между «|» — «простое» значение: число/слово(а), допускается ведущий
+// минус. Так «|» в модуле («|x|», «1+|x|-2») и в таблицах разбалловки A-Level
+// (пустые ячейки, LaTeX) не принимается за разделитель вариантов.
+const PIPE_ALTERNATIVE_RE = /^[-–−]?[\p{L}\p{N}](?:[\p{L}\p{N}\s.,;]*[\p{L}\p{N}])?$/u
+
+// Split correct answer alternatives ("–1012 или –1210" → ["–1012", "–1210"]).
+// Эталоны библиотеки ФИПИ/sdamgia пишут варианты через «|»: «13|31» —
+// «выберите два утверждения» в любом порядке, «145|154|415|…».
 export function splitAlternatives(s: string): string[] {
   const parts = s.split(/\s+или\s+/i).map(x => x.trim()).filter(Boolean)
+    .flatMap(part => {
+      const pipeParts = part.split('|').map(x => x.trim())
+      return pipeParts.length > 1 && pipeParts.every(p => PIPE_ALTERNATIVE_RE.test(p)) ? pipeParts : [part]
+    })
   return parts.length > 0 ? parts : [s]
 }
