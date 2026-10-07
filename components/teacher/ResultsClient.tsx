@@ -18,7 +18,6 @@ import type { AttemptRow } from '@/lib/analytics/queries'
 interface Props {
   rows: AttemptRow[]
   tests: string[]
-  groups: string[]
   programs: string[]
 }
 
@@ -32,10 +31,9 @@ function StatCard({ label, value, sub }: { label: string; value: string | number
   )
 }
 
-export function ResultsClient({ rows, tests, groups, programs }: Props) {
+export function ResultsClient({ rows, tests, programs }: Props) {
   const [search, setSearch] = useState('')
   const [filterTest, setFilterTest] = useState('all')
-  const [filterGroup, setFilterGroup] = useState('all')
   const [filterStatus, setFilterStatus] = useState('all')
   // тест/ДЗ считаются с одинаковым весом; фильтр даёт прогресс по каждому типу
   const [filterKind, setFilterKind] = useState('all')
@@ -48,19 +46,18 @@ export function ResultsClient({ rows, tests, groups, programs }: Props) {
     return updatedRows.filter((r) => {
       if (search && !r.studentName.toLowerCase().includes(search.toLowerCase())) return false
       if (filterTest !== 'all' && r.testTitle !== filterTest) return false
-      if (filterGroup !== 'all' && r.groupName !== filterGroup) return false
       if (filterStatus !== 'all' && r.status !== filterStatus) return false
       if (filterKind !== 'all' && r.kind !== filterKind) return false
       if (filterProgram !== 'all' && r.programTitle !== filterProgram) return false
       return true
     })
-  }, [updatedRows, search, filterTest, filterGroup, filterStatus, filterKind, filterProgram])
+  }, [updatedRows, search, filterTest, filterStatus, filterKind, filterProgram])
 
   // Первый экран — 20 строк, дальше по 10 за раз («показать ещё 10»).
   // Возврат к первым 20 — при любом изменении поиска/фильтров.
   const { visible, hasMore, loadMore, total, showing } = usePagination(
     filtered, 10, 20,
-    `${search}|${filterTest}|${filterGroup}|${filterStatus}|${filterKind}|${filterProgram}`,
+    `${search}|${filterTest}|${filterStatus}|${filterKind}|${filterProgram}`,
   )
 
   const completed = filtered.filter((r) => r.maxScore > 0)
@@ -148,36 +145,22 @@ export function ResultsClient({ rows, tests, groups, programs }: Props) {
             <SelectItem value="checked">Завершён</SelectItem>
           </SelectContent>
         </Select>
-        {(search || filterTest !== 'all' || filterGroup !== 'all' || filterStatus !== 'all' || filterKind !== 'all' || filterProgram !== 'all') && (
+        {(search || filterTest !== 'all' || filterStatus !== 'all' || filterKind !== 'all' || filterProgram !== 'all') && (
           <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => {
-            setSearch(''); setFilterTest('all'); setFilterGroup('all'); setFilterStatus('all'); setFilterKind('all'); setFilterProgram('all')
+            setSearch(''); setFilterTest('all'); setFilterStatus('all'); setFilterKind('all'); setFilterProgram('all')
           }}>
             Сбросить
           </Button>
         )}
       </div>
 
-      {/* Быстрые теги групп и программ — клик переключает фильтр напрямую,
-          без открытия выпадающего списка (обоих обычно немного, в отличие
-          от тестов/учеников — там нужен SearchableSelect с поиском). Повторный
-          клик по активному тегу снимает фильтр. */}
-      {(groups.length > 0 || programs.length > 0) && (
+      {/* Быстрые теги программ — клик переключает фильтр напрямую, без
+          открытия выпадающего списка (программ обычно немного). Повторный
+          клик по активному тегу снимает фильтр. Тегов групп здесь нет:
+          системные группы «Программа: …» дублировали теги программ и
+          загромождали строку. */}
+      {programs.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
-          {groups.map((g) => (
-            <button
-              key={`g-${g}`}
-              type="button"
-              onClick={() => setFilterGroup((prev) => (prev === g ? 'all' : g))}
-              className={cn(
-                'inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs transition-colors',
-                filterGroup === g
-                  ? 'border-primary bg-primary text-primary-foreground'
-                  : 'border-input hover:bg-muted'
-              )}
-            >
-              {g}
-            </button>
-          ))}
           {programs.map((p) => (
             <button
               key={`p-${p}`}
