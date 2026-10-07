@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { ArrowLeft, Download, Users, Target, TrendingUp, Award } from 'lucide-react'
 import { getTestAttemptStats, getTaskStats, getAttemptRows } from '@/lib/analytics/queries'
+import { derivePromptText } from '@/lib/tasks/prompt'
 
 interface Props {
   params: Promise<{ id: string }>
@@ -138,7 +139,7 @@ export default async function TestAnalyticsPage({ params }: Props) {
                     <tr key={t.taskId} className="hover:bg-muted/30">
                       <td className="px-4 py-3 text-muted-foreground font-mono">{t.taskNumber}</td>
                       <td className="px-4 py-3 max-w-[240px]">
-                        <span className="line-clamp-2 text-sm">{t.promptText}</span>
+                        <span className="line-clamp-2 text-sm">{derivePromptText(t.promptText)}</span>
                       </td>
                       <td className="px-4 py-3 text-center tabular-nums">{t.totalAnswers}</td>
                       <td className="px-4 py-3 text-center tabular-nums">

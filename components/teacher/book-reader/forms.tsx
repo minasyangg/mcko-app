@@ -17,7 +17,8 @@ import {
 } from '@/components/ui/select'
 import { taskNumberLabel } from '@/lib/books/anchors'
 import { formatCompositeAnswerForEdit } from '@/lib/grading/multi-part-answer'
-import { formatAnswerJsonRaw } from '@/lib/grading/format-answer-display'
+import { formatAnswerJsonRaw, wrapBareLatex } from '@/lib/grading/format-answer-display'
+import { MathText } from '@/components/shared/MathText'
 import type { Json } from '@/types/database'
 import { gradingMethodLabel, stripTaskNumber, type PageData, type ProblemAnchor } from './shared'
 
@@ -139,7 +140,7 @@ export function InlineAnswer({
     <div className="flex items-center gap-2 mt-1">
       <p className="text-sm">
         <span className="text-muted-foreground">Ответ: </span>
-        <span className="font-medium">{answerText}</span>
+        <MathText text={wrapBareLatex(answerText)} className="font-medium" />
       </p>
       {canEdit && (
         <button

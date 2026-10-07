@@ -11,6 +11,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { CheckCircle2, XCircle, MinusCircle, Loader2, ZoomIn, X, Lock, ChevronDown, ChevronUp, Pencil, Check, Maximize2 } from 'lucide-react'
 import { MathText } from '@/components/shared/MathText'
 import MarkdownContent from '@/components/shared/MarkdownContent'
+import { markdownSource } from '@/lib/tasks/prompt'
 import { cn } from '@/lib/utils'
 import { formatAnswerJson, formatAnswerJsonRaw } from '@/lib/grading/format-answer-display'
 import { formatCompositeAnswerForEdit } from '@/lib/grading/multi-part-answer'
@@ -189,10 +190,9 @@ function TaskFullscreenView({ task, onClose }: { task: FullscreenTask | null; on
           </button>
         </div>
         <div className="overflow-y-auto p-6 space-y-6">
-          {task.promptHtml
-            ? <div className="text-base [&_p]:my-1.5"><MarkdownContent content={task.promptHtml} /></div>
-            : <p className="text-base text-muted-foreground whitespace-pre-wrap">{task.promptText}</p>
-          }
+          <div className="text-base [&_p]:my-1.5">
+            <MarkdownContent content={markdownSource(task.promptHtml, task.promptText)} />
+          </div>
           {task.media.length > 0 && (
             <div>
               <p className="text-xs text-muted-foreground mb-2">Изображения задания</p>
@@ -668,13 +668,13 @@ export function AttemptDrawer({ attemptId, onClose, onGraded, readOnly = false }
                       {(() => {
                         const isExpanded = expandedTaskIds.has(ans.id)
                         const plainText = ans.test_tasks?.prompt_text ?? ''
-                        const content = ans.test_tasks?.prompt_html || plainText
-                        const hasHtml = !!ans.test_tasks?.prompt_html
                         // Show toggle only when content has more than 3 sentences
                         const long = countSentences(plainText) > 3
-                        const body = hasHtml
-                          ? <div className="text-xs [&_p]:my-0.5"><MarkdownContent content={content} /></div>
-                          : <p className="text-xs text-muted-foreground">{content}</p>
+                        const body = (
+                          <div className="text-xs [&_p]:my-0.5">
+                            <MarkdownContent content={markdownSource(ans.test_tasks?.prompt_html, plainText)} />
+                          </div>
+                        )
                         return (
                           <div>
                             {long && !isExpanded

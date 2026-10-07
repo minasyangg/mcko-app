@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { ChevronLeft, ChevronRight, Eye } from 'lucide-react'
 import MarkdownContent from '@/components/shared/MarkdownContent'
+import { markdownSource } from '@/lib/tasks/prompt'
 import { TaskImageGallery } from '@/components/test-player/TaskImageGallery'
 import type { TestTask } from '@/components/teacher/TestDetailClient'
 
@@ -106,10 +107,7 @@ export function TestPreviewModal({ open, onClose, testTitle, tasks }: Props) {
 
                 {/* Task text */}
                 <div className="text-base">
-                  {task.prompt_html
-                    ? <MarkdownContent content={task.prompt_html} />
-                    : <div className="leading-relaxed whitespace-pre-wrap">{task.prompt_text}</div>
-                  }
+                  <MarkdownContent content={markdownSource(task.prompt_html, task.prompt_text)} />
                 </div>
 
                 {/* Images below text */}

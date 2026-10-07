@@ -12,6 +12,17 @@ interface Props {
 // Uses dangerouslySetInnerHTML so React does not own the text children —
 // avoids React 19 hydration error #418 that occurs when innerHTML is
 // modified externally while React expects a managed text node.
+// Экранирование ниже нужно для текста вокруг формул; внутрь KaTeX формула
+// должна попасть исходной — иначе «$x > 5$» превращалось в «x &gt; 5» и
+// KaTeX падал с ошибкой парсинга. Вывод KaTeX сам по себе безопасный HTML.
+// Два прохода: экранирование ниже + сущности, уже бывшие в исходнике
+// (OCR-текст из HTML, разбалловка A-Level: «r^{N-1} &gt; 1.6»).
+function unescapeMath(math: string): string {
+  let s = math.trim()
+  for (let i = 0; i < 2; i++) s = s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&')
+  return s
+}
+
 function renderMathText(raw: string): string {
   if (!raw) return ''
   const escaped = raw
@@ -21,12 +32,12 @@ function renderMathText(raw: string): string {
   return escaped
     .replace(/\$\$([^$]+)\$\$/g, (_, math) => {
       try {
-        return `<span>${katex.renderToString(math.trim(), { displayMode: true, throwOnError: false })}</span>`
+        return `<span>${katex.renderToString(unescapeMath(math), { displayMode: true, throwOnError: false })}</span>`
       } catch { return `<code>$$${math}$$</code>` }
     })
     .replace(/\$([^$\n]+)\$/g, (_, math) => {
       try {
-        return katex.renderToString(math.trim(), { displayMode: false, throwOnError: false })
+        return katex.renderToString(unescapeMath(math), { displayMode: false, throwOnError: false })
       } catch { return `<code>$${math}$</code>` }
     })
     .replace(/\n/g, '<br />')
