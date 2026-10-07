@@ -58,6 +58,13 @@ const LATEX_CMDS = ['sqrt','frac','cfrac','dfrac','tfrac','cdot','times','div','
   'Leftrightarrow','uparrow','downarrow','ne','le','ge','ll','gg','in','notin',
   'subset','supset','cup','cap','emptyset','forall','exists','neg','land','lor']
 
+// OCR-текст из HTML (разбалловка A-Level и т.п.) несёт внутри формул
+// экранированные сущности — KaTeX на «&gt;» падает с ошибкой парсинга
+const MATH_ENTITIES: Record<string, string> = { '&lt;': '<', '&gt;': '>', '&nbsp;': ' ', '&quot;': '"', '&#39;': "'", '&amp;': '&' }
+function decodeMathEntities(math: string): string {
+  return math.replace(/&(?:lt|gt|nbsp|quot|#39|amp);/g, e => MATH_ENTITIES[e])
+}
+
 function fixOCRSlashes(math: string): string {
   let s = math.trim()
   for (const cmd of LATEX_CMDS) {
@@ -125,13 +132,26 @@ function reformatMatchingTask(content: string): string {
   return [intro, matchTable, ...htmlTables].filter(Boolean).join('\n\n')
 }
 
+// Формулы без $-ограничителей — огрех OCR/импорта: «y = 2^{x}»,
+// «2,9\cdot(-3,8)», «1,6 · 10^{-19}» (книги, A-Level). Рендерим только
+// однозначные признаки LaTeX: степень/индекс в фигурных скобках и команды
+// из LATEX_CMDS; соседние фрагменты склеиваются в одну формулу
+// (\frac{1}{2}x^{2}). Парные/служебные команды (\left, \begin…) без пары
+// дали бы ошибку KaTeX — их не трогаем.
+const BARE_CMDS = LATEX_CMDS.filter(c => !['left', 'right', 'middle', 'begin', 'end', 'over', 'choose', 'hline'].includes(c))
+const BRACE = String.raw`\{(?:[^{}$\n]|\{[^{}$\n]*\})*\}`
+const BARE_ATOM = String.raw`(?:[A-Za-z0-9]*(?:[\^_]${BRACE})+|\\(?:${BARE_CMDS.join('|')})(?![a-zA-Z])(?:${BRACE})*)`
+const BARE_LATEX_RE = new RegExp(`(?:${BARE_ATOM})+`, 'g')
+// Уже размеченные формулы и HTML-теги — их содержимое не трогаем
+const DELIMITED_OR_TAG_RE = /(\$\$[\s\S]*?\$\$|\$[^$\n]+?\$|<[^>]*>)/
+
 // Pre-render LaTeX to KaTeX HTML BEFORE ReactMarkdown sees it.
 // remark-math v6 applies CommonMark backslash escaping inside $...$
 // (\sqrt → sqrt, \frac → form-feed+rac, etc.), making formulas unrenderable.
 // By calling katex.renderToString() here, we bypass that issue entirely.
 function prerenderMath(content: string): string {
   const render = (math: string, display: boolean): string => {
-    const latex = fixOCRSlashes(math)
+    const latex = fixOCRSlashes(decodeMathEntities(math))
     try {
       return katex.renderToString(latex, {
         displayMode: display,
@@ -143,8 +163,14 @@ function prerenderMath(content: string): string {
       return display ? `$$${math}$$` : `$${math}$`
     }
   }
+  // Голый LaTeX — только в тексте между размеченными формулами и тегами.
+  // Результат — готовый HTML без $, поэтому проходы ниже его не задевают.
+  const withBare = content
+    .split(DELIMITED_OR_TAG_RE)
+    .map((part, i) => i % 2 === 1 ? part : part.replace(BARE_LATEX_RE, m => render(m, false)))
+    .join('')
   // Display math first to avoid mis-matching single-$ inside $$...$$
-  return content
+  return withBare
     .replace(/\$\$([\s\S]*?)\$\$/g, (_, m) => render(m, true))
     .replace(/\$([^$\n]+?)\$/g, (_, m) => render(m, false))
 }

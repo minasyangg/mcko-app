@@ -8,8 +8,10 @@ import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
 import MarkdownContent from '@/components/shared/MarkdownContent'
+import { markdownSource } from '@/lib/tasks/prompt'
 import { AddToTestDialog } from '@/components/teacher/AddToTestDialog'
-import { isTableAnswer } from '@/lib/grading/format-answer-display'
+import { isTableAnswer, wrapBareLatex } from '@/lib/grading/format-answer-display'
+import { MathText } from '@/components/shared/MathText'
 
 interface Problem {
   id: string
@@ -177,10 +179,10 @@ export function LibraryProblemCard({ problem }: Props) {
 
         {/* Текст условия */}
         {expanded ? (
-          <MarkdownContent content={problem.prompt_html ?? problem.prompt_text} />
+          <MarkdownContent content={markdownSource(problem.prompt_html, problem.prompt_text)} />
         ) : (
           <div className="max-h-28 overflow-hidden relative text-sm leading-relaxed">
-            <MarkdownContent content={problem.prompt_html ?? problem.prompt_text} />
+            <MarkdownContent content={markdownSource(problem.prompt_html, problem.prompt_text)} />
             <div className="absolute bottom-0 left-0 right-0 h-8 bg-linear-to-t from-card to-transparent pointer-events-none" />
           </div>
         )}
@@ -258,7 +260,7 @@ export function LibraryProblemCard({ problem }: Props) {
             <div className="flex items-center gap-2 group">
               <p className="text-sm">
                 <span className="text-muted-foreground">Ответ: </span>
-                <span className="font-medium">{answerText(localAnswer)}</span>
+                <MathText text={wrapBareLatex(answerText(localAnswer))} className="font-medium" />
               </p>
               {localSource === 'ai' && (
                 <Badge variant="outline" className="text-[10px] h-4 px-1 gap-0.5 text-violet-600 border-violet-300 dark:text-violet-400 dark:border-violet-700" title="Ответ сгенерирован ИИ — проверьте и при необходимости исправьте">

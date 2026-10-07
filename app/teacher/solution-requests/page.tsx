@@ -3,6 +3,7 @@ import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { MessageSquare } from 'lucide-react'
 import { SolutionRequestActions } from '@/components/teacher/SolutionRequestActions'
+import { derivePromptText } from '@/lib/tasks/prompt'
 
 export default async function SolutionRequestsPage() {
   const supabase = await createClient()
@@ -60,7 +61,8 @@ export default async function SolutionRequestsPage() {
                     №{task?.task_number ?? '?'}
                     {task?.prompt_text && (
                       <p className="text-xs line-clamp-1 mt-0.5 text-muted-foreground/70">
-                        {task.prompt_text}
+                        {/* однострочное превью: формулы → «[формула]», а не сырой LaTeX */}
+                        {derivePromptText(task.prompt_text)}
                       </p>
                     )}
                   </td>

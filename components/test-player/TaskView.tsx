@@ -11,6 +11,7 @@ import { TaskImageGallery } from './TaskImageGallery'
 import { SolutionPhotoUpload, type SolutionPhoto } from './SolutionPhotoUpload'
 import MarkdownContent from '@/components/shared/MarkdownContent'
 import { MathText } from '@/components/shared/MathText'
+import { markdownSource } from '@/lib/tasks/prompt'
 import { CheckCircle2, AlertCircle } from 'lucide-react'
 
 // Типы заданий с развёрнутым (текстовым) ответом — там, где есть смысл
@@ -239,10 +240,7 @@ export function TaskView({
       {/* Размер текста условия НЕ уменьшаем на узких экранах: условие —
           главное, что читает ученик, мельче 16px на телефоне читается плохо
           и провоцирует зум, который ломает раскладку формул KaTeX. */}
-      {task.prompt_html
-        ? <MarkdownContent content={task.prompt_html} />
-        : <div className="text-base leading-relaxed whitespace-pre-wrap">{task.prompt_text}</div>
-      }
+      <MarkdownContent content={markdownSource(task.prompt_html, task.prompt_text)} />
 
       {images.length > 0 && (
         <TaskImageGallery images={images} placement="below_text" />

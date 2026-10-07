@@ -4,6 +4,8 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import Link from 'next/link'
 import { toast } from 'sonner'
 import MarkdownContent from '@/components/shared/MarkdownContent'
+import { MathText } from '@/components/shared/MathText'
+import { latexToPlain } from '@/lib/tasks/prompt'
 import { AddToTestDialog } from '@/components/teacher/AddToTestDialog'
 import { AddTargetBanner } from '@/components/teacher/AddTargetBanner'
 import { Badge } from '@/components/ui/badge'
@@ -190,7 +192,8 @@ function TocItem({
           <>
             <span className="leading-snug flex-1 min-w-0">
               {node.kind === 'chapter' && node.number ? `Глава ${node.number}. ` : node.number ? `${node.number}. ` : ''}
-              {node.title}
+              {/* в заголовках разделов бывают формулы: «Функции $y = x^n$» */}
+              <MathText text={node.title} />
             </span>
             {canEdit && (
               <span
@@ -832,7 +835,7 @@ export function BookReader({
           >
             {sections.filter(s => s.page_start !== null).map(s => (
               <option key={s.id} value={s.id}>
-                {s.number ? `${s.number}. ` : ''}{s.title}
+                {s.number ? `${s.number}. ` : ''}{latexToPlain(s.title)}
               </option>
             ))}
           </select>

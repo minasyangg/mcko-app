@@ -12,6 +12,7 @@ import { SolutionRequestButton } from '@/components/student/SolutionRequestButto
 import { SolutionView } from '@/components/test-player/SolutionView'
 import { MathText } from '@/components/shared/MathText'
 import MarkdownContent from '@/components/shared/MarkdownContent'
+import { markdownSource } from '@/lib/tasks/prompt'
 import { ImageGallery } from '@/components/shared/ImageGallery'
 import type { TaskMedia } from '@/types/domain'
 import { formatAnswerJsonRaw } from '@/lib/grading/format-answer-display'
@@ -425,10 +426,7 @@ export default async function ResultPage({ params }: PageProps) {
                           })()}
                           {/* Task text with formulas */}
                           <div className="text-sm">
-                            {(task as any).prompt_html
-                              ? <MarkdownContent content={(task as any).prompt_html} />
-                              : <p>{task.prompt_text}</p>
-                            }
+                            <MarkdownContent content={markdownSource(task.prompt_html, task.prompt_text)} />
                           </div>
                           <p className="text-sm">
                             <span className="text-muted-foreground">Ваш ответ: </span>

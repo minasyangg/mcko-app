@@ -26,6 +26,7 @@ import {
   Save,
 } from 'lucide-react'
 import MarkdownContent from '@/components/shared/MarkdownContent'
+import { markdownSource } from '@/lib/tasks/prompt'
 import { MathText } from '@/components/shared/MathText'
 import { wrapBareLatex } from '@/lib/grading/format-answer-display'
 import { ImageGallery, GalleryThumb } from '@/components/shared/ImageGallery'
@@ -397,10 +398,8 @@ function TaskRow({
                       </button>
                     </div>
                   </div>
-                ) : localPromptHtml ? (
-                  <MarkdownContent content={localPromptHtml} />
                 ) : (
-                  <p className="text-sm whitespace-pre-wrap">{localPromptText}</p>
+                  <MarkdownContent content={markdownSource(localPromptHtml, localPromptText)} />
                 )}
               </div>
 

@@ -48,7 +48,7 @@ import {
 import MarkdownContent from '@/components/shared/MarkdownContent'
 import { MathText } from '@/components/shared/MathText'
 import { wrapBareLatex, isTableAnswer } from '@/lib/grading/format-answer-display'
-import { derivePromptText } from '@/lib/tasks/prompt'
+import { derivePromptText, markdownSource } from '@/lib/tasks/prompt'
 import { ImageGallery } from '@/components/shared/ImageGallery'
 import { TestPreviewModal } from '@/components/teacher/TestPreviewModal'
 import type { TaskMediaWithUrl } from '@/types/domain'
@@ -563,7 +563,7 @@ function TaskCard({
             кладёт сюда LaTeX ($...$) без html-версии, а голый <p> его не
             рендерит вовсе — формулы показывались бы сырым текстом. */}
         <div className={`mt-2 text-sm ${expanded ? '' : 'line-clamp-3 overflow-hidden'}`}>
-          <MarkdownContent content={task.prompt_html ?? task.prompt_text} />
+          <MarkdownContent content={markdownSource(task.prompt_html, task.prompt_text)} />
         </div>
 
         {/* Картинки задания в режиме ПРОСМОТРА. Раньше тут был сырой <img>

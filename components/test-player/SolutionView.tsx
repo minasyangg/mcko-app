@@ -1,5 +1,6 @@
 import { TaskImageGallery } from './TaskImageGallery'
 import MarkdownContent from '@/components/shared/MarkdownContent'
+import { markdownSource } from '@/lib/tasks/prompt'
 import type { TaskMediaWithUrl } from '@/types/domain'
 
 interface Props {
@@ -20,11 +21,9 @@ export function SolutionView({ solutionText, solutionHtml, media }: Props) {
       {media.length > 0 && (
         <TaskImageGallery images={media} placement="above_text" />
       )}
-      {solutionHtml ? (
-        <MarkdownContent content={solutionHtml} />
-      ) : solutionText ? (
-        <p className="text-sm leading-relaxed whitespace-pre-wrap">{solutionText}</p>
-      ) : null}
+      {(solutionHtml || solutionText) && (
+        <MarkdownContent content={markdownSource(solutionHtml, solutionText)} />
+      )}
       {media.length > 0 && (
         <TaskImageGallery images={media} placement="below_text" />
       )}
