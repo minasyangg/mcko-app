@@ -46,17 +46,23 @@ if (!url || !key) {
   console.error('Нет SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY (env или .env.import.local).')
   process.exit(1)
 }
+// Таймаут на каждый запрос и паузы до 30 с — как в book-import.mjs (обрывы
+// сети на этой машине бывают на минуту-две, см. project_local_env_limits).
 const { createClient } = await import('@supabase/supabase-js')
-const db = createClient(url, key)
+const db = createClient(url, key, {
+  global: { fetch: (input, init = {}) => fetch(input, { ...init, signal: init.signal ?? AbortSignal.timeout(60000) }) },
+})
 
-async function withRetry(fn, label, attempts = 3) {
+const RETRY_DELAYS_S = [1, 2, 4, 8, 15, 30, 30, 30, 30]
+async function withRetry(fn, label, attempts = RETRY_DELAYS_S.length + 1) {
   let result
   for (let i = 1; i <= attempts; i++) {
     try { result = await fn() } catch (e) { result = { error: e } }
     if (!result?.error) return result
-    if (i === attempts) return result
-    console.warn(`  ${label}: попытка ${i} не удалась (${result.error.message}), повтор через ${i}с...`)
-    await new Promise(r => setTimeout(r, i * 1000))
+    if (i === attempts || /^[0-9A-Z]{5}$/.test(result.error.code ?? '')) return result
+    const delay = RETRY_DELAYS_S[i - 1]
+    console.warn(`  ${label}: попытка ${i} не удалась (${result.error.message}), повтор через ${delay}с...`)
+    await new Promise(r => setTimeout(r, delay * 1000))
   }
   return result
 }

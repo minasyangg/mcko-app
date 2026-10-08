@@ -2555,7 +2555,12 @@ if (!url || !key) {
 // в отличие от зависаний без ответа, которые нужно ловить таймаутом отдельно.
 // supabase-js не бросает исключение на сетевой сбой — он ловит его сам и
 // возвращает {error}, поэтому ретраим по result.error, а не по try/catch.
-async function withRetry(fn, label, attempts = 5) {
+// Паузы растут до 30 с: обрывы бывают не только мгновенные, но и на минуту-две
+// (2026-10-09, геометрия 7 кл.: 5 повторов с паузами 1-4 с = ~10 с терпения,
+// импорт выходил на середине book_pages). 10 попыток ≈ 2,5 минуты.
+// Ошибки самих данных (код Postgres, напр. 23505/23503) не повторяем.
+const RETRY_DELAYS_S = [1, 2, 4, 8, 15, 30, 30, 30, 30]
+async function withRetry(fn, label, attempts = RETRY_DELAYS_S.length + 1) {
   let result
   for (let i = 1; i <= attempts; i++) {
     try {
@@ -2564,28 +2569,33 @@ async function withRetry(fn, label, attempts = 5) {
       result = { error: e }
     }
     if (!result?.error) return result
-    if (i === attempts) return result
-    console.warn(`  ${label}: попытка ${i} не удалась (${result.error.message}), повтор через ${i}с...`)
-    await new Promise(r => setTimeout(r, i * 1000))
+    if (i === attempts || /^[0-9A-Z]{5}$/.test(result.error.code ?? '')) return result
+    const delay = RETRY_DELAYS_S[i - 1]
+    console.warn(`  ${label}: попытка ${i} не удалась (${result.error.message}), повтор через ${delay}с...`)
+    await new Promise(r => setTimeout(r, delay * 1000))
   }
   return result
 }
 
+// Таймаут на каждый запрос: без него оборванное соединение иногда висит
+// навечно без ошибки — withRetry не получает {error} и импорт просто стоит.
 const { createClient } = await import('@supabase/supabase-js')
-const db = createClient(url, key)
+const db = createClient(url, key, {
+  global: { fetch: (input, init = {}) => fetch(input, { ...init, signal: init.signal ?? AbortSignal.timeout(60000) }) },
+})
 
 console.log('\nЗапись в БД...')
 
 // --replace: удалить прежний импорт этой же книги (каскадом уйдут разделы/страницы/задания)
 if (args.includes('--replace')) {
-  const { data: existing, error } = await db
+  const { data: existing, error } = await withRetry(() => db
     .from('books')
     .select('id, title')
     .eq('title', meta.title)
-    .eq('subject', meta.subject)
+    .eq('subject', meta.subject), 'books lookup')
   if (error) { console.error('books lookup:', error.message); process.exit(1) }
   for (const b of existing ?? []) {
-    const { error: delErr } = await db.from('books').delete().eq('id', b.id)
+    const { error: delErr } = await withRetry(() => db.from('books').delete().eq('id', b.id), 'books delete')
     if (delErr) { console.error('books delete:', delErr.message); process.exit(1) }
     console.log(`Удалён прежний импорт: ${b.id}`)
   }
