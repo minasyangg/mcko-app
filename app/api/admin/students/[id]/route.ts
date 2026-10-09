@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { zUuid } from '@/lib/uuid'
 import { requireAdmin } from '@/lib/auth/authorize'
+import {
+  findTelegramNickHolder, isTelegramNickTakenError, sameTelegramNick,
+  telegramNickTakenForAdmin, TELEGRAM_NICK_SAME_AS_PARENT,
+} from '@/lib/notifications/telegram-username'
 
 // Управление учениками (создание/правка/удаление/переназначение учителю) —
 // только admin. Учитель видит своих учеников read-only.
@@ -76,21 +80,39 @@ export async function PATCH(
     // смена ника админом сбрасывает привязку chat_id — новый получатель сам жмёт /start
     if (telegram_username !== undefined) {
       const uname = telegram_username || null
-      if (uname !== (student as { telegram_username?: string | null }).telegram_username) {
+      if (uname !== student.telegram_username) {
         update.telegram_username = uname
         update.telegram_chat_id = null
       }
     }
     if (parent_telegram_username !== undefined) {
       const uname = parent_telegram_username || null
-      if (uname !== (student as { parent_telegram_username?: string | null }).parent_telegram_username) {
+      if (uname !== student.parent_telegram_username) {
         update.parent_telegram_username = uname
         update.parent_telegram_chat_id = null
       }
     }
+    // Ник — ключ привязки бота и должен указывать на одного получателя
+    // (см. lib/notifications/telegram-username.ts). Совпадение своего ника с
+    // ником родителя сверяем по итоговым значениям — иначе обмен полями
+    // местами в одном запросе ложно упёрся бы в старое значение.
+    const finalOwn = 'telegram_username' in update ? update.telegram_username : student.telegram_username
+    const finalParent = 'parent_telegram_username' in update ? update.parent_telegram_username : student.parent_telegram_username
+    if (('telegram_username' in update || 'parent_telegram_username' in update) && sameTelegramNick(finalOwn, finalParent)) {
+      return NextResponse.json({ error: TELEGRAM_NICK_SAME_AS_PARENT }, { status: 409 })
+    }
+    for (const nick of [update.telegram_username, update.parent_telegram_username]) {
+      if (!nick) continue
+      const holder = await findTelegramNickHolder(admin, nick, id)
+      if (holder) {
+        return NextResponse.json({ error: telegramNickTakenForAdmin(nick, holder, orgId) }, { status: 409 })
+      }
+    }
     if (Object.keys(update).length > 0) {
       const { error } = await admin.from('profiles').update(update).eq('id', id)
-      if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+      if (error) {
+        return NextResponse.json({ error: error.message }, { status: isTelegramNickTakenError(error) ? 409 : 500 })
+      }
     }
   }
 

@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { sendTelegramMessage } from '@/lib/notifications/telegram'
+import { findTelegramNickMatches } from '@/lib/notifications/telegram-username'
 
 // Webhook Telegram-бота. Единственная задача — привязка/отвязка аккаунта:
 //   /start → ищем профиль по telegram_username (ник задаётся в настройках
@@ -61,20 +62,13 @@ export async function POST(request: NextRequest) {
         return Response.json({ ok: true })
       }
 
-      // ник в профиле хранится без @, сравнение регистронезависимое;
-      // _ и % — wildcard'ы LIKE, экранируем, чтобы john_doe не совпал с johnXdoe.
+      // ник в профиле хранится без @, сравнение регистронезависимое.
       // Ищем сразу по двум полям: сам пользователь (telegram_username) и
       // родитель ученика (parent_telegram_username, ставится админом/учителем
       // в карточке ученика — своего аккаунта на платформе у родителя нет).
-      const escaped = username.replace(/[\\%_]/g, '\\$&')
-      const [{ data: ownMatches }, { data: parentMatches }] = await Promise.all([
-        admin.from('profiles').select('id, full_name')
-          .ilike('telegram_username', escaped).is('deleted_at', null),
-        admin.from('profiles').select('id, full_name')
-          .ilike('parent_telegram_username', escaped).is('deleted_at', null),
-      ])
+      const { own: ownMatches, parent: parentMatches } = await findTelegramNickMatches(admin, username)
 
-      const totalMatches = (ownMatches?.length ?? 0) + (parentMatches?.length ?? 0)
+      const totalMatches = ownMatches.length + parentMatches.length
 
       if (totalMatches === 0) {
         await sendTelegramMessage(chatId,
@@ -84,11 +78,11 @@ export async function POST(request: NextRequest) {
         return Response.json({ ok: true })
       }
 
-      // Ник ничем уникальным не защищён (ни среди учеников/учителей, ни между
-      // «свой ник» и «ник родителя»), и раньше chat_id проставлялся ВСЕМ
-      // совпавшим профилям — один чат начинал получать уведомления за
-      // несколько человек (ФИО учеников, баллы), то есть утечку. Привязываем
-      // только при однозначном совпадении суммарно по обоим полям.
+      // Раньше chat_id проставлялся ВСЕМ совпавшим профилям — один чат
+      // начинал получать уведомления за несколько человек (ФИО учеников,
+      // баллы), то есть утечку. Привязываем только при однозначном совпадении
+      // суммарно по обоим полям. С миграции 097 новый дубль ника не записать,
+      // но эта ветка остаётся на случай старых данных.
       if (totalMatches > 1) {
         await sendTelegramMessage(chatId,
           `Ник @${username} указан сразу у нескольких профилей на платформе, ` +
@@ -97,8 +91,8 @@ export async function POST(request: NextRequest) {
         return Response.json({ ok: true })
       }
 
-      const asParent = (parentMatches?.length ?? 0) === 1
-      const profile = asParent ? parentMatches![0] : ownMatches![0]
+      const asParent = parentMatches.length === 1
+      const profile = asParent ? parentMatches[0] : ownMatches[0]
 
       // Один чат — одна роль: снимаем прежние привязки этого же chat_id по
       // ОБОИМ полям (кроме той, которую сейчас проставляем этому же профилю
