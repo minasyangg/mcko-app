@@ -34,11 +34,31 @@ type FormData = z.infer<typeof schema>
 
 export default function RegisterPage() {
   const router = useRouter()
-  const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<FormData>({
+  const { register, handleSubmit, setError, formState: { errors, isSubmitting } } = useForm<FormData>({
     resolver: zodResolver(schema),
   })
 
   async function onSubmit(data: FormData) {
+    const telegramUsername = data.telegram_username?.trim()?.replace(/^@/, '') || null
+    // Ник — ключ привязки уведомлений и уникален на платформе: занятый ник
+    // почти всегда значит, что аккаунт у человека уже есть. Сбой самой
+    // проверки регистрацию не блокирует — гарантия в БД (миграция 097).
+    if (telegramUsername) {
+      const res = await fetch('/api/auth/telegram-available', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: telegramUsername }),
+      }).catch(() => null)
+      const check = await res?.json().catch(() => null) as { available?: boolean } | null
+      if (check?.available === false) {
+        setError('telegram_username', {
+          message: 'Этот ник уже указан в другом аккаунте платформы. ' +
+            'Если у вас уже есть аккаунт — войдите в него или обратитесь к администратору.',
+        })
+        return
+      }
+    }
+
     const supabase = createClient()
     // Публичная регистрация — всегда ученик и всегда на модерацию.
     // self_signup читает триггер handle_new_user (миграция 054) и ставит
@@ -51,7 +71,7 @@ export default function RegisterPage() {
           full_name: data.full_name,
           role: 'student',
           self_signup: true,
-          telegram_username: data.telegram_username?.trim()?.replace(/^@/, '') || null,
+          telegram_username: telegramUsername,
           phone: data.phone?.trim() || null,
         },
       },

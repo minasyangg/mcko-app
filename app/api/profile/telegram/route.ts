@@ -2,6 +2,10 @@ import { NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getAuthUser } from '@/lib/supabase/auth-user'
+import {
+  findTelegramNickHolder, isTelegramNickTakenError, sameTelegramNick,
+  TELEGRAM_NICK_SAME_AS_PARENT, TELEGRAM_NICK_TAKEN_SELF,
+} from '@/lib/notifications/telegram-username'
 
 // PATCH — пользователь (любая роль) сохраняет свой ник Telegram и/или
 // персональный переключатель уведомлений. Смена ника сбрасывает chat_id:
@@ -40,8 +44,18 @@ export async function PATCH(request: NextRequest) {
       )
     }
     const { data: current } = await admin
-      .from('profiles').select('telegram_username').eq('id', user.id).single()
+      .from('profiles').select('telegram_username, parent_telegram_username').eq('id', user.id).single()
     const changed = (current?.telegram_username ?? '') !== username
+    // Ник — ключ привязки бота и должен указывать на одного получателя
+    // (см. lib/notifications/telegram-username.ts)
+    if (changed && username) {
+      if (sameTelegramNick(username, current?.parent_telegram_username)) {
+        return Response.json({ error: TELEGRAM_NICK_SAME_AS_PARENT }, { status: 409 })
+      }
+      if (await findTelegramNickHolder(admin, username, user.id)) {
+        return Response.json({ error: TELEGRAM_NICK_TAKEN_SELF }, { status: 409 })
+      }
+    }
     update.telegram_username = username || null
     normalizedUsername = username || null
     if (changed) { update.telegram_chat_id = null; relinkRequired = !!username }
@@ -52,7 +66,10 @@ export async function PATCH(request: NextRequest) {
   }
 
   const { error } = await admin.from('profiles').update(update).eq('id', user.id)
-  if (error) return Response.json({ error: error.message }, { status: 500 })
+  if (error) {
+    if (isTelegramNickTakenError(error)) return Response.json({ error: TELEGRAM_NICK_TAKEN_SELF }, { status: 409 })
+    return Response.json({ error: error.message }, { status: 500 })
+  }
 
   return Response.json({
     ok: true,

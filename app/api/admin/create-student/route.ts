@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { zUuid } from '@/lib/uuid'
 import { requireAdmin } from '@/lib/auth/authorize'
+import { findTelegramNickHolder, telegramNickTakenForAdmin } from '@/lib/notifications/telegram-username'
 
 const schema = z.object({
   full_name: z.string().min(2, 'Минимум 2 символа'),
@@ -35,6 +36,16 @@ export async function POST(request: Request) {
 
   if (!teacher || teacher.role !== 'teacher' || teacher.organization_id !== orgId) {
     return NextResponse.json({ error: 'Учитель не найден в вашей организации' }, { status: 422 })
+  }
+
+  // Занятый ник проверяем ДО создания пользователя: ник пишется в профиль
+  // отдельным update ниже, и отказ триггера там оставил бы аккаунт без
+  // организации и роли (см. lib/notifications/telegram-username.ts)
+  if (telegram_username) {
+    const holder = await findTelegramNickHolder(adminClient, telegram_username)
+    if (holder) {
+      return NextResponse.json({ error: telegramNickTakenForAdmin(telegram_username, holder, orgId) }, { status: 409 })
+    }
   }
 
   // Create user with confirmed email via admin API
