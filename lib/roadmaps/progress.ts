@@ -1,7 +1,32 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Database } from '@/types/database'
+import { visibleTopicsInTreeOrder, type RoadmapTopicRow } from '@/lib/roadmaps/topic-order'
 
 type Client = SupabaseClient<Database>
+
+const TOPIC_COLUMNS = 'id, roadmap_id, parent_id, title, sort_order, visible_to_students'
+
+// Мониторинг показывает только то, что реально стоит перед учениками:
+// темы, открытые ученикам (каскадно — скрытая глава прячет подтемы, та же
+// логика, что в кабинете ученика), и только те из них, к которым прикреплено
+// хотя бы одно групповое задание. Пустые и скрытые темы не показываются и
+// не участвуют в «выполнено N/M» и в % сводной строки.
+// depth пересчитывается по ПОКАЗАННЫМ предкам: подтема с заданиями под
+// главой без заданий становится корнем, а не висит с отступом без родителя.
+function monitoredTopics(
+  allTopics: RoadmapTopicRow[],
+  roadmapId: string,
+  topicIdsWithItems: Set<string>,
+): { topic: RoadmapTopicRow; depth: number }[] {
+  const shown = visibleTopicsInTreeOrder(allTopics, roadmapId).filter(e => topicIdsWithItems.has(e.topic.id))
+  const shownIds = new Set(shown.map(e => e.topic.id))
+  const parentOf = new Map(allTopics.map(t => [t.id, t.parent_id]))
+  return shown.map(({ topic }) => {
+    let depth = 0
+    for (let p = topic.parent_id; p; p = parentOf.get(p) ?? null) if (shownIds.has(p)) depth++
+    return { topic, depth }
+  })
+}
 
 // ── Сводка программ (лёгкий запрос — для строк списка) ──────────────────────
 // RLS сам разграничивает: teacher видит свои roadmaps, admin — все по
@@ -37,7 +62,7 @@ export async function getRoadmapSummaries(
   // Задания программ (itemRows) зависят только от groupIds — грузим их в той же
   // волне, что темы/участников, а не отдельным последовательным запросом после.
   const [{ data: topics }, { data: members }, ownersRes, { data: itemRows }] = await Promise.all([
-    supabase.from('roadmap_topics').select('id, roadmap_id').in('roadmap_id', roadmapIds),
+    supabase.from('roadmap_topics').select(TOPIC_COLUMNS).in('roadmap_id', roadmapIds),
     groupIds.length
       ? supabase.from('group_members').select('group_id, user_id').in('group_id', groupIds)
       : Promise.resolve({ data: [] as { group_id: string; user_id: string }[] }),
@@ -47,14 +72,23 @@ export async function getRoadmapSummaries(
     groupIds.length
       ? supabase
           .from('assignments')
-          .select('id, group_id')
+          .select('id, group_id, roadmap_topic_id')
           .in('group_id', groupIds)
           .not('roadmap_topic_id', 'is', null)
-      : Promise.resolve({ data: [] as { id: string; group_id: string | null }[] }),
+      : Promise.resolve({ data: [] as { id: string; group_id: string | null; roadmap_topic_id: string | null }[] }),
   ])
 
+  // Те же правила, что в детализации (monitoredTopics): темы, открытые
+  // ученикам и с заданиями; задания скрытых тем в % не считаются.
+  const topicIdsWithItems = new Set((itemRows ?? []).map(a => a.roadmap_topic_id).filter(Boolean) as string[])
   const topicCount = new Map<string, number>()
-  for (const t of topics ?? []) topicCount.set(t.roadmap_id, (topicCount.get(t.roadmap_id) ?? 0) + 1)
+  const monitoredTopicIds = new Set<string>()
+  for (const r of rows) {
+    const shown = monitoredTopics((topics ?? []) as RoadmapTopicRow[], r.id, topicIdsWithItems)
+    topicCount.set(r.id, shown.length)
+    for (const { topic } of shown) monitoredTopicIds.add(topic.id)
+  }
+  const monitoredItems = (itemRows ?? []).filter(a => a.roadmap_topic_id && monitoredTopicIds.has(a.roadmap_topic_id))
 
   const studentsByGroup = new Map<string, string[]>()
   for (const m of members ?? []) {
@@ -70,14 +104,14 @@ export async function getRoadmapSummaries(
   // проверенная попытка. Полная детализация (кто именно, какой балл) —
   // отдельным запросом getRoadmapDetail по клику, не здесь.
   const itemsByGroup = new Map<string, string[]>()
-  for (const a of itemRows ?? []) {
+  for (const a of monitoredItems) {
     if (!a.group_id) continue
     const arr = itemsByGroup.get(a.group_id) ?? []
     arr.push(a.id)
     itemsByGroup.set(a.group_id, arr)
   }
 
-  const allAssignmentIds = (itemRows ?? []).map(a => a.id)
+  const allAssignmentIds = monitoredItems.map(a => a.id)
   const { data: checkedAttempts } = allAssignmentIds.length
     ? await supabase
         .from('attempts')
@@ -175,13 +209,15 @@ export async function getRoadmapDetail(supabase: Client, roadmapId: string): Pro
     .single()
   if (!roadmap) return null
 
-  const { data: topics } = await supabase
+  const { data: topicsRaw } = await supabase
     .from('roadmap_topics')
-    .select('id, title, sort_order, parent_id')
+    .select(TOPIC_COLUMNS)
     .eq('roadmap_id', roadmapId)
     .order('sort_order', { ascending: true })
+  const topics = (topicsRaw ?? []) as RoadmapTopicRow[]
 
-  const topicIds = (topics ?? []).map(t => t.id)
+  // Задания скрытых от учеников тем не загружаем вовсе — см. monitoredTopics
+  const topicIds = visibleTopicsInTreeOrder(topics, roadmapId).map(e => e.topic.id)
 
   const { data: assignmentRows } = topicIds.length
     ? await supabase
@@ -366,41 +402,9 @@ export async function getRoadmapDetail(supabase: Client, roadmapId: string): Pro
     title: roadmap.title,
     subject: roadmap.subject,
     students: (profiles ?? []).map(p => ({ id: p.id, full_name: p.full_name })),
-    topics: topicsInTreeOrder(topics ?? []).map(({ topic: t, depth }) => ({
+    topics: monitoredTopics(topics, roadmapId, new Set(itemsByTopic.keys())).map(({ topic: t, depth }) => ({
       id: t.id, title: t.title, sort_order: t.sort_order, depth, items: itemsByTopic.get(t.id) ?? [],
     })),
     statuses,
   }
-}
-
-// DFS-порядок тем с глубиной — учительский контекст (эта функция, в отличие
-// от visibleTopicsInTreeOrder в lib/roadmaps/topic-order.ts, не фильтрует по
-// visible_to_students: учитель должен видеть все темы программы, включая
-// скрытые от учеников). sort_order уникален только среди siblings одного
-// parent_id — плоская сортировка по нему вперемешку с другими ветками дерева
-// убирает визуальную иерархию «глава → подтема» (см. жалобу пользователя на
-// скриншоте мониторинга: «Механика | Кинематика» выглядела самостоятельным
-// родителем наравне с «МЕХАНИКА»).
-function topicsInTreeOrder<T extends { id: string; parent_id: string | null; sort_order: number }>(
-  allTopics: T[]
-): { topic: T; depth: number }[] {
-  const byId = new Set(allTopics.map(t => t.id))
-  const byParent = new Map<string | null, T[]>()
-  for (const t of allTopics) {
-    const key = t.parent_id && byId.has(t.parent_id) ? t.parent_id : null
-    const arr = byParent.get(key) ?? []
-    arr.push(t)
-    byParent.set(key, arr)
-  }
-  for (const arr of byParent.values()) arr.sort((a, b) => a.sort_order - b.sort_order)
-
-  const result: { topic: T; depth: number }[] = []
-  function visit(parentId: string | null, depth: number) {
-    for (const t of byParent.get(parentId) ?? []) {
-      result.push({ topic: t, depth })
-      visit(t.id, depth + 1)
-    }
-  }
-  visit(null, 0)
-  return result
 }

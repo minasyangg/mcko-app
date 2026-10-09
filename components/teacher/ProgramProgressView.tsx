@@ -65,7 +65,7 @@ export function ProgramProgressView({ program, readOnly = false, onSelectAttempt
     return <p className="text-sm text-muted-foreground py-6 text-center">В программе пока нет учеников.</p>
   }
   if (allItems.length === 0) {
-    return <p className="text-sm text-muted-foreground py-6 text-center">К темам программы пока не привязано ни одного задания.</p>
+    return <p className="text-sm text-muted-foreground py-6 text-center">Нет открытых ученикам тем с прикреплёнными заданиями.</p>
   }
 
   return (

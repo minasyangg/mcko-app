@@ -397,8 +397,25 @@ function demoteHeadingTaskNumbers(md) {
   }).join('\n')
 }
 
+// OCR местами принимает строку задания за подпись к рисунку и заворачивает её
+// в центрированный блок: «<div style="text-align: center;"><div …>108. Найдите
+// углы треугольника…</div> </div>» (Мерзляк «Геометрия. Дидактические
+// материалы. 7 класс» — задание сразу под рисунками). Номер оказывается не в
+// начале строки, PLAIN_RE его не видит, задание пропадает. Разворачиваем
+// только однострочный блок, где внутри «N. Слово…» с русским текстом:
+// настоящие подписи («Рис. 118», одиночная цифра-метка) так не выглядят.
+function unwrapCenteredTaskLines(md) {
+  return md.split('\n').map(line => {
+    const m = line.match(/^\s*((?:<div[^>]*>\s*)+)(\d{1,4}[*°]?\.[ \t]+[^<]*?)\s*((?:<\/div>\s*)+)$/)
+    if (!m || !/[А-Яа-яЁё]{3,}/.test(m[2])) return line
+    const opens = (m[1].match(/<div/g) ?? []).length
+    const closes = (m[3].match(/<\/div>/g) ?? []).length
+    return opens === closes ? m[2] : line
+  }).join('\n')
+}
+
 for (const p of pages) {
-  p.markdown = rewriteImages(normalizeMarkers(inlineShortDisplayMath(demoteHeadingTaskNumbers(unwrapMathTasks(p.markdown)))), p.images)
+  p.markdown = rewriteImages(normalizeMarkers(inlineShortDisplayMath(demoteHeadingTaskNumbers(unwrapCenteredTaskLines(unwrapMathTasks(p.markdown))))), p.images)
 }
 
 // printed page → scan index
@@ -667,10 +684,48 @@ if (isDidactic) {
   // до следующего "#"-заголовка того же или большего уровня, иначе variant/
   // рестарт-логика не подхватывает её (didState.work === null). flatSections
   // (TOC) здесь ещё не готов (вычисляется позже) — ищем прямо по markdown.
+  //
+  // Исключение: если TOC уже сам даёт «Вариант N» как полноценный раздел с
+  // БОЛЬШИМ диапазоном страниц (несколько десятков, не 1-2 — см. Мерзляк
+  // «Геометрия, дидактические материалы»: «Упражнения» → «Вариант 1/2/3» —
+  // каждый занимает ~30 страниц с собственной сквозной нумерацией 1..277),
+  // этот диапазон уже будет корректно обработан variantZoneByPage ниже —
+  // создавать для него ещё и синтетическую работу «т» нельзя: она ложно
+  // "застолбит" первую страницу диапазона (см. комментарий у didacticWorks
+  // чуть выше про `didacticWorks.some(w => w.page === p.index)`) и выбьет
+  // variantZoneByPage из игры для всего раздела. Разовый «Итоговый тест» у
+  // Чеснокова занимает 1-2 страницы на вариант — используем это отличие.
+  const topLevelVariantRanges = (() => {
+    const ranges = []
+    // toc.n.parent выставляется позже (walk() на стр. ~801, после этого
+    // блока) — отслеживаем родителя сами при обходе, чтобы найти siblings
+    // («Вариант N» встречается и прямым потомком корня, и потомком
+    // раздела-обёртки вроде "Упражнения» — обходим всё дерево).
+    ;(function collect(nodes) {
+      for (let i = 0; i < nodes.length; i++) {
+        const n = nodes[i]
+        if (/^вариант\s*\d+$/i.test(n.title ?? '') && n.printedPage != null) {
+          // конец диапазона — printedPage следующего узла ТОГО ЖЕ уровня
+          // (или null, если это последний «Вариант N» в своём списке)
+          const next = nodes[i + 1]
+          ranges.push({ start: n.printedPage, end: next?.printedPage ?? null })
+        }
+        collect(n.children ?? [])
+      }
+    })(toc)
+    return ranges
+  })()
+  function printedPageInLongVariantRange(printed) {
+    if (printed == null) return false
+    return topLevelVariantRanges.some(r =>
+      printed >= r.start && (r.end == null || printed <= r.end) && (r.end == null || r.end - r.start >= 5)
+    )
+  }
   const TOP_HEADING_RE = /^#{1,3}[ \t]+([^\n]{2,80})$/gm
   const hasVariantHeaderRe = /^#{0,6}\s*[БВB][а-яёa-z]{4,9}\s+\d\s*\.?\s*$/gim
   const SYNTHETIC_WORK_EXCLUDE_RE = /домашн[а-яё]*\s+контрольн|оглавлени|содержани|приложени|предисловие|предметный указатель|справочный материал|ответ|повышенной трудности|итогов[а-яё]*\s+повторени|самостоятельн|контрольн/i
   for (const p of pages) {
+    if (printedPageInLongVariantRange(p.printed)) continue
     TOP_HEADING_RE.lastIndex = 0
     let hm
     while ((hm = TOP_HEADING_RE.exec(p.markdown)) !== null) {
@@ -1525,13 +1580,17 @@ for (const p of pages) {
     for (const ev of events) {
       if (ev.type === 'work') {
         // Смена работы (первый вход или переход от другой работы) — сброс на
-        // «вариант 1» безусловный. Само число в идущем впритык 'variant'-событии
-        // (если есть) обрабатывается СЛЕДУЮЩЕЙ итерацией цикла и скорректирует
-        // это значение, если оно достоверно (см. ветку 'variant' ниже) —
-        // насколько достоверно, зависит от того, что было раньше по at, а не
-        // здесь; поэтому здесь всегда «1», без исключений.
+        // «вариант 1». Само число в идущем впритык 'variant'-событии ПОСЛЕ
+        // заголовка работы обрабатывается СЛЕДУЮЩЕЙ итерацией цикла и
+        // скорректирует это значение (см. ветку 'variant' ниже).
+        // Исключение — работа внутри вариантной зоны оглавления: Мерзляк
+        // «Геометрия. Дидактические материалы»: «Контрольные работы» →
+        // «Вариант 1» → КР №1..5, «Вариант 2» → КР №1..5 заново. Заголовок
+        // варианта стоит ПЕРЕД заголовками работ, и сброс на «1» превращал
+        // весь вариант 2 в дубли р{N}.1.* — они отбрасывались целиком. Номер
+        // варианта берём из зоны.
         const isNewEntry = didState.work !== ev.w
-        if (isNewEntry) { didState.variant = 1; didState.lastNum = 0 }
+        if (isNewEntry) { didState.variant = contVariant ?? 1; didState.lastNum = 0 }
         ev.w.entered = true
         didState.work = ev.w
         didState.styleLock = null
@@ -2496,7 +2555,12 @@ if (!url || !key) {
 // в отличие от зависаний без ответа, которые нужно ловить таймаутом отдельно.
 // supabase-js не бросает исключение на сетевой сбой — он ловит его сам и
 // возвращает {error}, поэтому ретраим по result.error, а не по try/catch.
-async function withRetry(fn, label, attempts = 5) {
+// Паузы растут до 30 с: обрывы бывают не только мгновенные, но и на минуту-две
+// (2026-10-09, геометрия 7 кл.: 5 повторов с паузами 1-4 с = ~10 с терпения,
+// импорт выходил на середине book_pages). 10 попыток ≈ 2,5 минуты.
+// Ошибки самих данных (код Postgres, напр. 23505/23503) не повторяем.
+const RETRY_DELAYS_S = [1, 2, 4, 8, 15, 30, 30, 30, 30]
+async function withRetry(fn, label, attempts = RETRY_DELAYS_S.length + 1) {
   let result
   for (let i = 1; i <= attempts; i++) {
     try {
@@ -2505,28 +2569,33 @@ async function withRetry(fn, label, attempts = 5) {
       result = { error: e }
     }
     if (!result?.error) return result
-    if (i === attempts) return result
-    console.warn(`  ${label}: попытка ${i} не удалась (${result.error.message}), повтор через ${i}с...`)
-    await new Promise(r => setTimeout(r, i * 1000))
+    if (i === attempts || /^[0-9A-Z]{5}$/.test(result.error.code ?? '')) return result
+    const delay = RETRY_DELAYS_S[i - 1]
+    console.warn(`  ${label}: попытка ${i} не удалась (${result.error.message}), повтор через ${delay}с...`)
+    await new Promise(r => setTimeout(r, delay * 1000))
   }
   return result
 }
 
+// Таймаут на каждый запрос: без него оборванное соединение иногда висит
+// навечно без ошибки — withRetry не получает {error} и импорт просто стоит.
 const { createClient } = await import('@supabase/supabase-js')
-const db = createClient(url, key)
+const db = createClient(url, key, {
+  global: { fetch: (input, init = {}) => fetch(input, { ...init, signal: init.signal ?? AbortSignal.timeout(60000) }) },
+})
 
 console.log('\nЗапись в БД...')
 
 // --replace: удалить прежний импорт этой же книги (каскадом уйдут разделы/страницы/задания)
 if (args.includes('--replace')) {
-  const { data: existing, error } = await db
+  const { data: existing, error } = await withRetry(() => db
     .from('books')
     .select('id, title')
     .eq('title', meta.title)
-    .eq('subject', meta.subject)
+    .eq('subject', meta.subject), 'books lookup')
   if (error) { console.error('books lookup:', error.message); process.exit(1) }
   for (const b of existing ?? []) {
-    const { error: delErr } = await db.from('books').delete().eq('id', b.id)
+    const { error: delErr } = await withRetry(() => db.from('books').delete().eq('id', b.id), 'books delete')
     if (delErr) { console.error('books delete:', delErr.message); process.exit(1) }
     console.log(`Удалён прежний импорт: ${b.id}`)
   }
