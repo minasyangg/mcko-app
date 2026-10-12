@@ -6,6 +6,9 @@ import { enrichTaskMediaWithUrls } from '@/lib/media/signed-urls'
 import { formatAnswerJsonRaw } from '@/lib/grading/format-answer-display'
 import { formatCompositeAnswerForEdit } from '@/lib/grading/multi-part-answer'
 import type { TaskMedia } from '@/types/domain'
+import { getAuthUser } from '@/lib/supabase/auth-user'
+import { loadTestTheory } from '@/lib/theory/load'
+import { TheoryEditorPanel } from '@/components/theory/TheoryEditorPanel'
 
 interface PageProps {
   params: Promise<{ id: string }>
@@ -17,13 +20,24 @@ export default async function TestDetailPage({ params }: PageProps) {
 
   const { data: test, error } = await supabase
     .from('tests')
-    .select('id, title, subject, grade, exam_type, description, status, is_active, current_published_version_id, scoring_rule_id, kind')
+    .select('id, title, subject, grade, exam_type, description, status, is_active, current_published_version_id, scoring_rule_id, kind, created_by')
     .eq('id', id)
     .single()
 
   if (error || !test) {
     notFound()
   }
+
+  // Модуль «Теория» (lib/theory): блоки и право правки — то же правило, что
+  // у правки самого теста (создатель или админ), API проверяет его повторно.
+  const [theoryBlocks, { data: { user } }] = await Promise.all([
+    loadTestTheory(supabase, id),
+    getAuthUser(supabase),
+  ])
+  const { data: viewer } = user
+    ? await supabase.from('profiles').select('role').eq('id', user.id).single()
+    : { data: null }
+  const canEditTheory = viewer?.role === 'admin' || (!!user && test.created_by === user.id)
 
   // Find the working version: prefer draft/in_review, fallback to published
   const { data: versions } = await supabase
@@ -128,6 +142,7 @@ export default async function TestDetailPage({ params }: PageProps) {
       versionStatus={workingVersion?.status ?? null}
       tasks={tasks}
       canEdit={canEdit}
+      theorySlot={<TheoryEditorPanel testId={id} initialBlocks={theoryBlocks} canEdit={canEditTheory} />}
       scoringRules={(scoringRules ?? []).map(r => ({
         id: r.id,
         name: r.name,

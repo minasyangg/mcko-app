@@ -102,6 +102,8 @@ export interface TestDetailClientProps {
   scoringRules?: ScoringRuleOption[]
   wasPublished?: boolean
   initialScoringRuleId?: string
+  /** Блок «Теория» (components/theory) — отдельный модуль, страница передаёт его готовым */
+  theorySlot?: React.ReactNode
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -910,6 +912,7 @@ export function TestDetailClient({
   scoringRules = [],
   wasPublished: initialWasPublished = false,
   initialScoringRuleId = '',
+  theorySlot,
 }: TestDetailClientProps) {
   const router = useRouter()
   // ДЗ собирается из готовых заданий книг/библиотеки — без пайплайна PDF
@@ -1414,6 +1417,13 @@ export function TestDetailClient({
       </div>
 
       <Separator />
+
+      {theorySlot && (
+        <>
+          {theorySlot}
+          <Separator />
+        </>
+      )}
 
       {/* ── Section 2: Tasks ── */}
       <div className="space-y-4">

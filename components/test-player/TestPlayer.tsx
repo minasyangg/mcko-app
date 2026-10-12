@@ -16,6 +16,9 @@ import type { SolutionPhoto } from './SolutionPhotoUpload'
 import { Timer } from './Timer'
 import { SaveStatus } from './SaveStatus'
 import { SubmitDialog } from './SubmitDialog'
+import type { TheoryBlock } from '@/lib/theory/types'
+import { TheoryCard } from '@/components/theory/TheoryCard'
+import { TheorySheetButton } from '@/components/theory/TheorySheetButton'
 
 interface TestPlayerProps {
   assignmentId: string
@@ -34,6 +37,8 @@ interface TestPlayerProps {
   examType: string | null
   backHref: string
   backLabel: string
+  /** Теория к уроку (модуль components/theory) — кнопка в шапке и карточка над первым заданием */
+  theory?: TheoryBlock[]
 }
 
 const DEBOUNCE_MS = 3000
@@ -62,6 +67,7 @@ export function TestPlayer({
   examType,
   backHref,
   backLabel,
+  theory = [],
 }: TestPlayerProps) {
   const lockedSet = new Set(lockedTaskIds)
   const router = useRouter()
@@ -297,6 +303,7 @@ export function TestPlayer({
           </div>
 
           <div className="flex items-center gap-3 shrink-0">
+            <TheorySheetButton blocks={theory} />
             <SaveStatus status={saveStatus} />
             {timeLimitSec !== null && (
               <Timer
@@ -350,6 +357,11 @@ export function TestPlayer({
         {/* Task content */}
         <main className="flex flex-1 flex-col overflow-y-auto">
           <div className="flex-1 p-4 md:p-8 max-w-2xl mx-auto w-full space-y-4">
+            {/* Теория — над первым заданием (развёрнута, пока ученик не свернёт);
+                с любого задания она открывается кнопкой «Теория» в шапке */}
+            {currentIdx === 0 && (
+              <TheoryCard blocks={theory} storageKey={`theory-open:${assignmentId}`} />
+            )}
             {currentTask && (
               <TaskView
                 task={currentTask}

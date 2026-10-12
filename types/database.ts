@@ -3366,6 +3366,42 @@ export type Database = {
           },
         ]
       }
+      test_theory_blocks: {
+        Row: {
+          created_at: string
+          sort_order: number
+          test_id: string
+          theory_block_id: string
+        }
+        Insert: {
+          created_at?: string
+          sort_order?: number
+          test_id: string
+          theory_block_id: string
+        }
+        Update: {
+          created_at?: string
+          sort_order?: number
+          test_id?: string
+          theory_block_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "test_theory_blocks_test_id_fkey"
+            columns: ["test_id"]
+            isOneToOne: false
+            referencedRelation: "tests"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "test_theory_blocks_theory_block_id_fkey"
+            columns: ["theory_block_id"]
+            isOneToOne: false
+            referencedRelation: "theory_blocks"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       test_versions: {
         Row: {
           created_at: string | null
@@ -3515,6 +3551,64 @@ export type Database = {
             columns: ["scoring_rule_id"]
             isOneToOne: false
             referencedRelation: "scoring_rules"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      theory_blocks: {
+        Row: {
+          book_id: string | null
+          content_md: string
+          created_at: string
+          created_by: string | null
+          id: string
+          organization_id: string
+          source_ref: string | null
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          book_id?: string | null
+          content_md?: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          organization_id: string
+          source_ref?: string | null
+          title?: string
+          updated_at?: string
+        }
+        Update: {
+          book_id?: string | null
+          content_md?: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          organization_id?: string
+          source_ref?: string | null
+          title?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "theory_blocks_book_id_fkey"
+            columns: ["book_id"]
+            isOneToOne: false
+            referencedRelation: "books"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "theory_blocks_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "theory_blocks_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
             referencedColumns: ["id"]
           },
         ]

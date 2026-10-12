@@ -18,6 +18,8 @@ import type { TaskMedia } from '@/types/domain'
 import { formatAnswerJsonRaw } from '@/lib/grading/format-answer-display'
 import { closedReasonLabel } from '@/lib/assignments/completion'
 import { getAuthUser } from '@/lib/supabase/auth-user'
+import { loadTestTheory } from '@/lib/theory/load'
+import { TheoryCard } from '@/components/theory/TheoryCard'
 
 interface PageProps {
   params: Promise<{ id: string }>
@@ -62,6 +64,9 @@ export default async function ResultPage({ params }: PageProps) {
   const tv = assignment.test_versions as any
   const test = tv?.tests as any
   const resultVisibility: string = tv?.result_visibility ?? 'after_submit'
+  // Теория к уроку (модуль lib/theory) — для повторения после попытки;
+  // RLS 098 отдаёт её только по назначенным ученику тестам
+  const theoryPromise = test?.id ? loadTestTheory(supabase, test.id) : Promise.resolve([])
 
   // Дальше запросы сгруппированы в волны по зависимостям (раньше шли строго
   // по одному, ~14 последовательных запросов на открытие результата).
@@ -255,6 +260,7 @@ export default async function ResultPage({ params }: PageProps) {
   // цепочка ничего не добавляла к одной кнопке возврата.
   const backHref = fromRoadmap ? '/student/roadmap' : '/student'
   const backLabel = fromRoadmap ? 'Вернуться в программы' : 'Вернуться к списку тестов'
+  const theory = await theoryPromise
 
   return (
     <div className="min-h-screen bg-background">
@@ -281,6 +287,8 @@ export default async function ResultPage({ params }: PageProps) {
             </Badge>
           </div>
         </div>
+
+        <TheoryCard blocks={theory} defaultOpen={false} />
 
         {/* Score */}
         <Card className={isCompleted ? 'border-emerald-300' : !isChecked ? 'border-orange-200' : ''}>
