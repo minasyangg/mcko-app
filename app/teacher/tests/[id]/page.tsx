@@ -28,8 +28,9 @@ export default async function TestDetailPage({ params }: PageProps) {
     notFound()
   }
 
-  // Модуль «Теория» (lib/theory): блоки и право правки — то же правило, что
-  // у правки самого теста (создатель или админ), API проверяет его повторно.
+  // Модуль «Теория» (lib/theory): подключать/отключать теорию может тот, кто
+  // правит сам тест (создатель или админ), править блок — его автор или админ
+  // (блок общий для библиотеки). API проверяет оба правила повторно.
   const [theoryBlocks, { data: { user } }] = await Promise.all([
     loadTestTheory(supabase, id),
     getAuthUser(supabase),
@@ -37,7 +38,12 @@ export default async function TestDetailPage({ params }: PageProps) {
   const { data: viewer } = user
     ? await supabase.from('profiles').select('role').eq('id', user.id).single()
     : { data: null }
-  const canEditTheory = viewer?.role === 'admin' || (!!user && test.created_by === user.id)
+  const viewerIsAdmin = viewer?.role === 'admin'
+  const canEditTheory = viewerIsAdmin || (!!user && test.created_by === user.id)
+  const panelBlocks = theoryBlocks.map((b) => ({
+    ...b,
+    can_edit: viewerIsAdmin || (!!user && b.created_by === user.id),
+  }))
 
   // Find the working version: prefer draft/in_review, fallback to published
   const { data: versions } = await supabase
@@ -142,7 +148,17 @@ export default async function TestDetailPage({ params }: PageProps) {
       versionStatus={workingVersion?.status ?? null}
       tasks={tasks}
       canEdit={canEdit}
-      theorySlot={<TheoryEditorPanel testId={id} initialBlocks={theoryBlocks} canEdit={canEditTheory} />}
+      theorySlot={
+        <TheoryEditorPanel
+          testId={id}
+          initialBlocks={panelBlocks}
+          canEditTest={canEditTheory}
+          testSubject={test.subject}
+          testGrade={test.grade}
+          viewerId={user?.id ?? null}
+          viewerIsAdmin={viewerIsAdmin}
+        />
+      }
       scoringRules={(scoringRules ?? []).map(r => ({
         id: r.id,
         name: r.name,

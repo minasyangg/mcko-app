@@ -1,51 +1,51 @@
 'use client'
 
 import { useState } from 'react'
+import Link from 'next/link'
 import { toast } from 'sonner'
-import { BookOpen, ChevronDown, ChevronUp, Pencil, Plus, Trash2, Loader2 } from 'lucide-react'
+import { BookOpen, ChevronDown, ChevronUp, Library, Pencil, Plus, Unlink } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Textarea } from '@/components/ui/textarea'
+import { Badge } from '@/components/ui/badge'
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from '@/components/ui/alert-dialog'
-import MarkdownContent from '@/components/shared/MarkdownContent'
-import type { TheoryBlock } from '@/lib/theory/types'
+import type { TestTheoryBlock, TheoryBlock } from '@/lib/theory/types'
 import { TheoryBlocksView } from './TheoryBlocksView'
+import { TheoryForm, draftFromBlock, draftToPayload, type TheoryDraft } from './TheoryForm'
+import { TheoryPickerDialog } from './TheoryPickerDialog'
+
+export type PanelTheoryBlock = TestTheoryBlock & { can_edit: boolean }
 
 interface Props {
   testId: string
-  initialBlocks: TheoryBlock[]
-  /** Создатель теста или админ — те же права, что у правки самого теста */
-  canEdit: boolean
+  initialBlocks: PanelTheoryBlock[]
+  /** Создатель ДЗ или админ — может подключать/отключать теорию */
+  canEditTest: boolean
+  /** Предмет и класс ДЗ: подставляются в новый блок и в фильтр выбора из библиотеки */
+  testSubject: string | null
+  testGrade: string | null
+  /** Кто смотрит: автор блока или админ может его править */
+  viewerId: string | null
+  viewerIsAdmin: boolean
 }
 
-interface Draft {
-  title: string
-  source_ref: string
-  content_md: string
-}
-
-const EMPTY_DRAFT: Draft = { title: 'Теория', source_ref: '', content_md: '' }
-
-// Блок «Теория» на странице теста у учителя. Теория не версионируется вместе
-// с заданиями (миграция 098), поэтому её можно править и у опубликованного
-// ДЗ — ученик сразу увидит исправление.
-export function TheoryEditorPanel({ testId, initialBlocks, canEdit }: Props) {
-  const [blocks, setBlocks] = useState<TheoryBlock[]>(initialBlocks)
-  // id редактируемого блока; 'new' — создание нового
+// Блок «Теория» на странице ДЗ. Сама теория живёт в библиотеке
+// («Библиотека → Теория»); здесь она подключается к ДЗ (выбором из каталога
+// или созданием нового блока) и отключается. Править блок может его автор
+// или админ — правка видна во всех ДЗ, где блок подключён.
+export function TheoryEditorPanel({ testId, initialBlocks, canEditTest, testSubject, testGrade, viewerId, viewerIsAdmin }: Props) {
+  const [blocks, setBlocks] = useState<PanelTheoryBlock[]>(initialBlocks)
+  // 'new' — создание; id — правка блока
   const [editingId, setEditingId] = useState<string | null>(null)
-  const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT)
+  const [draft, setDraft] = useState<TheoryDraft>(draftFromBlock())
   const [saving, setSaving] = useState(false)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const [pickerOpen, setPickerOpen] = useState(false)
 
-  function startEdit(block?: TheoryBlock) {
+  function startEdit(block?: PanelTheoryBlock) {
+    setDraft(block ? draftFromBlock(block) : draftFromBlock(null, { subject: testSubject, grade: testGrade }))
     setEditingId(block?.id ?? 'new')
-    setDraft(block
-      ? { title: block.title, source_ref: block.source_ref ?? '', content_md: block.content_md }
-      : EMPTY_DRAFT)
   }
 
   async function save() {
@@ -53,42 +53,36 @@ export function TheoryEditorPanel({ testId, initialBlocks, canEdit }: Props) {
     setSaving(true)
     try {
       const isNew = editingId === 'new'
-      const res = await fetch(
-        isNew ? `/api/tests/${testId}/theory` : `/api/tests/${testId}/theory/${editingId}`,
-        {
-          method: isNew ? 'POST' : 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            title: draft.title.trim() || 'Теория',
-            source_ref: draft.source_ref.trim() || null,
-            content_md: draft.content_md,
-          }),
-        },
-      )
+      const res = await fetch(isNew ? `/api/tests/${testId}/theory` : `/api/theory/${editingId}`, {
+        method: isNew ? 'POST' : 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(draftToPayload(draft)),
+      })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
         toast.error(data.error ?? 'Не удалось сохранить теорию')
         return
       }
+      const block = data.block as TheoryBlock & { sort_order?: number }
       setBlocks((prev) => isNew
-        ? [...prev, data.block as TheoryBlock]
-        : prev.map((b) => (b.id === editingId ? { ...b, ...(data.block as TheoryBlock) } : b)))
+        ? [...prev, { ...block, sort_order: block.sort_order ?? prev.length, can_edit: true }]
+        : prev.map((b) => (b.id === editingId ? { ...b, ...block } : b)))
       setEditingId(null)
-      toast.success('Теория сохранена')
+      toast.success(isNew ? 'Теория создана и подключена' : 'Теория сохранена')
     } finally {
       setSaving(false)
     }
   }
 
-  async function remove(blockId: string) {
+  async function unlink(blockId: string) {
     const res = await fetch(`/api/tests/${testId}/theory/${blockId}`, { method: 'DELETE' })
     const data = await res.json().catch(() => ({}))
     if (!res.ok) {
-      toast.error(data.error ?? 'Не удалось удалить теорию')
+      toast.error(data.error ?? 'Не удалось отключить теорию')
       return
     }
     setBlocks((prev) => prev.filter((b) => b.id !== blockId))
-    toast.success('Теория удалена')
+    toast.success('Теория отключена от задания (в библиотеке осталась)')
   }
 
   function toggleExpanded(id: string) {
@@ -102,62 +96,66 @@ export function TheoryEditorPanel({ testId, initialBlocks, canEdit }: Props) {
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="flex items-center gap-2 text-lg font-semibold">
           <BookOpen className="h-5 w-5 text-sky-600" />
           Теория{blocks.length > 0 ? ` (${blocks.length})` : ''}
         </h2>
-        {canEdit && editingId === null && (
-          <Button size="sm" variant="outline" onClick={() => startEdit()}>
-            <Plus className="mr-1.5 h-4 w-4" />
-            Добавить теорию
-          </Button>
+        {canEditTest && editingId === null && (
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" variant="outline" onClick={() => setPickerOpen(true)}>
+              <Library className="mr-1.5 h-4 w-4" /> Из библиотеки
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => startEdit()}>
+              <Plus className="mr-1.5 h-4 w-4" /> Создать
+            </Button>
+          </div>
         )}
       </div>
 
       {blocks.length === 0 && editingId === null && (
         <p className="text-sm text-muted-foreground">
-          Теории пока нет. Ученик увидит её над заданиями и по кнопке «Теория» во время решения.
+          Теории пока нет. Ученик увидит её над заданиями и по кнопке «Теория» во время решения.{' '}
+          <Link href="/teacher/theory" className="text-primary hover:underline">Библиотека теории</Link>
         </p>
       )}
 
       {blocks.map((b) => editingId === b.id ? null : (
         <div key={b.id} className="rounded-lg border">
           <div className="flex items-center gap-2 px-4 py-2.5">
-            <button
-              type="button"
-              onClick={() => toggleExpanded(b.id)}
-              className="flex flex-1 items-center gap-2 text-left min-w-0"
-            >
+            <button type="button" onClick={() => toggleExpanded(b.id)} className="flex min-w-0 flex-1 items-center gap-2 text-left">
               {expanded.has(b.id) ? <ChevronUp className="h-4 w-4 shrink-0" /> : <ChevronDown className="h-4 w-4 shrink-0" />}
               <span className="truncate text-sm font-medium">{b.title}</span>
-              {b.source_ref && <span className="hidden truncate text-xs text-muted-foreground sm:inline">· {b.source_ref}</span>}
+              {b.grade && <Badge variant="outline" className="hidden shrink-0 text-[11px] sm:inline-flex">{b.grade} кл.</Badge>}
+              {b.tags.slice(0, 3).map((t) => (
+                <span key={t} className="hidden shrink-0 rounded-full bg-sky-100 px-2 py-0.5 text-[11px] text-sky-800 md:inline dark:bg-sky-950 dark:text-sky-200">{t}</span>
+              ))}
             </button>
-            {canEdit && editingId === null && (
-              <>
-                <Button size="sm" variant="ghost" onClick={() => startEdit(b)} title="Редактировать">
-                  <Pencil className="h-4 w-4" />
-                </Button>
-                <AlertDialog>
-                  <AlertDialogTrigger asChild>
-                    <Button size="sm" variant="ghost" title="Удалить" className="text-destructive">
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </AlertDialogTrigger>
-                  <AlertDialogContent>
-                    <AlertDialogHeader>
-                      <AlertDialogTitle>Удалить теорию «{b.title}»?</AlertDialogTitle>
-                      <AlertDialogDescription>
-                        Ученики перестанут видеть этот блок в ДЗ. Задания не изменятся.
-                      </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                      <AlertDialogCancel>Отмена</AlertDialogCancel>
-                      <AlertDialogAction onClick={() => remove(b.id)}>Удалить</AlertDialogAction>
-                    </AlertDialogFooter>
-                  </AlertDialogContent>
-                </AlertDialog>
-              </>
+            {b.can_edit && editingId === null && (
+              <Button size="sm" variant="ghost" onClick={() => startEdit(b)} title="Редактировать блок (изменится во всех заданиях)">
+                <Pencil className="h-4 w-4" />
+              </Button>
+            )}
+            {canEditTest && editingId === null && (
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button size="sm" variant="ghost" title="Отключить от задания">
+                    <Unlink className="h-4 w-4" />
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Отключить теорию «{b.title}»?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      Ученики перестанут видеть её в этом задании. Сам блок останется в библиотеке теории.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Отмена</AlertDialogCancel>
+                    <AlertDialogAction onClick={() => unlink(b.id)}>Отключить</AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
             )}
           </div>
           {expanded.has(b.id) && (
@@ -169,56 +167,35 @@ export function TheoryEditorPanel({ testId, initialBlocks, canEdit }: Props) {
       ))}
 
       {editingId !== null && (
-        <div className="space-y-3 rounded-lg border bg-muted/20 p-4">
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="space-y-1">
-              <Label className="text-xs">Заголовок</Label>
-              <Input
-                value={draft.title}
-                onChange={(e) => setDraft((d) => ({ ...d, title: e.target.value }))}
-                className="h-8 text-sm"
-              />
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs">Источник (необязательно)</Label>
-              <Input
-                value={draft.source_ref}
-                onChange={(e) => setDraft((d) => ({ ...d, source_ref: e.target.value }))}
-                placeholder="Учебник, ч. 1, §1–10, с. 5–46"
-                className="h-8 text-sm"
-              />
-            </div>
-          </div>
-          <div className="grid gap-3 lg:grid-cols-2">
-            <div className="space-y-1">
-              <Label className="text-xs">Текст (Markdown, формулы в $…$, таблицы)</Label>
-              <Textarea
-                value={draft.content_md}
-                onChange={(e) => setDraft((d) => ({ ...d, content_md: e.target.value }))}
-                rows={20}
-                className="font-mono text-xs"
-              />
-            </div>
-            <div className="space-y-1 min-w-0">
-              <Label className="text-xs">Как увидит ученик</Label>
-              <div className="h-full max-h-[32rem] overflow-y-auto rounded-md border bg-background p-3">
-                {draft.content_md.trim()
-                  ? <MarkdownContent content={draft.content_md} />
-                  : <p className="text-sm text-muted-foreground">Здесь появится предпросмотр.</p>}
-              </div>
-            </div>
-          </div>
-          <div className="flex gap-2">
-            <Button size="sm" onClick={save} disabled={saving || !draft.content_md.trim()}>
-              {saving && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
-              Сохранить
-            </Button>
-            <Button size="sm" variant="outline" onClick={() => setEditingId(null)} disabled={saving}>
-              Отмена
-            </Button>
-          </div>
+        <div className="rounded-lg border bg-muted/20 p-4">
+          <p className="mb-3 text-xs text-muted-foreground">
+            {editingId === 'new'
+              ? 'Новый блок попадёт в библиотеку теории и сразу подключится к этому заданию.'
+              : 'Правка блока будет видна во всех заданиях, где он подключён.'}
+          </p>
+          <TheoryForm
+            value={draft}
+            onChange={setDraft}
+            onSubmit={save}
+            onCancel={() => setEditingId(null)}
+            saving={saving}
+            submitLabel={editingId === 'new' ? 'Создать и подключить' : 'Сохранить'}
+            subjectOptions={testSubject ? [testSubject] : []}
+          />
         </div>
       )}
+
+      <TheoryPickerDialog
+        open={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+        testId={testId}
+        linkedIds={blocks.map((b) => b.id)}
+        defaultSubject={testSubject}
+        defaultGrade={testGrade}
+        onLinked={(block) => setBlocks((prev) => prev.some((b) => b.id === block.id)
+          ? prev
+          : [...prev, { ...block, can_edit: viewerIsAdmin || (!!viewerId && block.created_by === viewerId) }])}
+      />
     </div>
   )
 }

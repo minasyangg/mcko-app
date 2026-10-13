@@ -3561,9 +3561,13 @@ export type Database = {
           content_md: string
           created_at: string
           created_by: string | null
+          grade: string | null
           id: string
           organization_id: string
           source_ref: string | null
+          subject: string | null
+          summary: string | null
+          tags: string[]
           title: string
           updated_at: string
         }
@@ -3572,9 +3576,13 @@ export type Database = {
           content_md?: string
           created_at?: string
           created_by?: string | null
+          grade?: string | null
           id?: string
           organization_id: string
           source_ref?: string | null
+          subject?: string | null
+          summary?: string | null
+          tags?: string[]
           title?: string
           updated_at?: string
         }
@@ -3583,9 +3591,13 @@ export type Database = {
           content_md?: string
           created_at?: string
           created_by?: string | null
+          grade?: string | null
           id?: string
           organization_id?: string
           source_ref?: string | null
+          subject?: string | null
+          summary?: string | null
+          tags?: string[]
           title?: string
           updated_at?: string
         }
