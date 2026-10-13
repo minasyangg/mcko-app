@@ -1,13 +1,15 @@
 'use client'
 
 import { useState } from 'react'
-import ReactMarkdown from 'react-markdown'
+import ReactMarkdown, { type Components } from 'react-markdown'
 import rehypeRaw from 'rehype-raw'
 import rehypeSanitize, { defaultSchema } from 'rehype-sanitize'
 import remarkGfm from 'remark-gfm'
 import katex from 'katex'
 import { ImageOff } from 'lucide-react'
 import 'katex/dist/katex.min.css'
+import { FunctionGraph } from '@/components/shared/plots/FunctionGraph'
+import { DataChart } from '@/components/shared/plots/DataChart'
 
 // rehype-sanitize schema: allow HTML tables (PaddleOCR) + KaTeX output
 // KaTeX uses <svg>/<path> for stretchy symbols like √ even with output:'html'
@@ -149,7 +151,19 @@ const DELIMITED_OR_TAG_RE = /(\$\$[\s\S]*?\$\$|\$[^$\n]+?\$|<[^>]*>)/
 // remark-math v6 applies CommonMark backslash escaping inside $...$
 // (\sqrt → sqrt, \frac → form-feed+rac, etc.), making formulas unrenderable.
 // By calling katex.renderToString() here, we bypass that issue entirely.
+// Блоки кода ```…``` (в т.ч. рисунки ```graph/```chart) формулами не
+// размечаем: «y = x^{2}» в описании графика иначе превратился бы в HTML KaTeX
+// ещё до разбора markdown, и рисунок получил бы мусор вместо формулы.
+const FENCED_CODE_RE = /(```[\s\S]*?```)/
+
 function prerenderMath(content: string): string {
+  return content
+    .split(FENCED_CODE_RE)
+    .map((part, i) => (i % 2 === 1 ? part : prerenderMathText(part)))
+    .join('')
+}
+
+function prerenderMathText(content: string): string {
   const render = (math: string, display: boolean): string => {
     const latex = fixOCRSlashes(decodeMathEntities(math))
     try {
@@ -202,8 +216,26 @@ function MarkdownImg({
   )
 }
 
+// Рисунки внутри markdown: блок ```graph — график функции, ```chart —
+// диаграмма (формат — lib/plot/spec.ts). Остальные блоки кода — как обычно.
+interface HastLike { type: string; tagName?: string; value?: string; properties?: Record<string, unknown>; children?: HastLike[] }
+const hastText = (n: HastLike): string => n.type === 'text' ? (n.value ?? '') : (n.children ?? []).map(hastText).join('')
+
+const MarkdownPre: Components['pre'] = ({ node, children, ...rest }) => {
+  const code = (node as unknown as HastLike | undefined)?.children?.find((c) => c.type === 'element' && c.tagName === 'code')
+  const cls = code?.properties?.className
+  const classes = Array.isArray(cls) ? cls.map(String) : typeof cls === 'string' ? cls.split(' ') : []
+  if (code && classes.includes('language-graph')) return <FunctionGraph spec={hastText(code)} />
+  if (code && classes.includes('language-chart')) return <DataChart spec={hastText(code)} />
+  return <pre {...rest}>{children}</pre>
+}
+
 export default function MarkdownContent({ content }: { content: string }) {
   const processed = prerenderMath(reformatMatchingTask(content))
+  // .katex-display: только горизонтальный скролл (длинная формула шире
+  // колонки). overflow-x:auto сам включает и вертикальный, а строчные коробки
+  // дробей выступают за низ блока на 3–7 px — у каждой display-формулы
+  // появлялась лишняя полоса прокрутки ▲▼. py-1 — запас под глубокие дроби.
   return (
     <div className="
       max-w-none text-sm leading-relaxed
@@ -217,7 +249,7 @@ export default function MarkdownContent({ content }: { content: string }) {
       [&_h3]:text-base [&_h3]:font-semibold [&_h3]:my-1.5
       [&_blockquote]:border-l-4 [&_blockquote]:border-border [&_blockquote]:pl-3 [&_blockquote]:italic [&_blockquote]:text-muted-foreground
       [&_code]:bg-muted [&_code]:px-1 [&_code]:rounded [&_code]:text-xs [&_code]:font-mono
-      [&_.katex]:text-base [&_.katex-display]:overflow-x-auto [&_.katex-display]:my-2
+      [&_.katex]:text-base [&_.katex-display]:overflow-x-auto [&_.katex-display]:overflow-y-hidden [&_.katex-display]:py-1 [&_.katex-display]:my-2
       [&_table]:border-collapse [&_table]:text-sm [&_table]:my-2
       [&_table]:block [&_table]:w-fit [&_table]:max-w-full [&_table]:overflow-x-auto
       [&_th]:border [&_th]:border-border [&_th]:px-3 [&_th]:py-1.5 [&_th]:bg-muted/50 [&_th]:font-medium [&_th]:text-center
@@ -231,7 +263,7 @@ export default function MarkdownContent({ content }: { content: string }) {
           [rehypeSanitize, sanitizeSchema],
         ]}
         remarkRehypeOptions={{ allowDangerousHtml: true }}
-        components={{ img: MarkdownImg }}
+        components={{ img: MarkdownImg, pre: MarkdownPre }}
       >
         {processed}
       </ReactMarkdown>

@@ -7,6 +7,7 @@ import type { Json } from '@/types/database'
 import type { TestTask, TaskMediaWithUrl } from '@/types/domain'
 import type { SolutionPhoto } from '@/components/test-player/SolutionPhotoUpload'
 import { getAuthUser } from '@/lib/supabase/auth-user'
+import { loadTestTheory } from '@/lib/theory/load'
 
 interface PageProps {
   params: Promise<{ id: string }>
@@ -101,6 +102,10 @@ export default async function AttemptPage({ params }: PageProps) {
 
   const tv = assignment.test_versions as any
   const test = tv?.tests as any
+
+  // Теория к уроку (модуль lib/theory) — ученику её отдаёт RLS 098 только по
+  // назначенным тестам. Запрос стартует сразу и ждётся перед рендером.
+  const theoryPromise = test?.id ? loadTestTheory(supabase, test.id) : Promise.resolve([])
 
   const timeLimitSec: number | null =
     assignment.time_limit_override_sec ?? tv?.time_limit_sec ?? null
@@ -304,6 +309,8 @@ export default async function AttemptPage({ params }: PageProps) {
     taskMediaMap[m.task_id].push(m)
   }
 
+  const theory = await theoryPromise
+
   const solutionPhotosMap: Record<string, SolutionPhoto[]> = {}
   for (const m of rawSolutionMedia ?? []) {
     if (!m.task_id) continue
@@ -332,6 +339,7 @@ export default async function AttemptPage({ params }: PageProps) {
       examType={test?.exam_type ?? null}
       backHref={listHref}
       backLabel={assignment.roadmap_topic_id != null ? 'Вернуться в программы' : 'Вернуться к списку тестов'}
+      theory={theory}
     />
   )
 }

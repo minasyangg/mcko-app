@@ -6,6 +6,9 @@ import { enrichTaskMediaWithUrls } from '@/lib/media/signed-urls'
 import { formatAnswerJsonRaw } from '@/lib/grading/format-answer-display'
 import { formatCompositeAnswerForEdit } from '@/lib/grading/multi-part-answer'
 import type { TaskMedia } from '@/types/domain'
+import { getAuthUser } from '@/lib/supabase/auth-user'
+import { loadTestTheory } from '@/lib/theory/load'
+import { TheoryEditorPanel } from '@/components/theory/TheoryEditorPanel'
 
 interface PageProps {
   params: Promise<{ id: string }>
@@ -17,13 +20,30 @@ export default async function TestDetailPage({ params }: PageProps) {
 
   const { data: test, error } = await supabase
     .from('tests')
-    .select('id, title, subject, grade, exam_type, description, status, is_active, current_published_version_id, scoring_rule_id, kind')
+    .select('id, title, subject, grade, exam_type, description, status, is_active, current_published_version_id, scoring_rule_id, kind, created_by')
     .eq('id', id)
     .single()
 
   if (error || !test) {
     notFound()
   }
+
+  // Модуль «Теория» (lib/theory): подключать/отключать теорию может тот, кто
+  // правит сам тест (создатель или админ), править блок — его автор или админ
+  // (блок общий для библиотеки). API проверяет оба правила повторно.
+  const [theoryBlocks, { data: { user } }] = await Promise.all([
+    loadTestTheory(supabase, id),
+    getAuthUser(supabase),
+  ])
+  const { data: viewer } = user
+    ? await supabase.from('profiles').select('role').eq('id', user.id).single()
+    : { data: null }
+  const viewerIsAdmin = viewer?.role === 'admin'
+  const canEditTheory = viewerIsAdmin || (!!user && test.created_by === user.id)
+  const panelBlocks = theoryBlocks.map((b) => ({
+    ...b,
+    can_edit: viewerIsAdmin || (!!user && b.created_by === user.id),
+  }))
 
   // Find the working version: prefer draft/in_review, fallback to published
   const { data: versions } = await supabase
@@ -128,6 +148,17 @@ export default async function TestDetailPage({ params }: PageProps) {
       versionStatus={workingVersion?.status ?? null}
       tasks={tasks}
       canEdit={canEdit}
+      theorySlot={
+        <TheoryEditorPanel
+          testId={id}
+          initialBlocks={panelBlocks}
+          canEditTest={canEditTheory}
+          testSubject={test.subject}
+          testGrade={test.grade}
+          viewerId={user?.id ?? null}
+          viewerIsAdmin={viewerIsAdmin}
+        />
+      }
       scoringRules={(scoringRules ?? []).map(r => ({
         id: r.id,
         name: r.name,

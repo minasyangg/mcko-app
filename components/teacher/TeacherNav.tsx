@@ -47,6 +47,8 @@ const navItems: NavItem[] = [
       { href: '/teacher/library', label: 'ОГЭ/ЕГЭ' },
       { href: '/teacher/library?exam_type=A-Level', label: 'A-Level' },
       { href: '/teacher/books',   label: 'Книги' },
+      // выжимки теории к урокам (миграции 098–099), подключаются к ДЗ
+      { href: '/teacher/theory',  label: 'Теория' },
     ],
   },
   { href: '/teacher/monitor', label: 'Мониторинг', icon: Monitor },
