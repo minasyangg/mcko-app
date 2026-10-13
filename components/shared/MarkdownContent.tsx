@@ -204,6 +204,10 @@ function MarkdownImg({
 
 export default function MarkdownContent({ content }: { content: string }) {
   const processed = prerenderMath(reformatMatchingTask(content))
+  // .katex-display: только горизонтальный скролл (длинная формула шире
+  // колонки). overflow-x:auto сам включает и вертикальный, а строчные коробки
+  // дробей выступают за низ блока на 3–7 px — у каждой display-формулы
+  // появлялась лишняя полоса прокрутки ▲▼. py-1 — запас под глубокие дроби.
   return (
     <div className="
       max-w-none text-sm leading-relaxed
@@ -217,7 +221,7 @@ export default function MarkdownContent({ content }: { content: string }) {
       [&_h3]:text-base [&_h3]:font-semibold [&_h3]:my-1.5
       [&_blockquote]:border-l-4 [&_blockquote]:border-border [&_blockquote]:pl-3 [&_blockquote]:italic [&_blockquote]:text-muted-foreground
       [&_code]:bg-muted [&_code]:px-1 [&_code]:rounded [&_code]:text-xs [&_code]:font-mono
-      [&_.katex]:text-base [&_.katex-display]:overflow-x-auto [&_.katex-display]:my-2
+      [&_.katex]:text-base [&_.katex-display]:overflow-x-auto [&_.katex-display]:overflow-y-hidden [&_.katex-display]:py-1 [&_.katex-display]:my-2
       [&_table]:border-collapse [&_table]:text-sm [&_table]:my-2
       [&_table]:block [&_table]:w-fit [&_table]:max-w-full [&_table]:overflow-x-auto
       [&_th]:border [&_th]:border-border [&_th]:px-3 [&_th]:py-1.5 [&_th]:bg-muted/50 [&_th]:font-medium [&_th]:text-center
