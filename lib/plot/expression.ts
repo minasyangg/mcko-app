@@ -64,7 +64,12 @@ type Node = (x: number) => number
 // unary := '-' unary | '+' unary | power
 // power := primary ('^' unary)?
 // primary := num | x | const | func '(' expr ')' | '(' expr ')' | '|' expr '|' | '√' power
+// Школьная формула укладывается в пару строк; предел — чтобы гигантская
+// формула не грузила страницу (она считается в 600 точках на каждый график)
+const MAX_FORMULA_CHARS = 300
+
 export function compileExpression(src: string): Node {
+  if (src.length > MAX_FORMULA_CHARS) throw new Error(`Формула длиннее ${MAX_FORMULA_CHARS} символов`)
   const tokens = tokenize(src)
   let pos = 0
   let absDepth = 0

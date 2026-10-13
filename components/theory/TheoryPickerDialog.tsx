@@ -44,13 +44,13 @@ export function TheoryPickerDialog({ open, onClose, testId, linkedIds, defaultSu
         const facets = theoryFacets(list)
         setFilter({
           ...EMPTY_THEORY_FILTER,
-          subject: defaultSubject && facets.subjects.includes(defaultSubject) ? defaultSubject : '',
+          subject: defaultSubject && facets.subjects.some((s) => s.subject === defaultSubject) ? defaultSubject : '',
           grade: defaultGrade && facets.grades.includes(defaultGrade) ? defaultGrade : '',
         })
       })
   }, [open, defaultSubject, defaultGrade])
 
-  const facets = useMemo(() => theoryFacets(items ?? []), [items])
+  const facets = useMemo(() => theoryFacets(items ?? [], filter), [items, filter])
   const shown = useMemo(() => filterTheory(items ?? [], filter), [items, filter])
 
   async function link(block: TheoryBlock) {
@@ -83,7 +83,7 @@ export function TheoryPickerDialog({ open, onClose, testId, linkedIds, defaultSu
           </DialogDescription>
         </DialogHeader>
 
-        <TheoryFilters value={filter} onChange={setFilter} {...facets} tagLimit={20} />
+        <TheoryFilters value={filter} onChange={setFilter} {...facets} />
 
         <div className="max-h-[55vh] space-y-2 overflow-y-auto pr-1">
           {items === null && (

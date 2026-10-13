@@ -295,7 +295,11 @@ async function downscaleImage(file: File): Promise<File> {
     canvas.height = Math.round(bitmap.height * scale)
     canvas.getContext('2d')?.drawImage(bitmap, 0, 0, canvas.width, canvas.height)
     const blob = await new Promise<Blob | null>((r) => canvas.toBlob(r, 'image/webp', 0.85))
-    return blob ? new File([blob], file.name.replace(/\.\w+$/, '') + '.webp', { type: 'image/webp' }) : file
+    // старый Safari не умеет WebP и отдаёт PNG — тип берём у самого blob:
+    // сервер сверяет его с сигнатурой файла
+    if (!blob) return file
+    const ext = blob.type === 'image/webp' ? 'webp' : 'png'
+    return new File([blob], `${file.name.replace(/\.\w+$/, '')}.${ext}`, { type: blob.type || 'image/png' })
   } catch {
     return file
   }

@@ -18,8 +18,8 @@ import { TheoryBlocksView } from './TheoryBlocksView'
 import { TheoryForm, draftFromBlock, draftToPayload, type TheoryDraft } from './TheoryForm'
 import { AddTheoryToTestDialog } from './AddTheoryToTestDialog'
 
-// «Библиотека → Теория»: каталог блоков теории организации с фильтрами по
-// предмету, классу и тегам. Отсюда блок подключается к любому тесту/ДЗ.
+// «Библиотека → Теория»: каталог блоков теории организации с быстрыми
+// фильтрами по предмету, классом и поиском. Отсюда блок подключается к любому тесту/ДЗ.
 export function TheoryLibraryClient({ initialItems }: { initialItems: TheoryLibraryItem[] }) {
   const [items, setItems] = useState(initialItems)
   const [filter, setFilter] = useState<TheoryFilterState>(EMPTY_THEORY_FILTER)
@@ -30,7 +30,8 @@ export function TheoryLibraryClient({ initialItems }: { initialItems: TheoryLibr
   const [saving, setSaving] = useState(false)
   const [addTarget, setAddTarget] = useState<TheoryLibraryItem | null>(null)
 
-  const facets = useMemo(() => theoryFacets(items), [items])
+  const facets = useMemo(() => theoryFacets(items, filter), [items, filter])
+  const subjectNames = useMemo(() => facets.subjects.map((s) => s.subject), [facets])
   const shown = useMemo(() => filterTheory(items, filter), [items, filter])
 
   function startEdit(item?: TheoryLibraryItem) {
@@ -117,15 +118,9 @@ export function TheoryLibraryClient({ initialItems }: { initialItems: TheoryLibr
               {it.tags.length > 0 && (
                 <div className="mt-2 flex flex-wrap gap-1">
                   {it.tags.map((t) => (
-                    <button
-                      key={t}
-                      type="button"
-                      onClick={() => setFilter((f) => (f.tags.includes(t) ? f : { ...f, tags: [...f.tags, t] }))}
-                      className="rounded-full bg-sky-100 px-2 py-0.5 text-[11px] text-sky-800 hover:bg-sky-200 dark:bg-sky-950 dark:text-sky-200"
-                      title="Показать теорию с этим тегом"
-                    >
+                    <span key={t} className="rounded-full bg-sky-100 px-2 py-0.5 text-[11px] text-sky-800 dark:bg-sky-950 dark:text-sky-200">
                       {t}
-                    </button>
+                    </span>
                   ))}
                 </div>
               )}
@@ -214,7 +209,7 @@ export function TheoryLibraryClient({ initialItems }: { initialItems: TheoryLibr
               onCancel={() => setEditingId(null)}
               saving={saving}
               submitLabel={editingId === 'new' ? 'Добавить в библиотеку' : 'Сохранить'}
-              subjectOptions={facets.subjects}
+              subjectOptions={subjectNames}
             />
           </div>
         </SheetContent>

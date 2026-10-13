@@ -112,16 +112,30 @@ export function parseChartSpec(text: string): ChartSpec {
   return spec
 }
 
-// «Красивые» деления оси: шаг 1, 2 или 5 × 10^k
+const MAX_TICKS = 200
+
+// «Красивые» деления оси: шаг 1, 2 или 5 × 10^k.
+// Деления считаются по номеру k·step, а не накоплением v += step: при
+// больших числах (y = 10^16) шаг меньше точности double, v не растёт, и
+// цикл с накоплением вешал страницу — у ученика и при рендере на сервере.
 export function niceTicks(min: number, max: number, maxCount = 10): { step: number; ticks: number[] } {
   const span = max - min
-  if (!(span > 0)) return { step: 1, ticks: [min] }
+  if (!Number.isFinite(span) || !(span > 0) || !(maxCount >= 1)) {
+    return { step: 1, ticks: Number.isFinite(min) ? [min] : [] }
+  }
   const raw = span / maxCount
   const mag = Math.pow(10, Math.floor(Math.log10(raw)))
   const step = [1, 2, 5, 10].map((k) => k * mag).find((s) => s >= raw) ?? 10 * mag
+  const first = Math.ceil(min / step)
+  const last = Math.floor(max / step + 1e-9)
+  if (!(step > 0) || !Number.isFinite(first) || !Number.isFinite(last) || last - first > MAX_TICKS) {
+    return { step, ticks: [] }
+  }
+  // счётчик — маленькое целое: k++ при k ~ 10^16 тоже не растёт
   const ticks: number[] = []
-  for (let v = Math.ceil(min / step) * step; v <= max + step * 1e-9; v += step) ticks.push(Math.round(v / step) * step)
-  return { step, ticks }
+  for (let i = 0; i <= last - first; i++) ticks.push((first + i) * step)
+  // соседние деления неотличимы в double — подписи слились бы в одну
+  return { step, ticks: new Set(ticks).size === ticks.length ? ticks : [] }
 }
 
 // Число для подписи: десятичная запятая, без лишних нулей

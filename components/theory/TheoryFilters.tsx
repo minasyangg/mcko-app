@@ -10,22 +10,19 @@ import { EMPTY_THEORY_FILTER } from '@/lib/theory/filter'
 interface Props {
   value: TheoryFilterState
   onChange: (next: TheoryFilterState) => void
-  subjects: string[]
+  subjects: { subject: string; count: number }[]
   grades: string[]
-  tags: { tag: string; count: number }[]
-  /** Сколько тегов показывать до «ещё…» */
-  tagLimit?: number
+  /** Сколько блоков без учёта фильтра по предмету — для кнопки «Все» */
+  total: number
 }
 
 const selectClass = 'h-9 rounded-md border border-input bg-background px-2 text-sm'
 
-// Панель фильтров каталога теории: поиск, предмет, класс, облако тегов.
+// Панель фильтров каталога теории: поиск, класс и быстрые фильтры по предмету.
 // Общая для «Библиотека → Теория» и выбора теории со страницы ДЗ.
-export function TheoryFilters({ value, onChange, subjects, grades, tags, tagLimit = 30 }: Props) {
+export function TheoryFilters({ value, onChange, subjects, grades, total }: Props) {
   const set = (patch: Partial<TheoryFilterState>) => onChange({ ...value, ...patch })
-  const toggleTag = (t: string) =>
-    set({ tags: value.tags.includes(t) ? value.tags.filter((x) => x !== t) : [...value.tags, t] })
-  const active = value.q || value.subject || value.grade || value.tags.length > 0
+  const active = value.q || value.subject || value.grade
 
   return (
     <div className="space-y-2">
@@ -39,10 +36,6 @@ export function TheoryFilters({ value, onChange, subjects, grades, tags, tagLimi
             className="h-9 pl-8 text-sm"
           />
         </div>
-        <select className={selectClass} value={value.subject} onChange={(e) => set({ subject: e.target.value })} aria-label="Предмет">
-          <option value="">Все предметы</option>
-          {subjects.map((s) => <option key={s} value={s}>{s}</option>)}
-        </select>
         <select className={selectClass} value={value.grade} onChange={(e) => set({ grade: e.target.value })} aria-label="Класс">
           <option value="">Все классы</option>
           {grades.map((g) => <option key={g} value={g}>{/^\d+$/.test(g) ? `${g} класс` : g}</option>)}
@@ -53,28 +46,41 @@ export function TheoryFilters({ value, onChange, subjects, grades, tags, tagLimi
           </Button>
         )}
       </div>
-      {tags.length > 0 && (
-        <div className="flex flex-wrap gap-1.5">
-          {tags.slice(0, tagLimit).map(({ tag, count }) => {
-            const on = value.tags.includes(tag)
-            return (
-              <button
-                key={tag}
-                type="button"
-                onClick={() => toggleTag(tag)}
-                className={cn(
-                  'rounded-full border px-2.5 py-0.5 text-xs transition-colors',
-                  on
-                    ? 'border-sky-500 bg-sky-500 text-white'
-                    : 'border-border bg-background text-muted-foreground hover:bg-muted',
-                )}
-              >
-                {tag} <span className={on ? 'text-sky-100' : 'text-muted-foreground/70'}>{count}</span>
-              </button>
-            )
-          })}
+      {subjects.length > 0 && (
+        <div className="flex flex-wrap gap-1.5" role="group" aria-label="Предмет">
+          <Chip on={!value.subject} onClick={() => set({ subject: '' })} label="Все предметы" count={total} />
+          {subjects.map(({ subject, count }) => (
+            <Chip
+              key={subject}
+              on={value.subject === subject}
+              // повторный клик по выбранному предмету снимает фильтр
+              onClick={() => set({ subject: value.subject === subject ? '' : subject })}
+              label={subject}
+              count={count}
+            />
+          ))}
         </div>
       )}
     </div>
+  )
+}
+
+function Chip({ on, onClick, label, count }: { on: boolean; onClick: () => void; label: string; count: number }) {
+  return (
+    <button
+      type="button"
+      aria-pressed={on}
+      onClick={onClick}
+      className={cn(
+        'rounded-full border px-3 py-1 text-sm transition-colors',
+        on
+          ? 'border-sky-500 bg-sky-500 text-white'
+          : count === 0
+            ? 'border-border bg-background text-muted-foreground/60 hover:bg-muted'
+            : 'border-border bg-background text-foreground hover:bg-muted',
+      )}
+    >
+      {label} <span className={on ? 'text-sky-100' : 'text-muted-foreground'}>{count}</span>
+    </button>
   )
 }
