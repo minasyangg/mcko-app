@@ -10,8 +10,6 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 // поэтому «содержится», а не «равно». Короткие имена вида «img1» не
 // сверяются — слишком легко совпасть случайно.
 
-const MIN_REAL_IMAGE_BYTES = 1000
-
 // Путь в бакете library-media картинки из текста условия, повторяющей
 // вложение storagePath, или null, если такой ссылки в тексте нет
 export function promptLibraryImagePath(storagePath: string, promptHtml: string | null | undefined): string | null {
@@ -23,17 +21,18 @@ export function promptLibraryImagePath(storagePath: string, promptHtml: string |
   return m ? m[1] : null
 }
 
-// Размер объекта в library-media (null — не найден или ошибка). В банке ФИПИ
-// часть «картинок» — сохранённые страницы 404 (~278 байт): прятать вложение
-// ради такой копии в тексте нельзя — пропал бы единственный рабочий рисунок.
-async function libraryObjectSize(admin: SupabaseClient, path: string): Promise<number | null> {
-  const slash = path.lastIndexOf('/')
-  const dir = slash >= 0 ? path.slice(0, slash) : ''
-  const name = path.slice(slash + 1)
-  const { data, error } = await admin.storage.from('library-media').list(dir, { search: name, limit: 10 })
-  if (error) return null
-  const size = data?.find((o) => o.name === name)?.metadata?.size
-  return typeof size === 'number' ? size : null
+// Цела ли копия рисунка в тексте условия (null — не удалось проверить). В
+// банке ФИПИ часть «картинок» — сохранённые страницы 404 (HTML ~278 байт):
+// прятать вложение ради такой копии нельзя — пропал бы единственный рабочий
+// рисунок. Проверяем содержимое, а не размер: настоящие графики ФИПИ тоже
+// крошечные (700–850 байт PNG), порог по размеру их браковал.
+async function libraryImageLooksReal(admin: SupabaseClient, path: string): Promise<boolean | null> {
+  const { data, error } = await admin.storage.from('library-media').download(path)
+  if (error || !data) return null
+  const head = new Uint8Array(await data.slice(0, 64).arrayBuffer())
+  if (head.length === 0) return false
+  const text = String.fromCharCode(...head).trimStart().toLowerCase()
+  return !(text.startsWith('<!doctype') || text.startsWith('<html'))
 }
 
 // placement вложения при копировании задачи из библиотеки в ДЗ: 'inline',
@@ -49,6 +48,5 @@ export async function conditionMediaPlacement(
   if (placement !== 'above_text' && placement !== 'below_text') return placement
   const promptPath = promptLibraryImagePath(media.storage_path, promptHtml)
   if (!promptPath) return placement
-  const size = await libraryObjectSize(admin, promptPath)
-  return size !== null && size >= MIN_REAL_IMAGE_BYTES ? 'inline' : placement
+  return (await libraryImageLooksReal(admin, promptPath)) === true ? 'inline' : placement
 }
