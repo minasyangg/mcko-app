@@ -1,0 +1,14 @@
+-- 101: закрыть анонимную загрузку в публичный бакет library-media.
+--
+-- Политика «library-media: service role write» заводилась вне миграций и
+-- по названию предназначалась для импорта, но была создана для роли PUBLIC
+-- (без TO service_role): любой, у кого есть публичный anon-ключ сайта, мог
+-- загрузить в бакет файл до 10 МБ, включая SVG, и получить на него
+-- публичную ссылку. Service role обходит RLS и в политике не нуждается.
+-- Импортёры (d:\vpr-downloader, scripts/*) пишут с секретным ключом,
+-- сайт в library-media не пишет вовсе (add-problem-to-version только
+-- копирует оттуда в task-media).
+--
+-- Откат: create policy "library-media: service role write" on storage.objects
+--   for insert with check (bucket_id = 'library-media');
+drop policy if exists "library-media: service role write" on storage.objects;
