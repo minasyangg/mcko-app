@@ -278,7 +278,6 @@ export function AttemptDrawer({ attemptId, onClose, onGraded, readOnly = false }
   const [saveError, setSaveError] = useState<string | null>(null)
   const [editingScores, setEditingScores] = useState(false)
   const [fullscreenAnswerId, setFullscreenAnswerId] = useState<string | null>(null)
-  const [pdfBusy, setPdfBusy] = useState(false)
 
   const supabase = createClient()
 
@@ -540,46 +539,16 @@ export function AttemptDrawer({ attemptId, onClose, onGraded, readOnly = false }
     }
   }
 
-  // PDF «ответ ученика / правильный ответ» — из уже загруженных в окне
-  // данных (сохранённые баллы, не несохранённые правки в полях проверки).
-  // Модуль с pdf-lib и шрифт подгружаются только по клику.
-  const handleDownloadPdf = async () => {
-    if (!attempt) return
-    setPdfBusy(true)
-    try {
-      const { buildAttemptPdf, attemptPdfFileName, downloadPdf } = await import('@/lib/attempts/attempt-pdf')
-      const input = {
-        studentName: attempt.profiles?.full_name ?? 'Ученик',
-        grade: attempt.profiles?.grade ?? null,
-        testTitle: attempt.assignments?.test_versions?.tests?.title ?? 'Работа',
-        statusLabel: isAutoCheckedUnreviewed ? 'Проверено автоматически' : (STATUS_LABELS[attempt.status] ?? attempt.status),
-        score: attempt.score,
-        maxScore: attempt.max_score,
-        submittedAt: attempt.submitted_at ? formatDt(attempt.submitted_at) : null,
-        checkedAt: attempt.checked_at ? formatDt(attempt.checked_at) : null,
-        teacherComment: attempt.teacher_comment,
-        rows: answers.map((ans) => {
-          const taskId = ans.task_id ?? ''
-          return {
-            number: ans.test_tasks?.task_number ?? '?',
-            studentAnswer: formatAnswerJsonRaw(ans.answer_json as Json),
-            correctAnswer: correctAnswerMap[taskId] ?? null,
-            score: ans.awarded_score,
-            maxScore: ans.test_tasks?.max_score ?? null,
-            isCorrect: ans.is_correct,
-            locked: ans.is_locked,
-            photos: (solutionPhotosByTask[taskId] ?? []).length,
-            comment: ans.teacher_comment,
-          }
-        }),
-      }
-      downloadPdf(await buildAttemptPdf(input), attemptPdfFileName(input))
-    } catch (e) {
-      console.error('[attempt-pdf]', e)
-      toast.error('Не удалось собрать PDF — попробуйте ещё раз')
-    } finally {
-      setPdfBusy(false)
-    }
+  // Печатная версия (условия + картинки задания + ответы) — отдельная
+  // страница в новой вкладке, PDF сохраняет браузер; см. app/print/attempts.
+  // Баллы там — сохранённые, без несохранённых правок в полях проверки.
+  const openPrintVersion = () => {
+    if (!attemptId) return
+    // без 'noopener' в features: с ним window.open всегда возвращает null,
+    // и блокировку всплывающего окна было бы не отличить от успеха
+    const w = window.open(`/print/attempts/${attemptId}`, '_blank')
+    if (w) w.opener = null
+    else toast.error('Браузер заблокировал новую вкладку — разрешите всплывающие окна для сайта')
   }
 
   const taskTypeLabel = (t: string) => ({
@@ -625,13 +594,10 @@ export function AttemptDrawer({ attemptId, onClose, onGraded, readOnly = false }
                     variant="outline"
                     size="sm"
                     className="h-7 px-2 text-xs"
-                    onClick={handleDownloadPdf}
-                    disabled={pdfBusy || answers.length === 0}
-                    title="Ответы ученика и правильные ответы одной таблицей — для проверки"
+                    onClick={openPrintVersion}
+                    title="Условия заданий с рисунками, ответ ученика и правильный ответ — для печати или сохранения в PDF"
                   >
-                    {pdfBusy
-                      ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
-                      : <FileDown className="mr-1 h-3.5 w-3.5" />}
+                    <FileDown className="mr-1 h-3.5 w-3.5" />
                     Скачать PDF
                   </Button>
                   <Badge variant={needsGrading || isAutoCheckedUnreviewed ? 'secondary' : 'outline'}>
