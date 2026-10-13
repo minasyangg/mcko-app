@@ -65,18 +65,6 @@ function toOptions(raw: Json | null): { id: string; text: string }[] {
   })
 }
 
-// Задания из библиотеки ФИПИ несут рисунок дважды: ссылкой в тексте условия
-// (library-media/…/574AA5C2_087b03d9e86a3397.jpg) и копией во вложениях
-// задания (task-media/…/574AA5C2_087b03d9e86a.jpg — имя короче). На бумаге
-// второй экземпляр только удлиняет работу, поэтому вложение пропускаем, если
-// его имя файла (без расширения) уже есть в тексте. Короткие имена вида
-// «img1» не сверяем — слишком легко совпасть случайно.
-function inPrompt(storagePath: string, promptHtml: string | null): boolean {
-  if (!promptHtml) return false
-  const base = storagePath.split('/').pop()?.replace(/\.[a-z0-9]+$/i, '') ?? ''
-  return base.length >= 8 && promptHtml.includes(base)
-}
-
 export async function loadAttemptPrint(
   supabase: SupabaseClient<Database>,
   attemptId: string,
@@ -127,6 +115,7 @@ export async function loadAttemptPrint(
     : [{ data: [] }, { data: [] }]
 
   const media = ((mediaRes.data ?? []) as { id: string; task_id: string | null; storage_path: string; alt_text: string | null; placement: string | null }[])
+    // inline — рисунок уже в тексте условия (в т.ч. бывшие дубли, миграция 103)
     .filter((m) => m.placement !== 'inline')
   const signed = media.length
     ? (await supabase.storage.from('task-media').createSignedUrls(media.map((m) => m.storage_path), 3600)).data ?? []
@@ -159,7 +148,7 @@ export async function loadAttemptPrint(
         options: toOptions(t.options),
         maxScore: t.max_score,
         images: media
-          .filter((m) => m.task_id === t.id && urlByPath.get(m.storage_path) && !inPrompt(m.storage_path, t.prompt_html))
+          .filter((m) => m.task_id === t.id && urlByPath.get(m.storage_path))
           .map((m) => ({
             id: m.id, url: urlByPath.get(m.storage_path)!, alt: m.alt_text,
             placement: m.placement === 'below_text' ? 'below_text' as const : 'above_text' as const,

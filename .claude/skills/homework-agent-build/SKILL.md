@@ -430,7 +430,10 @@ returning id;
   `lib/tests/add-problem-to-version.ts` — прочитать этот файл перед вставкой
   библиотечных заданий, если такие есть в отборе, воспроизвести SQL-эквивалент
   того же порядка операций: task → task_answer_keys → task_solutions → media
-  → used_count).
+  → used_count). `placement` вложения — как у `library_problem_media`, но
+  `above_text`/`below_text` заменить на `inline`, если тот же рисунок уже
+  стоит ссылкой в `prompt_html` и эта копия цела (≥ 1000 байт) — иначе ученик
+  увидит рисунок дважды; правило — `lib/tasks/media-in-prompt.ts`, миграция 103).
 
 ### 6.5. Проверка качества каждого отобранного задания перед вставкой
 
