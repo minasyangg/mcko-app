@@ -175,15 +175,16 @@ export function TheoryLibraryClient({ initialItems }: { initialItems: TheoryLibr
 
       {/* Просмотр — так, как увидит ученик */}
       <Sheet open={!!viewing} onOpenChange={(v) => { if (!v) setViewing(null) }}>
-        <SheetContent side="right" className="w-full sm:max-w-2xl overflow-y-auto">
-          <SheetHeader className="border-b pb-3">
+        {/* на телефоне — на весь экран; шапка с крестиком закреплена, прокручивается текст */}
+        <SheetContent side="right" className="gap-0 data-[side=right]:w-full data-[side=right]:sm:max-w-2xl">
+          <SheetHeader className="shrink-0 border-b pb-3 pr-12">
             <SheetTitle>{viewing?.title}</SheetTitle>
             <SheetDescription>
               {[viewing?.subject, viewing?.grade && `${viewing.grade} класс`, viewing?.tags.join(', ')].filter(Boolean).join(' · ')}
             </SheetDescription>
           </SheetHeader>
           {viewing && (
-            <div className="space-y-4 px-4 pb-6">
+            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4">
               <TheoryBlocksView blocks={[viewing]} />
               <Button size="sm" variant="outline" onClick={() => setAddTarget(viewing)}>
                 <FilePlus2 className="mr-1 h-4 w-4" /> Добавить в ДЗ
@@ -195,8 +196,8 @@ export function TheoryLibraryClient({ initialItems }: { initialItems: TheoryLibr
 
       {/* Создание / правка */}
       <Sheet open={editingId !== null} onOpenChange={(v) => { if (!v && !saving) setEditingId(null) }}>
-        <SheetContent side="right" className="w-full data-[side=right]:sm:max-w-5xl overflow-y-auto">
-          <SheetHeader className="border-b pb-3">
+        <SheetContent side="right" className="gap-0 data-[side=right]:w-full data-[side=right]:sm:max-w-5xl">
+          <SheetHeader className="shrink-0 border-b pb-3 pr-12">
             <SheetTitle>{editingId === 'new' ? 'Новая теория' : 'Редактировать теорию'}</SheetTitle>
             <SheetDescription>
               {editingId !== 'new' && (items.find((i) => i.id === editingId)?.usage_count ?? 0) > 0
@@ -204,7 +205,7 @@ export function TheoryLibraryClient({ initialItems }: { initialItems: TheoryLibr
                 : 'После сохранения блок появится в библиотеке, его можно подключить к любому ДЗ.'}
             </SheetDescription>
           </SheetHeader>
-          <div className="px-4 pb-6">
+          <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
             <TheoryForm
               value={draft}
               onChange={setDraft}
