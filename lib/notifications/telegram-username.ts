@@ -11,18 +11,23 @@ export interface TelegramNickHolder {
 // Ник Telegram — ключ, по которому webhook /start находит профиль, поэтому
 // он обязан указывать на одного получателя: свой ник (telegram_username) и
 // ник родителя ученика (parent_telegram_username) ищутся вместе, регистр не
-// важен, удалённые профили не в счёт. Раньше ник ничем не защищался, и
-// второй аккаунт того же человека с тем же ником перехватывал привязку бота
-// (живой случай 2026-10-10). Гарантия — триггер в БД (миграция 097), здесь
-// то же правило проверяется до записи, чтобы показать понятный текст.
+// важен, удалённые профили и отклонённые заявки на регистрацию не в счёт.
+// Раньше ник ничем не защищался, и второй аккаунт того же человека с тем же
+// ником перехватывал привязку бота (живой случай 2026-10-10). Гарантия —
+// триггер в БД (миграции 097, 102), здесь то же правило проверяется до
+// записи, чтобы показать понятный текст.
+//
+// Отклонённая заявка (102): ник из неё должен свободно переноситься в уже
+// существующий профиль того же человека, а бот — привязываться к живому
+// профилю, а не к отклонённому (тот никуда не пускают).
 export async function findTelegramNickMatches(admin: AdminClient, username: string) {
   // _ и % — wildcard'ы LIKE, экранируем, чтобы john_doe не совпал с johnXdoe
   const escaped = username.replace(/[\\%_]/g, '\\$&')
   const [own, parent] = await Promise.all([
     admin.from('profiles').select('id, full_name, organization_id')
-      .ilike('telegram_username', escaped).is('deleted_at', null).limit(10),
+      .ilike('telegram_username', escaped).is('deleted_at', null).neq('moderation_status', 'rejected').limit(10),
     admin.from('profiles').select('id, full_name, organization_id')
-      .ilike('parent_telegram_username', escaped).is('deleted_at', null).limit(10),
+      .ilike('parent_telegram_username', escaped).is('deleted_at', null).neq('moderation_status', 'rejected').limit(10),
   ])
   if (own.error) throw own.error
   if (parent.error) throw parent.error
