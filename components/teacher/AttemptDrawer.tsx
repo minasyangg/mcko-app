@@ -8,7 +8,8 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Skeleton } from '@/components/ui/skeleton'
-import { CheckCircle2, XCircle, MinusCircle, Loader2, ZoomIn, X, Lock, ChevronDown, ChevronUp, Pencil, Check, Maximize2 } from 'lucide-react'
+import { CheckCircle2, XCircle, MinusCircle, Loader2, ZoomIn, X, Lock, ChevronDown, ChevronUp, Pencil, Check, Maximize2, FileDown } from 'lucide-react'
+import { toast } from 'sonner'
 import { MathText } from '@/components/shared/MathText'
 import MarkdownContent from '@/components/shared/MarkdownContent'
 import { markdownSource } from '@/lib/tasks/prompt'
@@ -277,6 +278,7 @@ export function AttemptDrawer({ attemptId, onClose, onGraded, readOnly = false }
   const [saveError, setSaveError] = useState<string | null>(null)
   const [editingScores, setEditingScores] = useState(false)
   const [fullscreenAnswerId, setFullscreenAnswerId] = useState<string | null>(null)
+  const [pdfBusy, setPdfBusy] = useState(false)
 
   const supabase = createClient()
 
@@ -538,6 +540,48 @@ export function AttemptDrawer({ attemptId, onClose, onGraded, readOnly = false }
     }
   }
 
+  // PDF «ответ ученика / правильный ответ» — из уже загруженных в окне
+  // данных (сохранённые баллы, не несохранённые правки в полях проверки).
+  // Модуль с pdf-lib и шрифт подгружаются только по клику.
+  const handleDownloadPdf = async () => {
+    if (!attempt) return
+    setPdfBusy(true)
+    try {
+      const { buildAttemptPdf, attemptPdfFileName, downloadPdf } = await import('@/lib/attempts/attempt-pdf')
+      const input = {
+        studentName: attempt.profiles?.full_name ?? 'Ученик',
+        grade: attempt.profiles?.grade ?? null,
+        testTitle: attempt.assignments?.test_versions?.tests?.title ?? 'Работа',
+        statusLabel: isAutoCheckedUnreviewed ? 'Проверено автоматически' : (STATUS_LABELS[attempt.status] ?? attempt.status),
+        score: attempt.score,
+        maxScore: attempt.max_score,
+        submittedAt: attempt.submitted_at ? formatDt(attempt.submitted_at) : null,
+        checkedAt: attempt.checked_at ? formatDt(attempt.checked_at) : null,
+        teacherComment: attempt.teacher_comment,
+        rows: answers.map((ans) => {
+          const taskId = ans.task_id ?? ''
+          return {
+            number: ans.test_tasks?.task_number ?? '?',
+            studentAnswer: formatAnswerJsonRaw(ans.answer_json as Json),
+            correctAnswer: correctAnswerMap[taskId] ?? null,
+            score: ans.awarded_score,
+            maxScore: ans.test_tasks?.max_score ?? null,
+            isCorrect: ans.is_correct,
+            locked: ans.is_locked,
+            photos: (solutionPhotosByTask[taskId] ?? []).length,
+            comment: ans.teacher_comment,
+          }
+        }),
+      }
+      downloadPdf(await buildAttemptPdf(input), attemptPdfFileName(input))
+    } catch (e) {
+      console.error('[attempt-pdf]', e)
+      toast.error('Не удалось собрать PDF — попробуйте ещё раз')
+    } finally {
+      setPdfBusy(false)
+    }
+  }
+
   const taskTypeLabel = (t: string) => ({
     manual_review: 'Развёрнутый', single_choice: 'Один ответ',
     multiple_choice: 'Несколько', numeric: 'Число',
@@ -576,9 +620,24 @@ export function AttemptDrawer({ attemptId, onClose, onGraded, readOnly = false }
                     <p className="text-sm text-muted-foreground">{attempt.profiles.grade} класс</p>
                   )}
                 </div>
-                <Badge variant={needsGrading || isAutoCheckedUnreviewed ? 'secondary' : 'outline'}>
-                  {isAutoCheckedUnreviewed ? 'Проверено автоматически' : (STATUS_LABELS[attempt.status] ?? attempt.status)}
-                </Badge>
+                <div className="flex shrink-0 flex-col items-end gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 px-2 text-xs"
+                    onClick={handleDownloadPdf}
+                    disabled={pdfBusy || answers.length === 0}
+                    title="Ответы ученика и правильные ответы одной таблицей — для проверки"
+                  >
+                    {pdfBusy
+                      ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                      : <FileDown className="mr-1 h-3.5 w-3.5" />}
+                    Скачать PDF
+                  </Button>
+                  <Badge variant={needsGrading || isAutoCheckedUnreviewed ? 'secondary' : 'outline'}>
+                    {isAutoCheckedUnreviewed ? 'Проверено автоматически' : (STATUS_LABELS[attempt.status] ?? attempt.status)}
+                  </Badge>
+                </div>
               </div>
               <p className="text-sm text-muted-foreground">
                 {attempt.assignments?.test_versions?.tests?.title ?? '—'}
