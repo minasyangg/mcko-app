@@ -1,5 +1,6 @@
 import type { createAdminClient } from '@/lib/supabase/admin'
 import { buildCompositeAnswerKey } from '@/lib/grading/multi-part-answer'
+import { conditionMediaPlacement } from '@/lib/tasks/media-in-prompt'
 import type { Json } from '@/types/database'
 
 type AdminClient = ReturnType<typeof createAdminClient>
@@ -226,7 +227,10 @@ export async function addLibraryProblemToVersion(
         console.error(`[addLibraryProblemToVersion] Не удалось скопировать медиа ${m.storage_path}:`, copyErr.message)
         continue
       }
-      copied.push({ storage_path: destPath, placement: m.placement, alt_text: m.alt_text })
+      // рисунок, который уже стоит в тексте условия, — 'inline', иначе
+      // ученик увидит его дважды (см. lib/tasks/media-in-prompt.ts)
+      const placement = await conditionMediaPlacement(admin, m, problem.prompt_html)
+      copied.push({ storage_path: destPath, placement, alt_text: m.alt_text })
     }
     if (copied.length > 0) {
       await admin.from('task_media').insert(

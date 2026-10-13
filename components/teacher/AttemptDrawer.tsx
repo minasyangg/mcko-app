@@ -8,7 +8,8 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Skeleton } from '@/components/ui/skeleton'
-import { CheckCircle2, XCircle, MinusCircle, Loader2, ZoomIn, X, Lock, ChevronDown, ChevronUp, Pencil, Check, Maximize2 } from 'lucide-react'
+import { CheckCircle2, XCircle, MinusCircle, Loader2, ZoomIn, X, Lock, ChevronDown, ChevronUp, Pencil, Check, Maximize2, FileDown } from 'lucide-react'
+import { toast } from 'sonner'
 import { MathText } from '@/components/shared/MathText'
 import MarkdownContent from '@/components/shared/MarkdownContent'
 import { markdownSource } from '@/lib/tasks/prompt'
@@ -538,6 +539,18 @@ export function AttemptDrawer({ attemptId, onClose, onGraded, readOnly = false }
     }
   }
 
+  // Печатная версия (условия + картинки задания + ответы) — отдельная
+  // страница в новой вкладке, PDF сохраняет браузер; см. app/print/attempts.
+  // Баллы там — сохранённые, без несохранённых правок в полях проверки.
+  const openPrintVersion = () => {
+    if (!attemptId) return
+    // без 'noopener' в features: с ним window.open всегда возвращает null,
+    // и блокировку всплывающего окна было бы не отличить от успеха
+    const w = window.open(`/print/attempts/${attemptId}`, '_blank')
+    if (w) w.opener = null
+    else toast.error('Браузер заблокировал новую вкладку — разрешите всплывающие окна для сайта')
+  }
+
   const taskTypeLabel = (t: string) => ({
     manual_review: 'Развёрнутый', single_choice: 'Один ответ',
     multiple_choice: 'Несколько', numeric: 'Число',
@@ -576,9 +589,21 @@ export function AttemptDrawer({ attemptId, onClose, onGraded, readOnly = false }
                     <p className="text-sm text-muted-foreground">{attempt.profiles.grade} класс</p>
                   )}
                 </div>
-                <Badge variant={needsGrading || isAutoCheckedUnreviewed ? 'secondary' : 'outline'}>
-                  {isAutoCheckedUnreviewed ? 'Проверено автоматически' : (STATUS_LABELS[attempt.status] ?? attempt.status)}
-                </Badge>
+                <div className="flex shrink-0 flex-col items-end gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 px-2 text-xs"
+                    onClick={openPrintVersion}
+                    title="Условия заданий с рисунками, ответ ученика и правильный ответ — для печати или сохранения в PDF"
+                  >
+                    <FileDown className="mr-1 h-3.5 w-3.5" />
+                    Скачать PDF
+                  </Button>
+                  <Badge variant={needsGrading || isAutoCheckedUnreviewed ? 'secondary' : 'outline'}>
+                    {isAutoCheckedUnreviewed ? 'Проверено автоматически' : (STATUS_LABELS[attempt.status] ?? attempt.status)}
+                  </Badge>
+                </div>
               </div>
               <p className="text-sm text-muted-foreground">
                 {attempt.assignments?.test_versions?.tests?.title ?? '—'}
