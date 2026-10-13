@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { toast } from 'sonner'
-import { BookOpen, ChevronDown, ChevronUp, Library, Pencil, Plus, Unlink } from 'lucide-react'
+import { ArrowDown, ArrowUp, BookOpen, ChevronDown, ChevronUp, Library, Pencil, Plus, Unlink } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -85,6 +85,28 @@ export function TheoryEditorPanel({ testId, initialBlocks, canEditTest, testSubj
     toast.success('Теория отключена от задания (в библиотеке осталась)')
   }
 
+  // Порядок блоков = порядок вкладок у ученика. Меняем сразу на экране,
+  // при ошибке сохранения возвращаем как было.
+  async function move(blockId: string, dir: -1 | 1) {
+    const i = blocks.findIndex((b) => b.id === blockId)
+    const j = i + dir
+    if (i < 0 || j < 0 || j >= blocks.length) return
+    const prev = blocks
+    const next = [...blocks]
+    ;[next[i], next[j]] = [next[j], next[i]]
+    setBlocks(next)
+    const res = await fetch(`/api/tests/${testId}/theory`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ order: next.map((b) => b.id) }),
+    })
+    if (!res.ok) {
+      setBlocks(prev)
+      const data = await res.json().catch(() => ({}))
+      toast.error(data.error ?? 'Не удалось изменить порядок')
+    }
+  }
+
   function toggleExpanded(id: string) {
     setExpanded((prev) => {
       const next = new Set(prev)
@@ -120,17 +142,33 @@ export function TheoryEditorPanel({ testId, initialBlocks, canEditTest, testSubj
         </p>
       )}
 
-      {blocks.map((b) => editingId === b.id ? null : (
+      {blocks.length > 1 && editingId === null && (
+        <p className="text-xs text-muted-foreground">
+          У ученика блоки идут вкладками в этом порядке: «1. …», «2. …».
+        </p>
+      )}
+
+      {blocks.map((b, i) => editingId === b.id ? null : (
         <div key={b.id} className="rounded-lg border">
           <div className="flex items-center gap-2 px-4 py-2.5">
             <button type="button" onClick={() => toggleExpanded(b.id)} className="flex min-w-0 flex-1 items-center gap-2 text-left">
               {expanded.has(b.id) ? <ChevronUp className="h-4 w-4 shrink-0" /> : <ChevronDown className="h-4 w-4 shrink-0" />}
-              <span className="truncate text-sm font-medium">{b.title}</span>
+              <span className="truncate text-sm font-medium">{blocks.length > 1 ? `${i + 1}. ` : ''}{b.title}</span>
               {b.grade && <Badge variant="outline" className="hidden shrink-0 text-[11px] sm:inline-flex">{b.grade} кл.</Badge>}
               {b.tags.slice(0, 3).map((t) => (
                 <span key={t} className="hidden shrink-0 rounded-full bg-sky-100 px-2 py-0.5 text-[11px] text-sky-800 md:inline dark:bg-sky-950 dark:text-sky-200">{t}</span>
               ))}
             </button>
+            {canEditTest && editingId === null && blocks.length > 1 && (
+              <>
+                <Button size="sm" variant="ghost" className="px-1.5" onClick={() => move(b.id, -1)} disabled={i === 0} title="Выше">
+                  <ArrowUp className="h-4 w-4" />
+                </Button>
+                <Button size="sm" variant="ghost" className="px-1.5" onClick={() => move(b.id, 1)} disabled={i === blocks.length - 1} title="Ниже">
+                  <ArrowDown className="h-4 w-4" />
+                </Button>
+              </>
+            )}
             {b.can_edit && editingId === null && (
               <Button size="sm" variant="ghost" onClick={() => startEdit(b)} title="Редактировать блок (изменится во всех заданиях)">
                 <Pencil className="h-4 w-4" />

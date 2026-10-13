@@ -59,7 +59,10 @@ export function TheoryCard({ blocks, defaultOpen = true, storageKey }: Props) {
         aria-expanded={open}
       >
         <BookOpen className="h-4 w-4 shrink-0 text-sky-600" />
-        <span className="flex-1 text-sm font-semibold">Теория к уроку</span>
+        <span className="flex-1 text-sm font-semibold">
+          Теория к уроку
+          {blocks.length > 1 && <span className="ml-1.5 font-normal text-muted-foreground">· разделов: {blocks.length}</span>}
+        </span>
         <span className="text-xs text-muted-foreground">{open ? 'Свернуть' : 'Развернуть'}</span>
         {open ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
       </button>

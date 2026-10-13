@@ -196,7 +196,8 @@ export function TheoryLibraryClient({ initialItems }: { initialItems: TheoryLibr
 
       {/* Создание / правка */}
       <Sheet open={editingId !== null} onOpenChange={(v) => { if (!v && !saving) setEditingId(null) }}>
-        <SheetContent side="right" className="gap-0 data-[side=right]:w-full data-[side=right]:sm:max-w-5xl">
+        {/* правка — на всю ширину окна: текст, панель вставки и предпросмотр под ним */}
+        <SheetContent side="right" className="gap-0 data-[side=right]:w-full data-[side=right]:sm:max-w-none">
           <SheetHeader className="shrink-0 border-b pb-3 pr-12">
             <SheetTitle>{editingId === 'new' ? 'Новая теория' : 'Редактировать теорию'}</SheetTitle>
             <SheetDescription>

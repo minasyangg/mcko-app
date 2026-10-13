@@ -1,13 +1,15 @@
 'use client'
 
 import { useState } from 'react'
-import ReactMarkdown from 'react-markdown'
+import ReactMarkdown, { type Components } from 'react-markdown'
 import rehypeRaw from 'rehype-raw'
 import rehypeSanitize, { defaultSchema } from 'rehype-sanitize'
 import remarkGfm from 'remark-gfm'
 import katex from 'katex'
 import { ImageOff } from 'lucide-react'
 import 'katex/dist/katex.min.css'
+import { FunctionGraph } from '@/components/shared/plots/FunctionGraph'
+import { DataChart } from '@/components/shared/plots/DataChart'
 
 // rehype-sanitize schema: allow HTML tables (PaddleOCR) + KaTeX output
 // KaTeX uses <svg>/<path> for stretchy symbols like √ even with output:'html'
@@ -149,7 +151,19 @@ const DELIMITED_OR_TAG_RE = /(\$\$[\s\S]*?\$\$|\$[^$\n]+?\$|<[^>]*>)/
 // remark-math v6 applies CommonMark backslash escaping inside $...$
 // (\sqrt → sqrt, \frac → form-feed+rac, etc.), making formulas unrenderable.
 // By calling katex.renderToString() here, we bypass that issue entirely.
+// Блоки кода ```…``` (в т.ч. рисунки ```graph/```chart) формулами не
+// размечаем: «y = x^{2}» в описании графика иначе превратился бы в HTML KaTeX
+// ещё до разбора markdown, и рисунок получил бы мусор вместо формулы.
+const FENCED_CODE_RE = /(```[\s\S]*?```)/
+
 function prerenderMath(content: string): string {
+  return content
+    .split(FENCED_CODE_RE)
+    .map((part, i) => (i % 2 === 1 ? part : prerenderMathText(part)))
+    .join('')
+}
+
+function prerenderMathText(content: string): string {
   const render = (math: string, display: boolean): string => {
     const latex = fixOCRSlashes(decodeMathEntities(math))
     try {
@@ -202,6 +216,20 @@ function MarkdownImg({
   )
 }
 
+// Рисунки внутри markdown: блок ```graph — график функции, ```chart —
+// диаграмма (формат — lib/plot/spec.ts). Остальные блоки кода — как обычно.
+interface HastLike { type: string; tagName?: string; value?: string; properties?: Record<string, unknown>; children?: HastLike[] }
+const hastText = (n: HastLike): string => n.type === 'text' ? (n.value ?? '') : (n.children ?? []).map(hastText).join('')
+
+const MarkdownPre: Components['pre'] = ({ node, children, ...rest }) => {
+  const code = (node as unknown as HastLike | undefined)?.children?.find((c) => c.type === 'element' && c.tagName === 'code')
+  const cls = code?.properties?.className
+  const classes = Array.isArray(cls) ? cls.map(String) : typeof cls === 'string' ? cls.split(' ') : []
+  if (code && classes.includes('language-graph')) return <FunctionGraph spec={hastText(code)} />
+  if (code && classes.includes('language-chart')) return <DataChart spec={hastText(code)} />
+  return <pre {...rest}>{children}</pre>
+}
+
 export default function MarkdownContent({ content }: { content: string }) {
   const processed = prerenderMath(reformatMatchingTask(content))
   // .katex-display: только горизонтальный скролл (длинная формула шире
@@ -235,7 +263,7 @@ export default function MarkdownContent({ content }: { content: string }) {
           [rehypeSanitize, sanitizeSchema],
         ]}
         remarkRehypeOptions={{ allowDangerousHtml: true }}
-        components={{ img: MarkdownImg }}
+        components={{ img: MarkdownImg, pre: MarkdownPre }}
       >
         {processed}
       </ReactMarkdown>
