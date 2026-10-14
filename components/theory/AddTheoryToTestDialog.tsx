@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
-import { createClient } from '@/lib/supabase/client'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
@@ -30,14 +29,12 @@ export function AddTheoryToTestDialog({ open, onClose, block, onAdded }: Props) 
 
   useEffect(() => {
     if (!open) return
-    createClient()
-      .from('tests')
-      .select('id, title, kind, status')
-      .is('deleted_at', null)
-      .order('created_at', { ascending: false })
-      .limit(300)
-      .then(({ data }) => {
-        const list = (data ?? []) as TestOption[]
+    // список — с сервера (GET /api/theory/targets), как и каталог теории:
+    // прямое чтение из браузера у учителя возвращало пустоту
+    fetch('/api/theory/targets', { cache: 'no-store' })
+      .then((res) => res.json().catch(() => ({})))
+      .then((data: { tests?: TestOption[] }) => {
+        const list = data.tests ?? []
         setTests(list)
         // Предвыбор ДЗ, со страницы которого учитель пришёл подбирать материал
         // (тот же ключ, что у задач книг/библиотеки — см. AddTargetBanner);

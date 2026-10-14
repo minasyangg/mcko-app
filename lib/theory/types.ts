@@ -3,6 +3,9 @@
 // любым тестам/ДЗ через test_theory_blocks. Отключение от ДЗ блок не удаляет,
 // удаление из библиотеки снимает его со всех ДЗ.
 
+/** Блок в облегчённом списке (GET /api/theory): текст не передаётся */
+export type TheoryListItem = Omit<TheoryBlock, 'content_md'> & { content_md?: string }
+
 export interface TheoryBlock {
   id: string
   title: string
