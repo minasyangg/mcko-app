@@ -8,7 +8,8 @@ import { BulkDeleteTestsBar } from '@/components/teacher/BulkDeleteTestsBar'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { SearchableSelect } from '@/components/shared/SearchableSelect'
-import { Plus, BookOpen, PencilLine } from 'lucide-react'
+import { Input } from '@/components/ui/input'
+import { Plus, BookOpen, PencilLine, Search, X } from 'lucide-react'
 import { DeleteTestButton } from '@/components/teacher/DeleteTestButton'
 import { ProposalsListClient, type ProposalRow } from '@/components/teacher/ProposalsListClient'
 import { cn } from '@/lib/utils'
@@ -142,6 +143,10 @@ export function TestsListClient({
   const [tab, setTab] = useState<Tab>('test')
   // фильтр по учителю — только у админа (видит тесты всех)
   const [filterTeacher, setFilterTeacher] = useState<string>('all')
+  // поиск и фильтры по предмету/классу — общие для вкладок «Тесты» и «ДЗ»
+  const [search, setSearch] = useState('')
+  const [subject, setSubject] = useState('')
+  const [grade, setGrade] = useState('')
 
   // Массовый выбор для удаления. Сбрасывается при смене вкладки: набор строк
   // там другой, и «выбрано 5» от прошлой вкладки сбивало бы с толку.
@@ -157,21 +162,56 @@ export function TestsListClient({
     return n
   })
 
-  const filtered = useMemo(
+  const byTeacher = useMemo(
     () => (isAdmin && filterTeacher !== 'all')
       ? rows.filter(r => r.owner_id === filterTeacher)
       : rows,
     [rows, isAdmin, filterTeacher],
   )
 
+  // Варианты предметов и классов — из самих заданий (с учётом фильтра по
+  // учителю), чтобы в списке не было пустых пунктов
+  // «физика» и «Физика» — один предмет: ключ в нижнем регистре, подпись с
+  // заглавной буквы
+  const subjectKey = (s: string | null | undefined) => (s ?? '').trim().toLowerCase()
+  const subjectOptions = useMemo(() => {
+    const byKey = new Map<string, string>()
+    for (const r of byTeacher) {
+      const key = subjectKey(r.subject)
+      if (key && !byKey.has(key)) byKey.set(key, key.charAt(0).toUpperCase() + key.slice(1))
+    }
+    return [...byKey.entries()].sort((a, b) => a[1].localeCompare(b[1], 'ru'))
+  }, [byTeacher])
+  const gradeOptions = useMemo(
+    () => [...new Set(byTeacher.map(r => r.grade?.trim()).filter((g): g is string => !!g))]
+      .sort((a, b) => (parseInt(a) || 99) - (parseInt(b) || 99) || a.localeCompare(b, 'ru')),
+    [byTeacher],
+  )
+
+  const filtered = useMemo(() => {
+    // «ё» = «е» и регистр не важен: «Тепловые явления» найдутся по «тепловы»
+    const norm = (s: string) => s.toLowerCase().replace(/ё/g, 'е')
+    const q = norm(search.trim())
+    return byTeacher.filter(r =>
+      (!subject || subjectKey(r.subject) === subject) &&
+      (!grade || r.grade?.trim() === grade) &&
+      (!q || norm(`${r.title} ${r.subject ?? ''}`).includes(q)))
+  }, [byTeacher, search, subject, grade])
+  const filtersActive = !!(search.trim() || subject || grade)
+
+  // смена фильтра снимает выбор: иначе «удалить выбранные» задело бы строки,
+  // которых уже не видно
+  const changeFilter = (fn: () => void) => { fn(); setSelected(new Set()) }
+  const resetFilters = () => changeFilter(() => { setSearch(''); setSubject(''); setGrade('') })
+
   const tests = filtered.filter(r => r.kind !== 'homework')
   const homework = filtered.filter(r => r.kind === 'homework')
   const current = tab === 'test' ? tests : tab === 'homework' ? homework : []
 
   // По 15 строк на вкладку, возврат к первым 15 — при смене вкладки
-  // «Тесты»/«Домашние задания» или фильтра по учителю
+  // «Тесты»/«Домашние задания» или любого фильтра
   const { visible: pagedCurrent, hasMore, loadMore, total, showing } =
-    usePagination(current, 15, 15, `${tab}|${filterTeacher}`)
+    usePagination(current, 15, 15, `${tab}|${filterTeacher}|${search}|${subject}|${grade}`)
 
   const pendingProposals = proposals.filter(p => p.status === 'pending').length
 
@@ -226,27 +266,68 @@ export function TestsListClient({
         </>
       ) : (
         <>
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <p className="text-xs text-muted-foreground max-w-2xl">
-              {tab === 'test'
-                ? 'Тесты имеют тип, разбаловку и критерии, привязанные к правилам оценивания — проверяются автоматически по правилам.'
-                : 'Домашнее задание собирается из готовых заданий книг или библиотеки задач; баллы задаёт сам учитель.'}
-            </p>
+          <p className="text-xs text-muted-foreground max-w-2xl">
+            {tab === 'test'
+              ? 'Тесты имеют тип, разбаловку и критерии, привязанные к правилам оценивания — проверяются автоматически по правилам.'
+              : 'Домашнее задание собирается из готовых заданий книг или библиотеки задач; баллы задаёт сам учитель.'}
+          </p>
+
+          {/* Поиск и фильтры — общие для вкладок «Тесты» и «Домашние задания» */}
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative min-w-56 flex-1">
+              <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={search}
+                onChange={(e) => changeFilter(() => setSearch(e.target.value))}
+                placeholder="Поиск по названию"
+                className="h-9 pl-8 text-sm"
+                aria-label="Поиск по названию"
+              />
+            </div>
+            <select
+              className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+              value={subject}
+              onChange={(e) => changeFilter(() => setSubject(e.target.value))}
+              aria-label="Предмет"
+            >
+              <option value="">Все предметы</option>
+              {subjectOptions.map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+            </select>
+            <select
+              className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+              value={grade}
+              onChange={(e) => changeFilter(() => setGrade(e.target.value))}
+              aria-label="Класс"
+            >
+              <option value="">Все классы</option>
+              {gradeOptions.map(g => <option key={g} value={g}>{/^\d+$/.test(g) ? `${g} класс` : g}</option>)}
+            </select>
             {/* Фильтр по учителю — только админу (видит все тесты организации) */}
             {isAdmin && teachers.length > 1 && (
               <div className="w-56 shrink-0">
                 <SearchableSelect
                   options={teachers.map(t => ({ value: t.id, label: t.full_name }))}
                   value={filterTeacher === 'all' ? '' : filterTeacher}
-                  onChange={(v) => setFilterTeacher(v || 'all')}
+                  onChange={(v) => changeFilter(() => setFilterTeacher(v || 'all'))}
                   placeholder="Все учителя"
                   recentCount={0}
                 />
               </div>
             )}
+            {filtersActive && (
+              <Button variant="ghost" size="sm" className="h-9" onClick={resetFilters}>
+                <X className="mr-1 h-3.5 w-3.5" /> Сбросить
+              </Button>
+            )}
           </div>
 
-          {current.length === 0 ? (
+          {current.length === 0 && filtersActive ? (
+            <div className="flex flex-col items-center justify-center gap-3 py-16 text-center text-muted-foreground">
+              <Search className="h-10 w-10 opacity-40" />
+              <p>По фильтрам ничего не найдено.</p>
+              <Button variant="outline" onClick={resetFilters}>Сбросить фильтры</Button>
+            </div>
+          ) : current.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 text-center text-muted-foreground gap-3">
               {tab === 'test' ? <BookOpen className="h-10 w-10 opacity-40" /> : <PencilLine className="h-10 w-10 opacity-40" />}
               <p>{tab === 'test' ? 'Нет тестов. Создайте первый тест.' : 'Нет домашних заданий. Создайте первое.'}</p>

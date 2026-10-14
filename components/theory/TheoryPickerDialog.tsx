@@ -3,11 +3,10 @@
 import { useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { Check, Loader2, Plus } from 'lucide-react'
-import { createClient } from '@/lib/supabase/client'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import type { TestTheoryBlock, TheoryBlock } from '@/lib/theory/types'
+import type { TestTheoryBlock, TheoryBlock, TheoryListItem } from '@/lib/theory/types'
 import { theoryExcerpt } from '@/lib/theory/types'
 import { EMPTY_THEORY_FILTER, filterTheory, theoryFacets, type TheoryFilterState } from '@/lib/theory/filter'
 import { TheoryFilters } from './TheoryFilters'
@@ -23,23 +22,30 @@ interface Props {
   onLinked: (block: TestTheoryBlock) => void
 }
 
-// Выбор теории из библиотеки со страницы ДЗ. Каталог читается напрямую по RLS
-// (персонал видит теорию своей организации), подключение — через API.
+// Выбор теории из библиотеки со страницы ДЗ. Каталог берётся с сервера
+// (GET /api/theory, облегчённый — без текста блоков): прямое чтение
+// theory_blocks из браузера у учителя возвращало пустой список. Подключение —
+// через API, оно же возвращает блок целиком для показа на странице ДЗ.
 export function TheoryPickerDialog({ open, onClose, testId, linkedIds, defaultSubject, defaultGrade, onLinked }: Props) {
-  const [items, setItems] = useState<TheoryBlock[] | null>(null)
+  const [items, setItems] = useState<TheoryListItem[] | null>(null)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [reloadKey, setReloadKey] = useState(0)
   const [filter, setFilter] = useState<TheoryFilterState>(EMPTY_THEORY_FILTER)
   const [linking, setLinking] = useState<string | null>(null)
 
   useEffect(() => {
     if (!open) return
+    let cancelled = false
     // список с прошлого открытия виден, пока не придёт свежий
-    createClient()
-      .from('theory_blocks')
-      .select('id, title, content_md, source_ref, subject, grade, tags, summary, created_by, updated_at')
-      .order('updated_at', { ascending: false })
-      .limit(300)
-      .then(({ data }) => {
-        const list = (data ?? []).map((b) => ({ ...b, tags: b.tags ?? [] })) as TheoryBlock[]
+    fetch('/api/theory', { cache: 'no-store' })
+      .then(async (res) => {
+        const data = await res.json().catch(() => ({}))
+        if (!res.ok) throw new Error(data.error ?? `Ошибка ${res.status}`)
+        return (data.items ?? []) as TheoryListItem[]
+      })
+      .then((list) => {
+        if (cancelled) return
+        setLoadError(null)
         setItems(list)
         const facets = theoryFacets(list)
         setFilter({
@@ -48,12 +54,14 @@ export function TheoryPickerDialog({ open, onClose, testId, linkedIds, defaultSu
           grade: defaultGrade && facets.grades.includes(defaultGrade) ? defaultGrade : '',
         })
       })
-  }, [open, defaultSubject, defaultGrade])
+      .catch((e: Error) => { if (!cancelled) setLoadError(e.message || 'Не удалось загрузить библиотеку') })
+    return () => { cancelled = true }
+  }, [open, defaultSubject, defaultGrade, reloadKey])
 
   const facets = useMemo(() => theoryFacets(items ?? [], filter), [items, filter])
   const shown = useMemo(() => filterTheory(items ?? [], filter), [items, filter])
 
-  async function link(block: TheoryBlock) {
+  async function link(block: TheoryListItem) {
     setLinking(block.id)
     try {
       const res = await fetch(`/api/theory/${block.id}/link`, {
@@ -66,7 +74,9 @@ export function TheoryPickerDialog({ open, onClose, testId, linkedIds, defaultSu
         toast.error(data.error ?? 'Не удалось подключить теорию')
         return
       }
-      onLinked({ ...block, sort_order: data.sort_order ?? 0 })
+      // в списке нет текста блока — полный блок приходит в ответе подключения
+      const full = (data.block ?? { ...block, content_md: '' }) as TheoryBlock
+      onLinked({ ...full, sort_order: data.sort_order ?? 0 })
       toast.success(`Теория «${block.title}» подключена`)
     } finally {
       setLinking(null)
@@ -86,7 +96,15 @@ export function TheoryPickerDialog({ open, onClose, testId, linkedIds, defaultSu
         <TheoryFilters value={filter} onChange={setFilter} {...facets} />
 
         <div className="max-h-[55vh] space-y-2 overflow-y-auto pr-1">
-          {items === null && (
+          {loadError && (
+            <div className="flex items-center gap-3 py-6 text-sm text-destructive">
+              <span>Не удалось загрузить библиотеку: {loadError}</span>
+              <Button size="sm" variant="outline" onClick={() => { setLoadError(null); setReloadKey((k) => k + 1) }}>
+                Повторить
+              </Button>
+            </div>
+          )}
+          {items === null && !loadError && (
             <p className="flex items-center gap-2 py-6 text-sm text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" /> Загрузка…
             </p>
@@ -109,7 +127,7 @@ export function TheoryPickerDialog({ open, onClose, testId, linkedIds, defaultSu
                       <span key={t} className="rounded-full bg-sky-100 px-2 py-0.5 text-[11px] text-sky-800 dark:bg-sky-950 dark:text-sky-200">{t}</span>
                     ))}
                   </div>
-                  <p className="line-clamp-2 text-xs text-muted-foreground">{b.summary || theoryExcerpt(b.content_md, 160)}</p>
+                  <p className="line-clamp-2 text-xs text-muted-foreground">{b.summary || (b.content_md ? theoryExcerpt(b.content_md, 160) : '')}</p>
                 </div>
                 <Button
                   size="sm"
