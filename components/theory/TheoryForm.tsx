@@ -3,7 +3,7 @@
 import { useRef, useState } from 'react'
 import { toast } from 'sonner'
 import {
-  Bold, ChartColumn, ChartSpline, CircleHelp, Divide, Heading, ImagePlus, Info, List, ListOrdered,
+  Bold, ChartColumn, ChartSpline, ChartLine, CircleHelp, Divide, Heading, ImagePlus, Info, List, ListOrdered,
   Loader2, Sigma, Table,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -63,6 +63,8 @@ interface Props {
 }
 
 const GRAPH_TEMPLATE = '\n```graph\ny = x^2\ny = (x - 2)^2 - 3\nx: -4..6\nx = 2\nточка: (2; -3) A\n```\n'
+// физический график: подписи осей, независимый масштаб, ломаная по точкам
+const PHYS_GRAPH_TEMPLATE = '\n```graph\nоси: t, с; v, м/с\nv = 2 + 1.5t\nломаная: (0; 8) (4; 8) (6; 0) второе тело\nx: 0..8\n```\n'
 const CHART_TEMPLATE = '\n```chart\nтип: столбики\nзаголовок: Продажа шоколада\nПн: 8\nВт: 5\nСр: 4\nЧт: 2\nПт: 3\n```\n'
 const TABLE_TEMPLATE = '\n| Столбец 1 | Столбец 2 |\n|---|---|\n| … | … |\n| … | … |\n'
 
@@ -198,6 +200,7 @@ export function TheoryForm({ value, onChange, onSubmit, onCancel, saving = false
               disabled={uploading}
             />
             <ToolButton title="График функции" label="График" icon={<ChartSpline className="h-4 w-4" />} onClick={() => insert(GRAPH_TEMPLATE)} disabled={uploading} />
+            <ToolButton title="Физический график: подписи осей (t, с; v, м/с), ломаная по точкам" label="Физ. график" icon={<ChartLine className="h-4 w-4" />} onClick={() => insert(PHYS_GRAPH_TEMPLATE)} disabled={uploading} />
             <ToolButton title="Диаграмма (столбики, круговая, линия)" label="Диаграмма" icon={<ChartColumn className="h-4 w-4" />} onClick={() => insert(CHART_TEMPLATE)} disabled={uploading} />
             <span className="flex-1" />
             <ToolButton title="Как записывать формулы, графики и диаграммы" label="Подсказка" icon={<CircleHelp className="h-4 w-4" />} onClick={() => setShowHelp((v) => !v)} />
@@ -272,6 +275,7 @@ function FormatHelp() {
         <p className="font-medium text-foreground">График (блок <code>```graph</code>)</p>
         <p><code>y = 2(x - 1)^2 + 3</code> — функция, можно несколько строк.</p>
         <p><code>x: -4..6</code> — отрезок по x; <code>x = 2</code> — пунктирная прямая; <code>точка: (1; 3) A</code>.</p>
+        <p>Физика: <code>оси: t, с; v, м/с</code> — подписи осей, формулы в их буквах <code>v = 2 + 3t</code>; <code>ломаная: (0; 20) (5; 80) (15; 80) нагрев</code> — график по точкам.</p>
       </div>
       <div>
         <p className="font-medium text-foreground">Диаграмма (блок <code>```chart</code>)</p>
