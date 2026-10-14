@@ -247,6 +247,7 @@ export default function MarkdownContent({ content }: { content: string }) {
       [&_h1]:text-xl [&_h1]:font-bold [&_h1]:my-2
       [&_h2]:text-lg [&_h2]:font-semibold [&_h2]:my-2
       [&_h3]:text-base [&_h3]:font-semibold [&_h3]:my-1.5
+      [&_h4]:font-semibold [&_h4]:mt-4 [&_h4]:mb-1 [&_h5]:font-semibold [&_h5]:mt-3 [&_h5]:mb-1
       [&_blockquote]:border-l-4 [&_blockquote]:border-border [&_blockquote]:pl-3 [&_blockquote]:italic [&_blockquote]:text-muted-foreground
       [&_code]:bg-muted [&_code]:px-1 [&_code]:rounded [&_code]:text-xs [&_code]:font-mono
       [&_.katex]:text-base [&_.katex-display]:overflow-x-auto [&_.katex-display]:overflow-y-hidden [&_.katex-display]:py-1 [&_.katex-display]:my-2
