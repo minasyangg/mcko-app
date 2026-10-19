@@ -17,6 +17,7 @@ import { cn } from '@/lib/utils'
 import { formatAnswerJson, formatAnswerJsonRaw } from '@/lib/grading/format-answer-display'
 import { formatCompositeAnswerForEdit } from '@/lib/grading/multi-part-answer'
 import { ImageGallery } from '@/components/shared/ImageGallery'
+import { useStorageUrl } from '@/components/shared/StorageUrlProvider'
 import type { Json } from '@/types/database'
 import { loadAttemptReview, type AttemptReviewData } from '@/lib/attempts/review-data'
 
@@ -92,8 +93,9 @@ function formatDt(iso: string | null) {
   })
 }
 
-function ImageThumb({ src, alt }: { src: string; alt?: string | null }) {
+function ImageThumb({ src: rawSrc, alt }: { src: string; alt?: string | null }) {
   const [open, setOpen] = useState(false)
+  const src = useStorageUrl()(rawSrc)
   return (
     <>
       <div

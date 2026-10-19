@@ -10,6 +10,7 @@ import { ImageOff } from 'lucide-react'
 import 'katex/dist/katex.min.css'
 import { FunctionGraph } from '@/components/shared/plots/FunctionGraph'
 import { DataChart } from '@/components/shared/plots/DataChart'
+import { useStorageUrl } from '@/components/shared/StorageUrlProvider'
 
 // rehype-sanitize schema: allow HTML tables (PaddleOCR) + KaTeX output
 // KaTeX uses <svg>/<path> for stretchy symbols like √ even with output:'html'
@@ -195,6 +196,7 @@ function MarkdownImg({
   node: _node, src, alt, ...rest
 }: React.ImgHTMLAttributes<HTMLImageElement> & { node?: unknown }) {
   const [failed, setFailed] = useState(false)
+  const storageUrl = useStorageUrl()
   if (!src || failed) {
     return (
       <span className="inline-flex items-center gap-1.5 rounded-md border border-dashed bg-muted/30 px-2.5 py-1.5 text-xs text-muted-foreground select-none align-middle my-1">
@@ -207,7 +209,7 @@ function MarkdownImg({
     // eslint-disable-next-line @next/next/no-img-element
     <img
       {...rest}
-      src={src}
+      src={typeof src === 'string' ? storageUrl(src) : src}
       alt={alt ?? ''}
       loading="lazy"
       decoding="async"

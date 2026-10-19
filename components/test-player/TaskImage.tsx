@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ImageOff, X, ZoomIn } from 'lucide-react'
+import { useStorageUrl } from '@/components/shared/StorageUrlProvider'
 
 // Паузы между повторами. Первая короткая — обычный сетевой сбой переживается
 // незаметно для ученика; дальше отступаем, чтобы не долбить хранилище.
@@ -17,7 +18,8 @@ interface TaskImageProps {
   priority?: boolean
 }
 
-export function TaskImage({ src, alt, width, height, priority = false }: TaskImageProps) {
+export function TaskImage({ src: rawSrc, alt, width, height, priority = false }: TaskImageProps) {
+  const src = useStorageUrl()(rawSrc)
   const [status, setStatus] = useState<'loading' | 'loaded' | 'error'>('loading')
   const [lightboxOpen, setLightboxOpen] = useState(false)
   // Incrementing this key causes React to remount <img>, triggering a fresh fetch

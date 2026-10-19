@@ -10,6 +10,7 @@ import { formatAnswerJson, formatAnswerJsonRaw } from '@/lib/grading/format-answ
 import type { AttemptPrintData, PrintTask } from '@/lib/attempts/print-data'
 import type { Json } from '@/types/database'
 import { cn } from '@/lib/utils'
+import { useStorageUrl } from '@/components/shared/StorageUrlProvider'
 
 // Печатная версия попытки (страница /print/attempts/[id]). Рендер условий тот
 // же, что у ученика (MarkdownContent: KaTeX, таблицы, ```graph), поэтому на
@@ -157,6 +158,7 @@ export function AttemptPrintView({ data }: { data: AttemptPrintData }) {
 // Картинки задания вне текста условия — там же, где их видит ученик
 // (TaskImageGallery): над условием или под ним
 function TaskImages({ task, placement }: { task: PrintTask; placement: 'above_text' | 'below_text' }) {
+  const storageUrl = useStorageUrl()
   const images = task.images.filter((img) => img.placement === placement)
   if (images.length === 0) return null
   return (
@@ -167,7 +169,7 @@ function TaskImages({ task, placement }: { task: PrintTask; placement: 'above_te
         // eslint-disable-next-line @next/next/no-img-element
         <img
           key={img.id}
-          src={img.url}
+          src={storageUrl(img.url)}
           alt={img.alt ?? `Рисунок к заданию ${task.number}`}
           loading="eager"
           decoding="async"

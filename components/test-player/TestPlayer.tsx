@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import type { TestTask, TaskMediaWithUrl } from '@/types/domain'
 import type { Json } from '@/types/database'
 import { createClient } from '@/lib/supabase/client'
+import { useStorageUrl } from '@/components/shared/StorageUrlProvider'
 
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -221,13 +222,14 @@ export function TestPlayer({
   // объекты на длинном тесте копятся. Ошибку прогрева намеренно игнорируем —
   // это оптимизация, реальную загрузку и повторы делает <TaskImage>.
   const preloadedRef = useRef<Set<string>>(new Set())
+  const storageUrl = useStorageUrl()
   useEffect(() => {
     const from = Math.max(0, currentIdx - PRELOAD_BEHIND)
     const to = Math.min(tasks.length - 1, currentIdx + PRELOAD_AHEAD)
     for (let i = from; i <= to; i++) {
       if (i === currentIdx) continue // текущее уже рендерится <img>
       for (const m of mediaMap[tasks[i]?.id] ?? []) {
-        const url = m.signedUrl
+        const url = m.signedUrl && storageUrl(m.signedUrl)
         if (!url || preloadedRef.current.has(url)) continue
         preloadedRef.current.add(url)
         const img = new Image()
@@ -235,7 +237,7 @@ export function TestPlayer({
         img.src = url
       }
     }
-  }, [currentIdx, tasks, mediaMap])
+  }, [currentIdx, tasks, mediaMap, storageUrl])
 
   const answeredCount = tasks.filter((t) => {
     const ans = answers[t.id]
