@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { X, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, RotateCcw, ImageOff, Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { useStorageUrl } from '@/components/shared/StorageUrlProvider'
 
 interface GalleryImage {
   id: string
@@ -394,6 +395,7 @@ export function GalleryThumb({
   onPointerUp?: React.PointerEventHandler<HTMLImageElement>
 }) {
   const [failed, setFailed] = useState(false)
+  const storageUrl = useStorageUrl()
 
   if (!src || failed) {
     return (
@@ -414,7 +416,7 @@ export function GalleryThumb({
 
   return (
     <img
-      src={src}
+      src={storageUrl(src)}
       alt={alt}
       loading="lazy"
       decoding="async"
