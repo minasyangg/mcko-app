@@ -1,6 +1,6 @@
 'use client'
 
-import { Route } from 'lucide-react'
+import { Route, ChevronRight } from 'lucide-react'
 import type { ProgramSummaryRow } from '@/lib/roadmaps/progress'
 
 function fmtPct(pct: number | null) {
@@ -27,7 +27,34 @@ export function ProgramSummaryTable({
 
   return (
     <div className="rounded-md border overflow-hidden">
-      <div className="overflow-x-auto">
+      {/* Телефон: строка программы — карточка-кнопка, без 5–6 колонок */}
+      <ul className="divide-y md:hidden">
+        {rows.map(r => (
+          <li key={r.id}>
+            <button
+              type="button"
+              onClick={() => onOpen(r.id)}
+              className="flex w-full items-center gap-3 p-3 text-left transition-colors active:bg-muted/50"
+            >
+              <div className="min-w-0 flex-1 space-y-1">
+                <p className="font-medium leading-snug wrap-break-word">{r.title}</p>
+                <p className="text-xs text-muted-foreground">
+                  {[r.subject, isAdmin ? r.owner_name : null].filter(Boolean).join(' · ') || '—'}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Тем: {r.topic_count} · Учеников: {r.student_count}
+                </p>
+              </div>
+              <div className="shrink-0 text-right">
+                <p className="font-semibold tabular-nums">{fmtPct(r.completion_pct)}</p>
+                <p className="text-[11px] text-muted-foreground">выполнено</p>
+              </div>
+              <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+            </button>
+          </li>
+        ))}
+      </ul>
+      <div className="hidden overflow-x-auto md:block">
         <table className="w-full text-sm">
           <thead className="bg-muted/50">
             <tr>

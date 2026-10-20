@@ -102,7 +102,7 @@ export function UsersClient({
 
   return (
     <>
-      <div className="flex justify-end gap-2">
+      <div className="flex justify-end gap-2 max-md:*:h-10 max-md:*:flex-1">
         <Button asChild variant="outline">
           <Link href="/teacher/groups">
             <UsersRound className="h-4 w-4 mr-2" />
@@ -116,7 +116,8 @@ export function UsersClient({
       </div>
 
       <Tabs defaultValue="students" className="w-full">
-        <TabsList>
+        {/* Телефон: три таба с счётчиками шире экрана — лента прокручивается вбок */}
+        <TabsList className="max-md:w-full max-md:justify-start max-md:overflow-x-auto max-md:scrollbar-none">
           <TabsTrigger value="students">Ученики ({students.length})</TabsTrigger>
           <TabsTrigger value="teachers">Учителя ({teachers.length})</TabsTrigger>
           {/* Счётчик заявок — как бейдж «на проверке» в мониторинге: админ
@@ -171,7 +172,7 @@ export function UsersClient({
                 placeholder="Иванов Иван Иванович" />
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div className="space-y-1">
                 <Label htmlFor="u-email">Email</Label>
                 <Input id="u-email" type="email" value={form.email}

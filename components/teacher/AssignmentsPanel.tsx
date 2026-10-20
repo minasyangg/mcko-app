@@ -48,6 +48,54 @@ function fmtRange(from: string | null, to: string | null) {
   return `${fmtDate(from)} — ${fmtDate(to)}`
 }
 
+// Ячейка «Попыток» — общая для таблицы (десктоп) и карточки (телефон).
+// Досрочное завершение (полный балл / решение учителя) объясняем словами:
+// счётчик «использовано 1 из 3» рядом с «завершён» иначе выглядит как рассинхрон.
+function AttemptsInfo({ a }: { a: AssignmentRow }) {
+  const closedNote = a.closed_at
+    ? 'завершено учителем'
+    : closedReasonLabel(a.closed_reason)
+  if (a.is_group) {
+    return (
+      <div className="space-y-0.5">
+        <span className="text-muted-foreground">{a.max_attempts} / уч.</span>
+        {a.closed_at && (
+          <div className="text-xs font-medium text-emerald-700 dark:text-emerald-400">✓ Завершено учителем</div>
+        )}
+      </div>
+    )
+  }
+  return (
+    <div className="space-y-0.5">
+      {closedNote
+        ? <span className="text-xs font-medium text-emerald-700 dark:text-emerald-400">
+            ✓ Завершён — {closedNote} ({a.completed_count}/{a.max_attempts})
+          </span>
+        : a.is_completed
+          ? <span className="text-xs font-medium text-emerald-700 dark:text-emerald-400">✓ Завершён ({a.completed_count}/{a.max_attempts})</span>
+          : <span className="text-muted-foreground">использовано {a.completed_count} из {a.max_attempts}</span>
+      }
+      {a.last_result && (
+        <div className="text-[11px] text-muted-foreground">последняя: <span className="font-medium tabular-nums text-foreground">{a.last_result}</span></div>
+      )}
+    </div>
+  )
+}
+
+function AssignmentActions({ a }: { a: AssignmentRow }) {
+  return (
+    <>
+      <CloseAssignmentButton
+        assignmentId={a.id}
+        closedReason={a.closed_at ? 'forced' : a.is_group ? null : a.closed_reason}
+        targetLabel={a.is_group ? `Все ученики (${a.target})` : a.target}
+        size="row"
+      />
+      <DeleteAssignmentButton assignmentId={a.id} />
+    </>
+  )
+}
+
 // Таблица назначений — первый таб мониторинга (перенесена из /teacher/assignments).
 // Roadmap-назначения не смешиваются со строками обычных назначений (разная
 // форма данных — сводка программы vs конкретное назначение), а доступны через
@@ -145,7 +193,34 @@ export function AssignmentsPanel({
                 </div>
               ) : (
                 <div className="rounded-md border overflow-hidden">
-                  <div className="overflow-x-auto">
+                  {/* Телефон: карточки вместо 6 колонок таблицы */}
+                  <ul className="divide-y md:hidden">
+                    {pagedRows.map(a => {
+                      const range = fmtRange(a.starts_at, a.ends_at)
+                      return (
+                        <li key={a.id} className="space-y-2 p-3 text-sm">
+                          <div className="flex items-start gap-2">
+                            <Badge variant={a.kind === 'homework' ? 'outline' : 'secondary'} className="mt-0.5 text-[11px] shrink-0">
+                              {a.kind === 'homework' ? 'ДЗ' : 'Тест'}
+                            </Badge>
+                            <p className="min-w-0 font-medium leading-snug wrap-break-word">{a.test_title}</p>
+                          </div>
+                          <div className="space-y-0.5 text-xs text-muted-foreground">
+                            <p className="wrap-break-word">{a.target}</p>
+                            {range !== '—' && <p>Сроки: {range}</p>}
+                            <p>Создано {fmtDate(a.created_at)}</p>
+                          </div>
+                          <div className="flex items-end justify-between gap-2">
+                            <AttemptsInfo a={a} />
+                            <div className="flex shrink-0 items-center gap-1">
+                              <AssignmentActions a={a} />
+                            </div>
+                          </div>
+                        </li>
+                      )
+                    })}
+                  </ul>
+                  <div className="hidden overflow-x-auto md:block">
                     <table className="w-full text-sm">
                       <thead className="bg-muted/50">
                         <tr>
@@ -159,12 +234,6 @@ export function AssignmentsPanel({
                       </thead>
                       <tbody className="divide-y">
                         {pagedRows.map(a => {
-                          // Досрочное завершение (полный балл / решение учителя)
-                          // объясняем словами: счётчик «использовано 1 из 3» рядом
-                          // с «завершён» иначе выглядит как рассинхрон.
-                          const closedNote = a.closed_at
-                            ? 'завершено учителем'
-                            : closedReasonLabel(a.closed_reason)
                           return (
                           <tr key={a.id} className="hover:bg-muted/30 transition-colors">
                             <td className="px-4 py-3 font-medium">
@@ -180,39 +249,12 @@ export function AssignmentsPanel({
                             <td className="px-4 py-3 text-muted-foreground">{a.target}</td>
                             <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{fmtRange(a.starts_at, a.ends_at)}</td>
                             <td className="px-4 py-3">
-                              {a.is_group ? (
-                                <div className="space-y-0.5">
-                                  <span className="text-muted-foreground">{a.max_attempts} / уч.</span>
-                                  {a.closed_at && (
-                                    <div className="text-xs font-medium text-emerald-700 dark:text-emerald-400">✓ Завершено учителем</div>
-                                  )}
-                                </div>
-                              ) : (
-                                <div className="space-y-0.5">
-                                  {closedNote
-                                    ? <span className="text-xs font-medium text-emerald-700 dark:text-emerald-400">
-                                        ✓ Завершён — {closedNote} ({a.completed_count}/{a.max_attempts})
-                                      </span>
-                                    : a.is_completed
-                                      ? <span className="text-xs font-medium text-emerald-700 dark:text-emerald-400">✓ Завершён ({a.completed_count}/{a.max_attempts})</span>
-                                      : <span className="text-muted-foreground">использовано {a.completed_count} из {a.max_attempts}</span>
-                                  }
-                                  {a.last_result && (
-                                    <div className="text-[11px] text-muted-foreground">последняя: <span className="font-medium tabular-nums text-foreground">{a.last_result}</span></div>
-                                  )}
-                                </div>
-                              )}
+                              <AttemptsInfo a={a} />
                             </td>
                             <td className="px-4 py-3 text-muted-foreground">{fmtDate(a.created_at)}</td>
                             <td className="px-4 py-3">
                               <div className="flex items-center justify-end gap-1">
-                                <CloseAssignmentButton
-                                  assignmentId={a.id}
-                                  closedReason={a.closed_at ? 'forced' : a.is_group ? null : a.closed_reason}
-                                  targetLabel={a.is_group ? `Все ученики (${a.target})` : a.target}
-                                  size="row"
-                                />
-                                <DeleteAssignmentButton assignmentId={a.id} />
+                                <AssignmentActions a={a} />
                               </div>
                             </td>
                           </tr>

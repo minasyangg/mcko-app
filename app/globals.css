@@ -4,6 +4,16 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* Табы-лента на телефоне прокручиваются вбок, полоса прокрутки скрыта —
+   обрезанный крайний таб сам подсказывает, что дальше есть ещё. Через
+   @utility, а не обычный класс: так работают варианты (max-md:scrollbar-none). */
+@utility scrollbar-none {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -128,6 +138,56 @@
     @apply font-sans;
   }
 }
+
+/* ── Мобильная версия ─────────────────────────────────────────────────────
+   Правила вне @layer намеренно: неслоёные стили в каскаде сильнее любых
+   утилит Tailwind (они в @layer utilities), поэтому перебивают text-sm и
+   прочие классы, заданные прямо на элементах. */
+
+/* Отклик на касание. На тач-экранах нет hover, и без этого нажатие на
+   ссылку/кнопку ничем не подтверждается, пока не загрузится следующая
+   страница, — кажется, что тап не сработал. Системную серую вспышку
+   WebKit убираем: она мигает прямоугольником поверх скруглённых кнопок. */
+@media (hover: none) and (pointer: coarse) {
+  a, button, [role="button"], [role="tab"], summary, label {
+    -webkit-tap-highlight-color: transparent;
+  }
+  a:active, button:not(:disabled):active, [role="button"]:active, [role="tab"]:active {
+    opacity: 0.6;
+  }
+}
+
+/* iOS Safari увеличивает страницу при фокусе на поле со шрифтом меньше 16px
+   и обратно не возвращает — у многих полей здесь text-sm (14px). */
+@media (max-width: 767px) and (pointer: coarse) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), select, textarea {
+    font-size: 16px;
+  }
+}
+
+/* Полоса загрузки при переходе между страницами (NavigationProgress).
+   Появляется с задержкой: мгновенный переход (страница уже предзагружена)
+   не должен мигать полосой. */
+.nav-progress {
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+.nav-progress[data-pending="true"] {
+  opacity: 1;
+  transition-delay: 0.12s;
+}
+.nav-progress-bar {
+  width: 0;
+}
+.nav-progress[data-pending="true"] .nav-progress-bar {
+  animation: nav-progress 10s cubic-bezier(0.08, 0.7, 0.2, 1) 0.12s forwards;
+}
+@keyframes nav-progress {
+  0% { width: 0; }
+  8% { width: 30%; }
+  100% { width: 92%; }
+}
+
 
 /* sdamgia HTML classes rendered inside library problem cards */
 .flex-img {

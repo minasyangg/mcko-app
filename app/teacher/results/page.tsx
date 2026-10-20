@@ -16,8 +16,8 @@ export default async function ResultsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
           <h1 className="text-2xl font-semibold">Результаты</h1>
           <p className="text-sm text-muted-foreground mt-1">
             {rows.length} завершённых попыток
@@ -26,7 +26,7 @@ export default async function ResultsPage() {
         <a
           href="/api/export/results"
           download="results.csv"
-          className="inline-flex items-center gap-2 text-sm border rounded-md px-3 py-1.5 hover:bg-muted transition-colors"
+          className="inline-flex shrink-0 items-center gap-2 text-sm border rounded-md px-3 py-1.5 hover:bg-muted transition-colors max-md:py-2"
         >
           ↓ Экспорт CSV
         </a>

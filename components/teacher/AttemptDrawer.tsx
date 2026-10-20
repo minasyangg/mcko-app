@@ -565,15 +565,19 @@ export function AttemptDrawer({ attemptId, onClose, onGraded, readOnly = false }
           чтобы случайно не потерять введённые при проверке баллы/комментарии */}
       <SheetContent
         side="right"
-        className="w-full sm:max-w-4xl overflow-y-auto"
+        // На телефоне прокручивается не вся панель, а только тело под
+        // шапкой: иначе крестик — единственный способ закрыть панель —
+        // уезжал вверх вместе с содержимым длинной попытки.
+        className="w-full sm:max-w-4xl overflow-y-auto max-md:overflow-hidden max-md:gap-0"
         onInteractOutside={(e) => e.preventDefault()}
         onPointerDownOutside={(e) => e.preventDefault()}
         onEscapeKeyDown={(e) => e.preventDefault()}
       >
-        <SheetHeader className="pb-4 border-b">
+        <SheetHeader className="pb-4 border-b max-md:shrink-0">
           <SheetTitle>Попытка студента</SheetTitle>
         </SheetHeader>
 
+        <div className="max-md:min-h-0 max-md:flex-1 max-md:overflow-y-auto max-md:overscroll-contain">
         {loading && (
           <div className="space-y-3 p-4">
             {[1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-5 w-full" />)}
@@ -628,7 +632,7 @@ export function AttemptDrawer({ attemptId, onClose, onGraded, readOnly = false }
             </div>
 
             {/* Timing */}
-            <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-sm">
+            <div className="grid grid-cols-1 gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
               <div><span className="text-muted-foreground">Начата:</span> {formatDt(attempt.started_at)}</div>
               <div><span className="text-muted-foreground">Сдана:</span> {formatDt(attempt.submitted_at)}</div>
               <div><span className="text-muted-foreground">Проверена:</span> {formatDt(attempt.checked_at)}</div>
@@ -676,7 +680,7 @@ export function AttemptDrawer({ attemptId, onClose, onGraded, readOnly = false }
                           <button
                             type="button"
                             onClick={() => setFullscreenAnswerId(ans.id)}
-                            className="text-muted-foreground hover:text-foreground rounded p-0.5 hover:bg-muted"
+                            className="text-muted-foreground hover:text-foreground rounded p-0.5 hover:bg-muted max-md:p-1.5"
                             title="Открыть задание на весь экран"
                             aria-label="Открыть задание на весь экран"
                           >
@@ -742,8 +746,10 @@ export function AttemptDrawer({ attemptId, onClose, onGraded, readOnly = false }
                         </div>
                       )}
 
-                      {/* Student answer + correct answer side by side */}
-                      <div className="grid grid-cols-2 gap-2 text-sm">
+                      {/* Student answer + correct answer side by side
+                          (на узком экране — друг под другом: в половине ширины
+                          телефона формулы и составные ответы не помещались) */}
+                      <div className="grid grid-cols-1 gap-2 text-sm sm:grid-cols-2">
                         <div className="bg-muted/50 rounded px-2 py-1.5">
                           <p className="text-xs text-muted-foreground mb-0.5">
                             Ответ студента
@@ -802,7 +808,8 @@ export function AttemptDrawer({ attemptId, onClose, onGraded, readOnly = false }
                                 Правильный ответ
                                 {!readOnly && (
                                   <button onClick={() => startEditingAnswer(taskId)}
-                                    className="opacity-0 group-hover/answer:opacity-100 transition-opacity text-green-700/70 hover:text-green-800 dark:text-green-400/70 dark:hover:text-green-300"
+                                    // на телефоне наведения нет — карандаш виден всегда
+                                    className="opacity-0 group-hover/answer:opacity-100 transition-opacity text-green-700/70 hover:text-green-800 dark:text-green-400/70 dark:hover:text-green-300 max-md:opacity-100 max-md:-m-1 max-md:p-1"
                                     title="Исправить эталонный ответ">
                                     <Pencil className="h-3 w-3" />
                                   </button>
@@ -1003,6 +1010,7 @@ export function AttemptDrawer({ attemptId, onClose, onGraded, readOnly = false }
         {!loading && !attempt && attemptId && (
           <div className="p-4 text-sm text-muted-foreground">Не удалось загрузить попытку.</div>
         )}
+        </div>
 
         {/* Внутри SheetContent намеренно (не sibling/портал в body) — см.
             комментарий в TaskFullscreenView: снаружи Radix считал оверлей

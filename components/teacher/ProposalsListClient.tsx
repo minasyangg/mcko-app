@@ -116,12 +116,13 @@ function ProposalRowCard({ proposal }: { proposal: ProposalRow }) {
   return (
     <Card className={isPending ? 'border-primary/40' : undefined}>
       <CardContent className="py-3 space-y-2">
-        <div className="flex items-start justify-between gap-3">
+        {/* Телефон: срок — под названием, а не сбоку, иначе название сжималось до «…» */}
+        <div className="flex items-start justify-between gap-3 max-md:flex-col max-md:gap-1">
           <div className="min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
               <Link
                 href={`/teacher/roadmaps/${proposal.roadmap_id}/proposals/${proposal.id}`}
-                className="font-medium text-sm truncate hover:underline"
+                className="font-medium text-sm truncate hover:underline max-md:whitespace-normal max-md:wrap-break-word"
               >
                 {proposal.title}
               </Link>

@@ -13,6 +13,7 @@ import { Plus, BookOpen, PencilLine, Search, X } from 'lucide-react'
 import { DeleteTestButton } from '@/components/teacher/DeleteTestButton'
 import { ProposalsListClient, type ProposalRow } from '@/components/teacher/ProposalsListClient'
 import { cn } from '@/lib/utils'
+import { tabBarClass, tabButtonClass } from '@/components/shared/tab-classes'
 
 export interface TestRow {
   id: string
@@ -59,7 +60,68 @@ function TestsTable({
   const allChecked = rows.length > 0 && rows.every(r => selected.has(r.id))
   return (
     <div className="rounded-md border overflow-hidden">
-      <table className="w-full text-sm">
+      {/* Телефон: карточки вместо 8 колонок — таблица на узком экране
+          сжимала названия в столбик по слову и выталкивала кнопки за край */}
+      <div className="md:hidden">
+        <label className="flex items-center gap-3 border-b bg-muted/50 px-3 py-2.5 text-xs text-muted-foreground">
+          <input
+            type="checkbox"
+            className="h-5 w-5 shrink-0"
+            checked={allChecked}
+            onChange={(e) => onToggleAll(rows.map(r => r.id), e.target.checked)}
+          />
+          Выбрать все на вкладке
+        </label>
+        <ul className="divide-y">
+          {rows.map((test) => {
+            const meta = [
+              showOwner ? test.owner_name ?? '—' : null,
+              test.subject,
+              test.grade ? (/^\d+$/.test(test.grade.trim()) ? `${test.grade.trim()} класс` : test.grade) : null,
+              showExamType ? test.exam_type : null,
+            ].filter(Boolean).join(' · ')
+            return (
+              <li key={test.id} className="flex items-start gap-3 p-3">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 h-5 w-5 shrink-0"
+                  checked={selected.has(test.id)}
+                  onChange={() => onToggle(test.id)}
+                  aria-label={`Выбрать «${test.title}»`}
+                />
+                <div className="min-w-0 flex-1 space-y-1.5">
+                  <Link href={`/teacher/tests/${test.id}`} className="block font-medium leading-snug wrap-break-word active:text-primary">
+                    {test.title}
+                  </Link>
+                  {meta && <p className="text-xs text-muted-foreground wrap-break-word">{meta}</p>}
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <Badge variant={statusVariant[test.status] ?? 'secondary'}>
+                      {statusLabel[test.status] ?? test.status}
+                    </Badge>
+                    {test.status === 'published' && !test.is_active && (
+                      <Badge variant="outline" className="text-orange-600 border-orange-400 text-xs">
+                        Снят
+                      </Badge>
+                    )}
+                    {test.created_at && (
+                      <span className="text-xs text-muted-foreground">
+                        {new Date(test.created_at).toLocaleDateString('ru-RU')}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div className="flex shrink-0 flex-col items-end gap-1">
+                  <Button asChild size="sm" variant="outline" className="h-9">
+                    <Link href={`/teacher/tests/${test.id}`}>Открыть</Link>
+                  </Button>
+                  <DeleteTestButton testId={test.id} testTitle={test.title} />
+                </div>
+              </li>
+            )
+          })}
+        </ul>
+      </div>
+      <table className="w-full text-sm max-md:hidden">
         <thead className="bg-muted/50">
           <tr>
             <th className="w-10 px-3 py-3">
@@ -225,14 +287,17 @@ export function TestsListClient({
 
   return (
     <>
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex gap-1 border-b flex-1">
+      {/* Телефон: табы — прокручиваемой лентой, кнопка «Создать» — под ними
+          во всю ширину (раньше большая кнопка в одной строке с тремя табами
+          выталкивала их за край и ломала вёрстку страницы) */}
+      <div className="flex items-center justify-between gap-3 max-md:flex-col max-md:items-stretch">
+        <div className={cn(tabBarClass, 'flex-1')}>
           {tabs.map(t => (
             <button
               key={t.key}
               onClick={() => setTab(t.key)}
               className={cn(
-                'px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors',
+                tabButtonClass,
                 tab === t.key
                   ? 'border-primary text-primary'
                   : 'border-transparent text-muted-foreground hover:text-foreground'
@@ -248,7 +313,7 @@ export function TestsListClient({
           ))}
         </div>
         {tab !== 'proposals' && (
-          <Button asChild>
+          <Button asChild className="max-md:h-10">
             <Link href={`/teacher/tests/new?kind=${tab}`}>
               <Plus className="h-4 w-4 mr-2" />
               {tab === 'test' ? 'Создать тест' : 'Создать задание'}
@@ -274,7 +339,7 @@ export function TestsListClient({
 
           {/* Поиск и фильтры — общие для вкладок «Тесты» и «Домашние задания» */}
           <div className="flex flex-wrap items-center gap-2">
-            <div className="relative min-w-56 flex-1">
+            <div className="relative min-w-56 flex-1 max-md:min-w-0 max-md:basis-full">
               <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 value={search}
@@ -285,7 +350,7 @@ export function TestsListClient({
               />
             </div>
             <select
-              className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+              className="h-9 rounded-md border border-input bg-background px-2 text-sm max-md:min-w-0 max-md:flex-1"
               value={subject}
               onChange={(e) => changeFilter(() => setSubject(e.target.value))}
               aria-label="Предмет"
@@ -294,7 +359,7 @@ export function TestsListClient({
               {subjectOptions.map(([key, label]) => <option key={key} value={key}>{label}</option>)}
             </select>
             <select
-              className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+              className="h-9 rounded-md border border-input bg-background px-2 text-sm max-md:min-w-0 max-md:flex-1"
               value={grade}
               onChange={(e) => changeFilter(() => setGrade(e.target.value))}
               aria-label="Класс"
@@ -304,7 +369,7 @@ export function TestsListClient({
             </select>
             {/* Фильтр по учителю — только админу (видит все тесты организации) */}
             {isAdmin && teachers.length > 1 && (
-              <div className="w-56 shrink-0">
+              <div className="w-56 shrink-0 max-md:w-full">
                 <SearchableSelect
                   options={teachers.map(t => ({ value: t.id, label: t.full_name }))}
                   value={filterTeacher === 'all' ? '' : filterTeacher}

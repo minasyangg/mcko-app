@@ -43,13 +43,15 @@ export function ProgramDetailSheet({ roadmapId, onClose }: Props) {
   return (
     <>
       <Sheet open={!!roadmapId} onOpenChange={(v) => { if (!v) onClose() }}>
-        <SheetContent side="right" className="w-full sm:max-w-2xl overflow-y-auto">
-          <SheetHeader className="pb-4 border-b">
+        {/* На телефоне шапка с крестиком закреплена, прокручивается только
+            список учеников — см. тот же приём в AttemptDrawer */}
+        <SheetContent side="right" className="w-full sm:max-w-2xl overflow-y-auto max-md:overflow-hidden max-md:gap-0">
+          <SheetHeader className="pb-4 border-b max-md:shrink-0">
             <SheetTitle>{detail?.title ?? 'Программа'}</SheetTitle>
             {detail?.subject && <p className="text-sm text-muted-foreground">{detail.subject}</p>}
           </SheetHeader>
 
-          <div className="p-4">
+          <div className="p-4 max-md:min-h-0 max-md:flex-1 max-md:overflow-y-auto max-md:overscroll-contain">
             {loading && (
               <div className="space-y-3">
                 {[1, 2, 3].map(i => <Skeleton key={i} className="h-10 w-full" />)}

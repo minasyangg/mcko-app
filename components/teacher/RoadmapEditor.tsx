@@ -437,18 +437,21 @@ export function RoadmapEditor({ roadmap, topics, tests, students, memberIds, gro
 
   return (
     <div className="max-w-3xl space-y-6">
-      <div className="flex items-start justify-between gap-3">
-        <div className="space-y-1">
-          <Button asChild variant="ghost" size="sm" className="h-7 -ml-2 px-2 text-muted-foreground">
+      {/* Телефон: кнопки «Написать / Редактировать / Удалить» — отдельной
+          строкой под названием; в одну строку с ним они не помещались и
+          уезжали за правый край экрана вместе с вёрсткой */}
+      <div className="flex items-start justify-between gap-3 max-md:flex-col max-md:items-stretch">
+        <div className="min-w-0 space-y-1">
+          <Button asChild variant="ghost" size="sm" className="h-7 -ml-2 px-2 text-muted-foreground max-md:h-9">
             <Link href="/teacher/roadmaps"><ArrowLeft className="h-3.5 w-3.5 mr-1" /> Все программы</Link>
           </Button>
-          <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-semibold">{roadmap.title}</h1>
+          <div className="flex items-center gap-2 max-md:flex-wrap">
+            <h1 className="text-2xl font-semibold wrap-break-word max-md:text-xl">{roadmap.title}</h1>
             {roadmap.subject && <Badge variant="secondary">{roadmap.subject}</Badge>}
           </div>
           {roadmap.description && <p className="text-sm text-muted-foreground">{roadmap.description}</p>}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 max-md:flex-wrap max-md:[&>button]:h-9 max-md:[&>button]:flex-1">
         {roadmap.group_id && (
           <BroadcastDialog
             groupId={roadmap.group_id}
@@ -490,12 +493,12 @@ export function RoadmapEditor({ roadmap, topics, tests, students, memberIds, gro
       </div>
 
       {/* Ученики программы */}
-      <div className="flex items-center justify-between rounded-md border px-4 py-3">
+      <div className="flex items-center justify-between gap-3 rounded-md border px-4 py-3 max-md:px-3">
         <div className="flex items-center gap-2 text-sm">
-          <Users className="h-4 w-4 text-muted-foreground" />
+          <Users className="h-4 w-4 shrink-0 text-muted-foreground" />
           <span>Учеников в программе: <b>{memberCount}</b></span>
         </div>
-        <Button variant="outline" size="sm" onClick={() => { setChecked(new Set(memberIds)); setStudentsOpen(true) }}>
+        <Button variant="outline" size="sm" className="shrink-0 max-md:h-9" onClick={() => { setChecked(new Set(memberIds)); setStudentsOpen(true) }}>
           Изменить состав
         </Button>
       </div>
@@ -521,8 +524,10 @@ export function RoadmapEditor({ roadmap, topics, tests, students, memberIds, gro
             />
           ))}
         </div>
+        {/* Перетаскивание — HTML5 DnD, на сенсорных экранах не работает,
+            поэтому на телефоне подсказку не показываем */}
         {topics.length > 1 && (
-          <p className="text-xs text-muted-foreground">
+          <p className="text-xs text-muted-foreground max-md:hidden">
             Перетащите тему или задание за <GripVertical className="inline h-3 w-3 align-text-bottom" /> — наведите
             на верх или низ другой темы, чтобы переставить рядом с ней (появится синяя полоска), или точно на
             середину, чтобы сделать подтемой (строка подсветится целиком и появится подпись «станет подтемой»).
@@ -888,14 +893,14 @@ function TopicTreeItem({
             setDrag({ id: node.id, kind: 'topic' })
           }}
           onDragEnd={() => { setDrag(null); setDropZone(null) }}
-          className="mt-0.5 shrink-0 cursor-grab active:cursor-grabbing text-muted-foreground/40 hover:text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity"
+          className="mt-0.5 shrink-0 cursor-grab active:cursor-grabbing text-muted-foreground/40 hover:text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity max-md:hidden"
           title="Перетащите: край темы — переставить рядом, середина — сделать подтемой"
         >
           <GripVertical className="h-3.5 w-3.5" />
         </span>
         {hasChildren ? (
-          <button type="button" onClick={() => setOpen(!open)} className="mt-0.5 shrink-0 text-muted-foreground hover:text-foreground">
-            {open ? <ChevronDownIcon className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+          <button type="button" onClick={() => setOpen(!open)} className="mt-0.5 shrink-0 text-muted-foreground hover:text-foreground max-md:-m-1.5 max-md:p-1.5">
+            {open ? <ChevronDownIcon className="h-3.5 w-3.5 max-md:h-4 max-md:w-4" /> : <ChevronRight className="h-3.5 w-3.5 max-md:h-4 max-md:w-4" />}
           </button>
         ) : (
           <span className="w-3.5 shrink-0" />
@@ -915,17 +920,20 @@ function TopicTreeItem({
                 disabled={savingTitle}
                 className="h-7 text-sm"
               />
-              <button type="button" onClick={handleSaveTitle} disabled={savingTitle} title="Сохранить" className="text-green-600 hover:text-green-700 shrink-0">
-                <Check className="h-3.5 w-3.5" />
+              <button type="button" onClick={handleSaveTitle} disabled={savingTitle} title="Сохранить" className="text-green-600 hover:text-green-700 shrink-0 max-md:p-2">
+                <Check className="h-3.5 w-3.5 max-md:h-4 max-md:w-4" />
               </button>
-              <button type="button" onClick={() => { setTitleDraft(node.title); setRenaming(false) }} disabled={savingTitle} title="Отмена" className="text-muted-foreground hover:text-foreground shrink-0">
-                <X className="h-3.5 w-3.5" />
+              <button type="button" onClick={() => { setTitleDraft(node.title); setRenaming(false) }} disabled={savingTitle} title="Отмена" className="text-muted-foreground hover:text-foreground shrink-0 max-md:p-2">
+                <X className="h-3.5 w-3.5 max-md:h-4 max-md:w-4" />
               </button>
             </div>
           ) : (
-            <div className="flex items-center gap-2">
+            // Телефон: название переносится целиком (не «…»), иконки действий —
+            // отдельной строкой под ним и видны всегда: наведения на тач-экране
+            // нет, а без него они были прозрачными и в 12px — мимо пальца
+            <div className="flex items-center gap-2 max-md:flex-wrap max-md:gap-y-1">
               <span className={cn(
-                'truncate', depth === 0 ? 'font-medium' : 'text-sm',
+                'truncate max-md:whitespace-normal max-md:wrap-break-word', depth === 0 ? 'font-medium' : 'text-sm',
                 node.effectivelyHidden && 'text-muted-foreground line-through decoration-1',
               )}>{node.title}</span>
               {node.effectivelyHidden && (
@@ -943,31 +951,32 @@ function TopicTreeItem({
               {isItemDropTarget && (
                 <span className="text-xs font-medium text-primary shrink-0">→ задание переедет сюда</span>
               )}
-              <span className="flex gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+              <span className="flex gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity max-md:basis-full max-md:-ml-2 max-md:gap-0.5 max-md:opacity-100">
                 <button
                   type="button"
                   onClick={handleToggleVisible}
                   disabled={togglingVisible}
                   title={node.visible_to_students ? 'Скрыть тему от учеников' : 'Показать тему ученикам'}
-                  className="text-muted-foreground hover:text-foreground disabled:opacity-50"
+                  aria-label={node.visible_to_students ? 'Скрыть тему от учеников' : 'Показать тему ученикам'}
+                  className="text-muted-foreground hover:text-foreground disabled:opacity-50 max-md:rounded-md max-md:p-2"
                 >
-                  {node.visible_to_students ? <Eye className="h-3 w-3" /> : <EyeOff className="h-3 w-3" />}
+                  {node.visible_to_students ? <Eye className="h-3 w-3 max-md:h-4 max-md:w-4" /> : <EyeOff className="h-3 w-3 max-md:h-4 max-md:w-4" />}
                 </button>
-                <button type="button" onClick={() => setRenaming(true)} title="Переименовать" className="text-muted-foreground hover:text-foreground">
-                  <Pencil className="h-3 w-3" />
+                <button type="button" onClick={() => setRenaming(true)} title="Переименовать" aria-label="Переименовать" className="text-muted-foreground hover:text-foreground max-md:rounded-md max-md:p-2">
+                  <Pencil className="h-3 w-3 max-md:h-4 max-md:w-4" />
                 </button>
-                <button type="button" onClick={() => setAddingChild(true)} title="Добавить подтему" className="text-muted-foreground hover:text-foreground">
-                  <Plus className="h-3 w-3" />
+                <button type="button" onClick={() => setAddingChild(true)} title="Добавить подтему" aria-label="Добавить подтему" className="text-muted-foreground hover:text-foreground max-md:rounded-md max-md:p-2">
+                  <Plus className="h-3 w-3 max-md:h-4 max-md:w-4" />
                 </button>
-                <button type="button" onClick={openDelete} title="Удалить тему (и подтемы)" className="text-muted-foreground hover:text-destructive">
-                  <Trash2 className="h-3 w-3" />
+                <button type="button" onClick={openDelete} title="Удалить тему (и подтемы)" aria-label="Удалить тему (и подтемы)" className="text-muted-foreground hover:text-destructive max-md:rounded-md max-md:p-2">
+                  <Trash2 className="h-3 w-3 max-md:h-4 max-md:w-4" />
                 </button>
               </span>
             </div>
           )}
 
           {addingChild && (
-            <div className="flex items-center gap-1 mt-1.5">
+            <div className="flex items-center gap-1 mt-1.5 max-md:flex-wrap max-md:gap-1.5">
               <Input
                 value={childDraft}
                 onChange={(e) => setChildDraft(e.target.value)}
@@ -977,10 +986,10 @@ function TopicTreeItem({
                   if (e.key === 'Escape') { setChildDraft(''); setAddingChild(false) }
                 }}
                 autoFocus
-                className="h-7 text-sm"
+                className="h-7 text-sm max-md:h-9 max-md:basis-full"
               />
-              <Button size="sm" className="h-7" onClick={handleAddChild} disabled={busy || childDraft.trim().length < 1}>Добавить</Button>
-              <Button size="sm" variant="ghost" className="h-7" onClick={() => { setChildDraft(''); setAddingChild(false) }}>Отмена</Button>
+              <Button size="sm" className="h-7 max-md:h-9 max-md:flex-1" onClick={handleAddChild} disabled={busy || childDraft.trim().length < 1}>Добавить</Button>
+              <Button size="sm" variant="ghost" className="h-7 max-md:h-9 max-md:flex-1" onClick={() => { setChildDraft(''); setAddingChild(false) }}>Отмена</Button>
             </div>
           )}
 
@@ -1007,7 +1016,7 @@ function TopicTreeItem({
                     drag?.kind === 'item' && drag.id === it.assignment_id && 'opacity-40',
                   )}
                 >
-                  <GripVertical className="h-3 w-3 shrink-0 text-muted-foreground/40" />
+                  <GripVertical className="h-3 w-3 shrink-0 text-muted-foreground/40 max-md:hidden" />
                   <Badge variant={it.kind === 'homework' ? 'outline' : 'secondary'} className="text-[11px] shrink-0">
                     {it.kind === 'homework' ? 'ДЗ' : 'Тест'}
                   </Badge>
@@ -1018,26 +1027,27 @@ function TopicTreeItem({
                       title="Просмотреть состав"
                       onClick={() => onPreviewTest(it.test_id!)}
                     >
-                      <span className="truncate">{it.test_title}</span>
+                      <span className="truncate max-md:line-clamp-2 max-md:whitespace-normal max-md:wrap-break-word">{it.test_title}</span>
                       <Eye className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                     </button>
                   ) : (
-                    <span className="flex-1 truncate">{it.test_title}</span>
+                    <span className="flex-1 truncate max-md:line-clamp-2 max-md:whitespace-normal max-md:wrap-break-word">{it.test_title}</span>
                   )}
                   <span className="text-xs text-muted-foreground shrink-0">{it.max_attempts} поп.</span>
-                  <Button size="icon" variant="ghost" className="h-6 w-6 text-muted-foreground"
-                    title="Статистика назначения" onClick={() => onOpenStats(it.assignment_id)}>
+                  <Button size="icon" variant="ghost" className="h-6 w-6 text-muted-foreground max-md:h-8 max-md:w-8"
+                    title="Статистика назначения" aria-label="Статистика назначения" onClick={() => onOpenStats(it.assignment_id)}>
                     <Info className="h-3.5 w-3.5" />
                   </Button>
-                  <Button size="icon" variant="ghost" className="h-6 w-6 text-muted-foreground hover:text-destructive"
-                    onClick={() => onRemoveItem(node.id, it.assignment_id)}>
+                  <Button size="icon" variant="ghost" className="h-6 w-6 text-muted-foreground hover:text-destructive max-md:h-8 max-md:w-8"
+                    title="Отвязать задание" aria-label="Отвязать задание" onClick={() => onRemoveItem(node.id, it.assignment_id)}>
                     <X className="h-3.5 w-3.5" />
                   </Button>
                 </div>
               ))}
             </div>
           )}
-          <Button variant="ghost" size="sm" className="h-6 mt-1 text-xs opacity-0 group-hover:opacity-100 transition-opacity"
+          {/* на телефоне кнопка видна всегда — наведения там нет */}
+          <Button variant="ghost" size="sm" className="h-6 mt-1 text-xs opacity-0 group-hover:opacity-100 transition-opacity max-md:-ml-2 max-md:h-8 max-md:opacity-100"
             onClick={() => onOpenItem(node)}>
             <Plus className="h-3 w-3 mr-1" /> Добавить задание
           </Button>
