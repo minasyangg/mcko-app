@@ -39,12 +39,22 @@ export type ParsedAnswer = any
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type ParsedSolution = any
 
+// Что разбор заметил, но исправить сам не смог: учитель видит это на
+// странице проверки теста (parsing_warnings). task_number null — про
+// документ целиком (например, пропуск в нумерации).
+export interface ParseWarning {
+  task_number: number | null
+  warning_type: string
+  description: string
+  snippet?: string
+}
+
 export interface ParsedExamDocument {
   meta: Record<string, string>
   tasks: ParsedTask[]
   answers: ParsedAnswer[]
   solutions: ParsedSolution[]
-  warnings: unknown[]
+  warnings: ParseWarning[]
   rawTasks: JsonTaskRaw[]
 }
 

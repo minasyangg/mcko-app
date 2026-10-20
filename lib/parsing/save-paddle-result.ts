@@ -10,7 +10,7 @@
 // довершает импорт при следующем опросе статуса фронтендом.
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Database } from '@/types/database'
-import { requiresExplanation, cleanParsedAnswer, detectGradingMethod, buildFormatHint } from '@/lib/grading/answer-heuristics'
+import { requiresExplanation, cleanParsedAnswer, detectGradingMethodInContext, normalizeAnswerForMethod, buildFormatHint } from '@/lib/grading/answer-heuristics'
 import { parseExamDocument, type PaddlePage, type JsonImageRef } from '@/lib/parsing/exam-parsers'
 import { applyMatchingScoringRules, cleanupSourceDocuments } from '@/lib/parsing/pipeline-shared'
 import { MEDIA_CACHE_CONTROL } from '@/lib/media/signed-urls'
@@ -148,11 +148,12 @@ export async function savePaddleOcrResult(
   pages: PaddlePage[],
   examType: string | null
 ): Promise<SavePaddleResultSummary> {
-  const { tasks, answers, solutions, rawTasks } = parseExamDocument(examType, pages)
+  const { tasks, answers, solutions, rawTasks, warnings } = parseExamDocument(examType, pages)
 
   const ansMap = new Map(answers.map((a: any) => [a.task_number, a]))
   const solMap = new Map(solutions.map((s: any) => [s.task_number, s]))
   const rawMap = new Map(rawTasks.map(t => [t.number, t]))
+  const taskIdByNumber = new Map<number, string>()
   let inserted = 0, matchedAns = 0, matchedSol = 0, totalImgs = 0
 
   for (const t of tasks) {
@@ -176,12 +177,16 @@ export async function savePaddleOcrResult(
     }).select('id').single()
     if (te || !task) { console.warn('task insert error:', te?.message); continue }
     inserted++
+    taskIdByNumber.set(t.number, task.id)
 
     const ans = ansMap.get(t.number) as any
     if (ans?.correct_answer != null) {
       const rawAns = String(ans.correct_answer)
-      const cleanedAns = cleanParsedAnswer(rawAns)
-      const method = needsExplanation ? 'manual' : detectGradingMethod(rawAns)
+      // Метод — по ответу и формулировке условия: «513» в задании на
+      // соответствие — последовательность, «34» в «выберите два верных» —
+      // набор номеров (см. detectGradingMethodInContext)
+      const method = needsExplanation ? 'manual' : detectGradingMethodInContext(rawAns, t.prompt_text ?? '')
+      const cleanedAns = normalizeAnswerForMethod(cleanParsedAnswer(rawAns), method)
       const hint = buildFormatHint(rawAns, method)
       const { error: ae } = await client.from('task_answer_keys').insert({
         task_id: task.id,
@@ -226,13 +231,30 @@ export async function savePaddleOcrResult(
 
   await applyMatchingScoringRules(client, testVersionId)
 
+  // Что разбор не смог восстановить сам (нет рисунка, нет ответа, пропуск
+  // номера) — учитель видит это списком на странице проверки теста
+  let warningsSaved = 0
+  if (warnings.length > 0) {
+    const { error: we } = await client.from('parsing_warnings').insert(
+      warnings.map(w => ({
+        parsing_job_id: jobId,
+        task_id: w.task_number !== null ? taskIdByNumber.get(w.task_number) ?? null : null,
+        warning_type: w.warning_type,
+        description: w.description,
+        source_text_snippet: w.snippet ?? null,
+      }))
+    )
+    if (we) console.warn('[parsing] warnings insert error:', we.message)
+    else warningsSaved = warnings.length
+  }
+
   const summary: SavePaddleResultSummary = {
     tasks_found: inserted,
     answers_matched: matchedAns,
     solutions_matched: matchedSol,
     images_extracted: totalImgs,
     images_attached: totalImgs,
-    warnings_count: 0,
+    warnings_count: warningsSaved,
   }
 
   await client.from('parsing_jobs').update({

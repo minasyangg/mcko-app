@@ -53,6 +53,34 @@ export function detectGradingMethod(rawAnswer: string): string {
   return 'normalized'
 }
 
+// Ответ-цифры сам по себе не говорит, важен ли порядок: «513» в задании на
+// соответствие — последовательность (порядок букв, цифры могут повторяться),
+// «34» в «выберите два верных утверждения» — набор (порядок не важен), а
+// detectGradingMethod по одному ответу видит в обоих число и ставит
+// numeric_tolerance — тогда «43» вместо «34» не засчитывается. Различаем по
+// формулировке условия; найдено на варианте ОГЭ по физике (2026-10-20).
+const SEQUENCE_PROMPT = /установите\s+соответствие|характер\s+изменения|вставьте\s+на\s+места\s+пропусков|под\s+соответствующими\s+буквами|в\s+порядке,?\s+соответствующем\s+буквам|последовательность\s+(?:цифр|двух|тр[её]х|четыр[её]х|пяти)/i
+const SET_PROMPT = /выберите\s+(?:два|три|четыре|все)\b|укажите\s+их\s+номера|(?:два|три|четыре)\s+(?:верных|правильных)|номера\s+выбранных\s+утверждений|какие\s+из\s+(?:следующих|приведённых|приведенных)\s+утверждений/i
+
+export function detectGradingMethodInContext(rawAnswer: string, promptText: string): string {
+  const alternatives = cleanParsedAnswer(rawAnswer).split('|').map(s => s.trim()).filter(Boolean)
+  const digitsOnly = alternatives.length > 0 && alternatives.every(a => /^\d{2,6}$/.test(a))
+  if (digitsOnly) {
+    if (SET_PROMPT.test(promptText)) return 'set_match'
+    if (SEQUENCE_PROMPT.test(promptText)) return 'sequence'
+  }
+  return detectGradingMethod(rawAnswer)
+}
+
+// Ключ «12|21» перечисляет перестановки одного набора номеров — для
+// set_match это один ответ, а сам set_match альтернатив через «|» не понимает.
+export function normalizeAnswerForMethod(answer: string, method: string): string {
+  if (method !== 'set_match' || !answer.includes('|')) return answer
+  const alternatives = answer.split('|').map(s => s.trim()).filter(Boolean)
+  const sorted = alternatives.map(a => [...a].sort().join(''))
+  return sorted.every(s => s === sorted[0]) ? alternatives[0] : answer
+}
+
 export function buildFormatHint(rawAnswer: string, method: string): string | null {
   const cleaned = cleanParsedAnswer(rawAnswer)
   switch (method) {
@@ -62,7 +90,7 @@ export function buildFormatHint(rawAnswer: string, method: string): string | nul
       }
       return 'Запишите целое число, например: 42'
     case 'sequence':
-      return 'Запишите цифры подряд по порядку букв (А, Б, В…), например: 312'
+      return 'Запишите цифры подряд в порядке букв (А, Б, В…) или столбцов таблицы, например: 312'
     case 'set_match':
       return 'Запишите номера правильных ответов подряд без пробелов, например: 124'
     default:
