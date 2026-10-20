@@ -282,6 +282,128 @@ export function StudentsClient({ students: initial, isAdmin = false, teachers = 
     router.refresh()
   }
 
+  const toggleSelected = (id: string) => setSelected(prev => {
+    const n = new Set(prev)
+    if (n.has(id)) n.delete(id); else n.add(id)
+    return n
+  })
+  const allPagedSelected = pagedStudents.length > 0 && pagedStudents.every(s => selected.has(s.id))
+  const setAllPagedSelected = (checked: boolean) => setSelected(prev => {
+    const n = new Set(prev)
+    for (const s of pagedStudents) { if (checked) n.add(s.id); else n.delete(s.id) }
+    return n
+  })
+
+  // Учителя ученика и действия над ним — общие для таблицы (десктоп) и
+  // карточки (телефон). Обычные функции рендера, не компоненты: в них нет
+  // хуков, а замыкание на обработчики выше не нужно протаскивать пропсами.
+  const renderTeacherBadges = (s: StudentRow) => (
+    <div className="flex items-center gap-1.5 flex-wrap max-w-64 max-md:max-w-none">
+      {(s.teacher_ids ?? []).length === 0 ? (
+        <span className="text-xs text-muted-foreground">Не закреплён</span>
+      ) : (
+        (s.teacher_ids ?? []).map((tid) => (
+          <Badge key={tid} variant="outline" className="text-[11px] font-normal">
+            {teacherName(tid)}
+          </Badge>
+        ))
+      )}
+      <Button size="sm" variant="ghost" className="h-6 px-1.5 text-xs max-md:h-8 max-md:px-2"
+        onClick={() => openTeachers(s)} title="Изменить учителей" aria-label="Изменить учителей">
+        <Pencil className="h-3 w-3" />
+      </Button>
+    </div>
+  )
+
+  const renderStudentActions = (s: StudentRow, isActive: boolean) => (
+    <>
+      <Button
+        size="sm" variant="ghost"
+        className="h-7 w-7 p-0 max-md:h-9 max-md:w-9"
+        onClick={() => openEdit(s)}
+        title="Редактировать"
+      >
+        <Pencil className="h-3.5 w-3.5" />
+      </Button>
+
+      {/* Деактивировать (soft) */}
+      {isActive && (
+        <AlertDialog>
+          <AlertDialogTrigger asChild>
+            <Button
+              size="sm" variant="ghost"
+              className="h-7 w-7 p-0 text-amber-600 hover:text-amber-700 hover:bg-amber-50 max-md:h-9 max-md:w-9"
+              title="Деактивировать"
+            >
+              <UserMinus className="h-3.5 w-3.5" />
+            </Button>
+          </AlertDialogTrigger>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Деактивировать ученика?</AlertDialogTitle>
+              <AlertDialogDescription>
+                <strong>{s.full_name}</strong> будет помечен как неактивный.
+                Назначения и членство в группах будут удалены.
+                История попыток и результаты тестов сохранятся.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Отмена</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={() => handleDeactivate(s)}
+                className="bg-amber-600 text-white hover:bg-amber-700"
+              >
+                Деактивировать
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      )}
+
+      {/* Удалить навсегда (hard) */}
+      <AlertDialog>
+        <AlertDialogTrigger asChild>
+          <Button
+            size="sm" variant="ghost"
+            className="h-7 w-7 p-0 text-destructive hover:text-destructive hover:bg-destructive/10 max-md:h-9 max-md:w-9"
+            title="Удалить навсегда"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </Button>
+        </AlertDialogTrigger>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogMedia className="bg-destructive/10 text-destructive">
+              <AlertTriangle />
+            </AlertDialogMedia>
+            <AlertDialogTitle>Удалить ученика навсегда?</AlertDialogTitle>
+            <AlertDialogDescription className="space-y-2">
+              <span className="block">
+                Это действие <strong>необратимо</strong>. Будут удалены:
+              </span>
+              <ul className="list-disc list-inside text-sm space-y-0.5">
+                <li>Аккаунт и профиль <strong>{s.full_name}</strong></li>
+                <li>Все его попытки и ответы</li>
+                <li>Все назначения</li>
+                <li>Членство в группах</li>
+                <li>Результаты тестов</li>
+              </ul>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Отмена</AlertDialogCancel>
+            <ConfirmDeleteAction onConfirm={() => handleHardDelete(s)} label="Удалить навсегда" />
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
+  )
+
+  const gradeLabel = (s: StudentRow) =>
+    s.study_stage === 'student'
+      ? <Badge variant="secondary" className="font-normal">Студент</Badge>
+      : (s.grade ?? '—')
+
   return (
     <>
       {/* Массовое удаление — только админу: у учителя нет прав удалять чужих
@@ -295,7 +417,66 @@ export function StudentsClient({ students: initial, isAdmin = false, teachers = 
         </div>
       )}
       <div className="rounded-md border overflow-hidden">
-        <table className="w-full text-sm">
+        {/* Телефон: карточка на ученика — у админа в таблице 8 колонок,
+            на узком экране они наезжали друг на друга */}
+        <div className="md:hidden">
+          {isAdmin && pagedStudents.length > 0 && (
+            <label className="flex items-center gap-3 border-b bg-muted/50 px-3 py-2.5 text-xs text-muted-foreground">
+              <input
+                type="checkbox"
+                className="h-5 w-5 shrink-0"
+                checked={allPagedSelected}
+                onChange={(e) => setAllPagedSelected(e.target.checked)}
+              />
+              Выбрать всех на странице
+            </label>
+          )}
+          <ul className="divide-y">
+            {pagedStudents.map((s) => {
+              const isActive = s.is_active !== false
+              return (
+                <li key={s.id} className={`space-y-2 p-3 ${!isActive ? 'opacity-60' : ''}`}>
+                  <div className="flex items-start gap-3">
+                    {isAdmin && (
+                      <input
+                        type="checkbox"
+                        className="mt-0.5 h-5 w-5 shrink-0"
+                        checked={selected.has(s.id)}
+                        onChange={() => toggleSelected(s.id)}
+                        aria-label={`Выбрать ${s.full_name}`}
+                      />
+                    )}
+                    <div className="min-w-0 flex-1 space-y-0.5">
+                      <p className="font-medium leading-snug wrap-break-word">
+                        <span className={!isActive ? 'text-muted-foreground line-through' : ''}>{s.full_name}</span>
+                        {!isActive && (
+                          <span className="ml-2 inline-flex items-center gap-1 text-xs font-normal text-muted-foreground">
+                            <UserX className="h-3.5 w-3.5" />Выбыл
+                          </span>
+                        )}
+                      </p>
+                      {s.email && <p className="text-xs text-muted-foreground break-all">{s.email}</p>}
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+                        <span>Класс: {gradeLabel(s)}</span>
+                        {s.created_at && <span>· {new Date(s.created_at).toLocaleDateString('ru-RU')}</span>}
+                      </div>
+                    </div>
+                    <Badge variant={isActive ? 'default' : 'secondary'} className="shrink-0">
+                      {isActive ? 'Активен' : 'Неактивен'}
+                    </Badge>
+                  </div>
+                  {isAdmin && (
+                    <div className="flex items-center justify-between gap-2 pl-8">
+                      <div className="min-w-0">{renderTeacherBadges(s)}</div>
+                      <div className="flex shrink-0 items-center gap-0.5">{renderStudentActions(s, isActive)}</div>
+                    </div>
+                  )}
+                </li>
+              )
+            })}
+          </ul>
+        </div>
+        <table className="w-full text-sm max-md:hidden">
           <thead className="bg-muted/50">
             <tr>
               {isAdmin && (
@@ -303,12 +484,8 @@ export function StudentsClient({ students: initial, isAdmin = false, teachers = 
                   <input
                     type="checkbox"
                     className="h-4 w-4"
-                    checked={pagedStudents.length > 0 && pagedStudents.every(s => selected.has(s.id))}
-                    onChange={(e) => setSelected(prev => {
-                      const n = new Set(prev)
-                      for (const s of pagedStudents) { if (e.target.checked) n.add(s.id); else n.delete(s.id) }
-                      return n
-                    })}
+                    checked={allPagedSelected}
+                    onChange={(e) => setAllPagedSelected(e.target.checked)}
                     title="Выбрать всех"
                   />
                 </th>
@@ -333,11 +510,7 @@ export function StudentsClient({ students: initial, isAdmin = false, teachers = 
                         type="checkbox"
                         className="h-4 w-4"
                         checked={selected.has(s.id)}
-                        onChange={() => setSelected(prev => {
-                          const n = new Set(prev)
-                          if (n.has(s.id)) n.delete(s.id); else n.add(s.id)
-                          return n
-                        })}
+                        onChange={() => toggleSelected(s.id)}
                       />
                     </td>
                   )}
@@ -353,27 +526,11 @@ export function StudentsClient({ students: initial, isAdmin = false, teachers = 
                   </td>
                   <td className="px-4 py-3 text-muted-foreground text-xs">{s.email || '—'}</td>
                   <td className="px-4 py-3 text-muted-foreground">
-                    {s.study_stage === 'student'
-                      ? <Badge variant="secondary" className="font-normal">Студент</Badge>
-                      : (s.grade ?? '—')}
+                    {gradeLabel(s)}
                   </td>
                   {isAdmin && (
                     <td className="px-4 py-3">
-                      <div className="flex items-center gap-1.5 flex-wrap max-w-64">
-                        {(s.teacher_ids ?? []).length === 0 ? (
-                          <span className="text-xs text-muted-foreground">Не закреплён</span>
-                        ) : (
-                          (s.teacher_ids ?? []).map((tid) => (
-                            <Badge key={tid} variant="outline" className="text-[11px] font-normal">
-                              {teacherName(tid)}
-                            </Badge>
-                          ))
-                        )}
-                        <Button size="sm" variant="ghost" className="h-6 px-1.5 text-xs"
-                          onClick={() => openTeachers(s)}>
-                          <Pencil className="h-3 w-3" />
-                        </Button>
-                      </div>
+                      {renderTeacherBadges(s)}
                     </td>
                   )}
                   <td className="px-4 py-3">
@@ -387,85 +544,7 @@ export function StudentsClient({ students: initial, isAdmin = false, teachers = 
                   {isAdmin && (
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-1 justify-end">
-                        <Button
-                          size="sm" variant="ghost"
-                          className="h-7 w-7 p-0"
-                          onClick={() => openEdit(s)}
-                          title="Редактировать"
-                        >
-                          <Pencil className="h-3.5 w-3.5" />
-                        </Button>
-
-                        {/* Деактивировать (soft) */}
-                        {isActive && (
-                          <AlertDialog>
-                            <AlertDialogTrigger asChild>
-                              <Button
-                                size="sm" variant="ghost"
-                                className="h-7 w-7 p-0 text-amber-600 hover:text-amber-700 hover:bg-amber-50"
-                                title="Деактивировать"
-                              >
-                                <UserMinus className="h-3.5 w-3.5" />
-                              </Button>
-                            </AlertDialogTrigger>
-                            <AlertDialogContent>
-                              <AlertDialogHeader>
-                                <AlertDialogTitle>Деактивировать ученика?</AlertDialogTitle>
-                                <AlertDialogDescription>
-                                  <strong>{s.full_name}</strong> будет помечен как неактивный.
-                                  Назначения и членство в группах будут удалены.
-                                  История попыток и результаты тестов сохранятся.
-                                </AlertDialogDescription>
-                              </AlertDialogHeader>
-                              <AlertDialogFooter>
-                                <AlertDialogCancel>Отмена</AlertDialogCancel>
-                                <AlertDialogAction
-                                  onClick={() => handleDeactivate(s)}
-                                  className="bg-amber-600 text-white hover:bg-amber-700"
-                                >
-                                  Деактивировать
-                                </AlertDialogAction>
-                              </AlertDialogFooter>
-                            </AlertDialogContent>
-                          </AlertDialog>
-                        )}
-
-                        {/* Удалить навсегда (hard) */}
-                        <AlertDialog>
-                          <AlertDialogTrigger asChild>
-                            <Button
-                              size="sm" variant="ghost"
-                              className="h-7 w-7 p-0 text-destructive hover:text-destructive hover:bg-destructive/10"
-                              title="Удалить навсегда"
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </Button>
-                          </AlertDialogTrigger>
-                          <AlertDialogContent>
-                            <AlertDialogHeader>
-                              <AlertDialogMedia className="bg-destructive/10 text-destructive">
-                                <AlertTriangle />
-                              </AlertDialogMedia>
-                              <AlertDialogTitle>Удалить ученика навсегда?</AlertDialogTitle>
-                              <AlertDialogDescription className="space-y-2">
-                                <span className="block">
-                                  Это действие <strong>необратимо</strong>. Будут удалены:
-                                </span>
-                                <ul className="list-disc list-inside text-sm space-y-0.5">
-                                  <li>Аккаунт и профиль <strong>{s.full_name}</strong></li>
-                                  <li>Все его попытки и ответы</li>
-                                  <li>Все назначения</li>
-                                  <li>Членство в группах</li>
-                                  <li>Результаты тестов</li>
-                                </ul>
-                              </AlertDialogDescription>
-                            </AlertDialogHeader>
-                            <AlertDialogFooter>
-                              <AlertDialogCancel>Отмена</AlertDialogCancel>
-                              <ConfirmDeleteAction onConfirm={() => handleHardDelete(s)} label="Удалить навсегда" />
-                            </AlertDialogFooter>
-                          </AlertDialogContent>
-                        </AlertDialog>
+                        {renderStudentActions(s, isActive)}
                       </div>
                     </td>
                   )}

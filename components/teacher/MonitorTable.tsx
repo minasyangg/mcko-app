@@ -18,6 +18,7 @@ import { CloseAssignmentButton } from '@/components/teacher/CloseAssignmentButto
 import type { ProgramSummaryRow } from '@/lib/roadmaps/progress'
 import { TableFilterBar, useTableFilter, type FilterField } from '@/components/shared/TableFilter'
 import { StatusChip } from '@/components/shared/StatusChip'
+import { tabBarClass, tabButtonClass } from '@/components/shared/tab-classes'
 import { Trash2, CheckCheck, Loader2, AlertTriangle } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -68,14 +69,107 @@ function formatTime(iso: string | null) {
 
 type Tab = 'assignments' | 'active' | 'review' | 'checked'
 
-function TableView({ rows, tab, isAdmin, onSelect, onDelete, onFinish }: {
-  rows: AttemptRow[]
+interface RowHandlers {
   tab: Tab
   isAdmin: boolean
   onSelect: (id: string) => void
   onDelete: (a: AttemptRow) => void
   onFinish: (a: AttemptRow) => void
+}
+
+// Кнопки строки попытки — общие для таблицы (десктоп) и карточки (телефон),
+// чтобы оба вида вели себя одинаково. В карточке главная кнопка крупнее и
+// растягивается: на телефоне по ней тапают пальцем, а не кликают мышью.
+function AttemptActions({ a, tab, isAdmin, onSelect, onDelete, onFinish, layout }: RowHandlers & {
+  a: AttemptRow
+  layout: 'row' | 'card'
 }) {
+  const showDelete = isAdmin && tab === 'checked'
+  const needsReview = ['submitted', 'under_review'].includes(a.status)
+  return (
+    <>
+      <Button
+        variant={layout === 'card' && needsReview ? 'default' : layout === 'card' ? 'outline' : 'ghost'}
+        size="sm"
+        className={layout === 'card' ? 'h-9 min-w-32 flex-1' : undefined}
+        onClick={() => onSelect(a.id)}
+      >
+        {needsReview ? 'Проверить' : 'Подробнее'}
+      </Button>
+      {isAdmin && tab === 'active' && (
+        <AlertDialog>
+          <AlertDialogTrigger asChild>
+            <Button variant="ghost" size="sm"
+              className="h-8 px-2 text-xs text-orange-600 hover:text-orange-700 hover:bg-orange-50"
+              title="Сдать текущую попытку за ученика (оставшиеся попытки сохраняются)">
+              <CheckCheck className="h-3.5 w-3.5 mr-1" />
+              Сдать попытку
+            </Button>
+          </AlertDialogTrigger>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Завершить попытку?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Попытка ученика <b>{a.full_name}</b> по тесту «{a.test_title}» будет
+                принудительно завершена и проверена автоматически — даже если время
+                не истекло. Не начатая попытка получит статус «истекла».
+                Оставшиеся попытки у ученика сохранятся — чтобы закрыть тест
+                целиком, используйте «Завершить тест».
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Отмена</AlertDialogCancel>
+              <AlertDialogAction onClick={() => onFinish(a)}>
+                Завершить
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      )}
+      {/* Завершение всего теста для ученика — доступно и учителю
+          (владельцу назначения), в отличие от «сдать попытку» */}
+      <CloseAssignmentButton
+        assignmentId={a.assignment_id}
+        studentId={a.student_id}
+        closedReason={a.closed_reason}
+        targetLabel={`Ученик ${a.full_name} по тесту «${a.test_title}»`}
+        size="row"
+        label="Завершить тест"
+      />
+      {showDelete && (
+        <AlertDialog>
+          <AlertDialogTrigger asChild>
+            <Button variant="ghost" size="sm"
+              className="h-8 w-8 p-0 text-destructive hover:text-destructive hover:bg-destructive/10"
+              title="Удалить попытку">
+              <Trash2 className="h-3.5 w-3.5" />
+            </Button>
+          </AlertDialogTrigger>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogMedia className="bg-destructive/10 text-destructive">
+                <AlertTriangle />
+              </AlertDialogMedia>
+              <AlertDialogTitle>Удалить попытку?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Попытка ученика <b>{a.full_name}</b> по тесту «{a.test_title}» будет
+                удалена безвозвратно вместе с ответами. Накопительный результат
+                пересчитается по оставшимся попыткам.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Отмена</AlertDialogCancel>
+              <ConfirmDeleteAction onConfirm={() => onDelete(a)} />
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      )}
+    </>
+  )
+}
+
+function TableView({ rows, ...handlers }: RowHandlers & { rows: AttemptRow[] }) {
+  const { tab } = handlers
   if (rows.length === 0) {
     return (
       <div className="py-12 text-center text-sm text-muted-foreground">
@@ -83,129 +177,94 @@ function TableView({ rows, tab, isAdmin, onSelect, onDelete, onFinish }: {
       </div>
     )
   }
-  const showDelete = isAdmin && tab === 'checked'
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="border-b bg-muted/50">
-            <th className="px-4 py-3 text-left font-medium text-muted-foreground">Ученик</th>
-            <th className="px-4 py-3 text-left font-medium text-muted-foreground">Класс</th>
-            <th className="px-4 py-3 text-left font-medium text-muted-foreground">Тест</th>
-            <th className="px-4 py-3 text-left font-medium text-muted-foreground">Статус</th>
-            <th className="px-4 py-3 text-center font-medium text-muted-foreground">Балл</th>
-            <th className="px-4 py-3 text-left font-medium text-muted-foreground">Активность</th>
-            <th className="px-4 py-3" />
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((a) => {
-            const used = a.total_attempts ?? 1
-            const max = a.max_attempts ?? 1
-            return (
-              <tr key={a.id} className="border-b last:border-0 hover:bg-muted/30 transition-colors">
-                <td className="px-4 py-3 font-medium">{a.full_name}</td>
-                <td className="px-4 py-3 text-muted-foreground">{a.grade ?? '—'}</td>
-                <td className="px-4 py-3 max-w-50 text-muted-foreground">
-                  <div className="truncate" title={a.test_title}>{a.test_title}</div>
-                  {tab === 'checked' && (
-                    <div className="text-[11px] text-muted-foreground/80 mt-0.5">
-                      Попыток: {used} из {max}
+    <>
+      {/* Телефон: карточка на попытку вместо 7 колонок таблицы — на узком
+          экране колонки наезжали друг на друга, а кнопки уходили за край */}
+      <ul className="divide-y md:hidden">
+        {rows.map((a) => {
+          const used = a.total_attempts ?? 1
+          const max = a.max_attempts ?? 1
+          return (
+            <li key={a.id} className="space-y-2.5 p-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="font-medium leading-snug wrap-break-word">{a.full_name}</p>
+                  {a.grade && <p className="mt-0.5 text-xs text-muted-foreground">{a.grade} класс</p>}
+                </div>
+                <div className="shrink-0 text-right">
+                  <p className="font-semibold tabular-nums">
+                    {a.score !== null ? `${a.score}/${a.max_score ?? '?'}` : '—'}
+                  </p>
+                  <p className="text-[11px] text-muted-foreground">{formatRelative(a.last_activity_at)}</p>
+                </div>
+              </div>
+              <p className="text-sm text-muted-foreground line-clamp-2 wrap-break-word">{a.test_title}</p>
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted-foreground">
+                <StatusChip status={a.status} attemptNumber={a.attempt_number} maxAttempts={a.max_attempts} />
+                {tab === 'checked' && <span>Попыток: {used} из {max}</span>}
+                {a.started_at && <span>начата {formatTime(a.started_at)}</span>}
+              </div>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <AttemptActions a={a} {...handlers} layout="card" />
+              </div>
+            </li>
+          )
+        })}
+      </ul>
+
+      <div className="hidden overflow-x-auto md:block">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b bg-muted/50">
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Ученик</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Класс</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Тест</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Статус</th>
+              <th className="px-4 py-3 text-center font-medium text-muted-foreground">Балл</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Активность</th>
+              <th className="px-4 py-3" />
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((a) => {
+              const used = a.total_attempts ?? 1
+              const max = a.max_attempts ?? 1
+              return (
+                <tr key={a.id} className="border-b last:border-0 hover:bg-muted/30 transition-colors">
+                  <td className="px-4 py-3 font-medium">{a.full_name}</td>
+                  <td className="px-4 py-3 text-muted-foreground">{a.grade ?? '—'}</td>
+                  <td className="px-4 py-3 max-w-50 text-muted-foreground">
+                    <div className="truncate" title={a.test_title}>{a.test_title}</div>
+                    {tab === 'checked' && (
+                      <div className="text-[11px] text-muted-foreground/80 mt-0.5">
+                        Попыток: {used} из {max}
+                      </div>
+                    )}
+                  </td>
+                  <td className="px-4 py-3"><StatusChip status={a.status} attemptNumber={a.attempt_number} maxAttempts={a.max_attempts} /></td>
+                  <td className="px-4 py-3 text-center font-medium tabular-nums">
+                    {a.score !== null ? `${a.score}/${a.max_score ?? '?'}` : '—'}
+                  </td>
+                  {/* Объединённый столбец: когда начата + последняя активность */}
+                  <td className="px-4 py-3 text-muted-foreground whitespace-nowrap text-xs">
+                    <div>{formatRelative(a.last_activity_at)}</div>
+                    {a.started_at && (
+                      <div className="text-[11px] text-muted-foreground/70">начата {formatTime(a.started_at)}</div>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    <div className="flex items-center gap-1 justify-end">
+                      <AttemptActions a={a} {...handlers} layout="row" />
                     </div>
-                  )}
-                </td>
-                <td className="px-4 py-3"><StatusChip status={a.status} attemptNumber={a.attempt_number} maxAttempts={a.max_attempts} /></td>
-                <td className="px-4 py-3 text-center font-medium tabular-nums">
-                  {a.score !== null ? `${a.score}/${a.max_score ?? '?'}` : '—'}
-                </td>
-                {/* Объединённый столбец: когда начата + последняя активность */}
-                <td className="px-4 py-3 text-muted-foreground whitespace-nowrap text-xs">
-                  <div>{formatRelative(a.last_activity_at)}</div>
-                  {a.started_at && (
-                    <div className="text-[11px] text-muted-foreground/70">начата {formatTime(a.started_at)}</div>
-                  )}
-                </td>
-                <td className="px-4 py-3 text-right">
-                  <div className="flex items-center gap-1 justify-end">
-                    <Button variant="ghost" size="sm" onClick={() => onSelect(a.id)}>
-                      {['submitted', 'under_review'].includes(a.status) ? 'Проверить' : 'Подробнее'}
-                    </Button>
-                    {isAdmin && tab === 'active' && (
-                      <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                          <Button variant="ghost" size="sm"
-                            className="h-8 px-2 text-xs text-orange-600 hover:text-orange-700 hover:bg-orange-50"
-                            title="Сдать текущую попытку за ученика (оставшиеся попытки сохраняются)">
-                            <CheckCheck className="h-3.5 w-3.5 mr-1" />
-                            Сдать попытку
-                          </Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                          <AlertDialogHeader>
-                            <AlertDialogTitle>Завершить попытку?</AlertDialogTitle>
-                            <AlertDialogDescription>
-                              Попытка ученика <b>{a.full_name}</b> по тесту «{a.test_title}» будет
-                              принудительно завершена и проверена автоматически — даже если время
-                              не истекло. Не начатая попытка получит статус «истекла».
-                              Оставшиеся попытки у ученика сохранятся — чтобы закрыть тест
-                              целиком, используйте «Завершить тест».
-                            </AlertDialogDescription>
-                          </AlertDialogHeader>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel>Отмена</AlertDialogCancel>
-                            <AlertDialogAction onClick={() => onFinish(a)}>
-                              Завершить
-                            </AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
-                    )}
-                    {/* Завершение всего теста для ученика — доступно и учителю
-                        (владельцу назначения), в отличие от «сдать попытку» */}
-                    <CloseAssignmentButton
-                      assignmentId={a.assignment_id}
-                      studentId={a.student_id}
-                      closedReason={a.closed_reason}
-                      targetLabel={`Ученик ${a.full_name} по тесту «${a.test_title}»`}
-                      size="row"
-                      label="Завершить тест"
-                    />
-                    {showDelete && (
-                      <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                          <Button variant="ghost" size="sm"
-                            className="h-8 w-8 p-0 text-destructive hover:text-destructive hover:bg-destructive/10"
-                            title="Удалить попытку">
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                          <AlertDialogHeader>
-                            <AlertDialogMedia className="bg-destructive/10 text-destructive">
-                              <AlertTriangle />
-                            </AlertDialogMedia>
-                            <AlertDialogTitle>Удалить попытку?</AlertDialogTitle>
-                            <AlertDialogDescription>
-                              Попытка ученика <b>{a.full_name}</b> по тесту «{a.test_title}» будет
-                              удалена безвозвратно вместе с ответами. Накопительный результат
-                              пересчитается по оставшимся попыткам.
-                            </AlertDialogDescription>
-                          </AlertDialogHeader>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel>Отмена</AlertDialogCancel>
-                            <ConfirmDeleteAction onConfirm={() => onDelete(a)} />
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
-                    )}
-                  </div>
-                </td>
-              </tr>
-            )
-          })}
-        </tbody>
-      </table>
-    </div>
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    </>
   )
 }
 
@@ -325,13 +384,13 @@ export function MonitorTable({ initialAttempts, isAdmin = false, assignments = [
   return (
     <>
       {/* Tabs */}
-      <div className="flex gap-1 border-b">
+      <div className={tabBarClass}>
         {tabs.map((t) => (
           <button
             key={t.key}
             onClick={() => { setTab(t.key); clearFilters() }}
             className={cn(
-              'px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors',
+              tabButtonClass,
               tab === t.key
                 ? 'border-primary text-primary'
                 : 'border-transparent text-muted-foreground hover:text-foreground'
@@ -355,7 +414,7 @@ export function MonitorTable({ initialAttempts, isAdmin = false, assignments = [
 
       {/* Filters + bulk action */}
       {tab !== 'assignments' && (
-      <div className="flex items-start justify-between gap-3">
+      <div className="flex items-start justify-between gap-3 max-md:flex-col max-md:items-stretch">
         <TableFilterBar
           fields={FILTER_FIELDS}
           filters={filters}
@@ -367,7 +426,7 @@ export function MonitorTable({ initialAttempts, isAdmin = false, assignments = [
         {isAdmin && tab === 'active' && active.length > 0 && (
           <AlertDialog>
             <AlertDialogTrigger asChild>
-              <Button size="sm" variant="outline" disabled={finishingAll} className="shrink-0 mt-1">
+              <Button size="sm" variant="outline" disabled={finishingAll} className="shrink-0 mt-1 max-md:mt-0 max-md:h-9">
                 {finishingAll ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <CheckCheck className="h-4 w-4 mr-1.5" />}
                 Завершить все
               </Button>

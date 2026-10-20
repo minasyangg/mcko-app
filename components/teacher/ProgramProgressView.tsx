@@ -129,24 +129,27 @@ export function ProgramProgressView({ program, readOnly = false, onSelectAttempt
                           return (
                             <div
                               key={item.assignment_id}
+                              // Телефон: статус и кнопки уходят второй строкой —
+                              // в одну строку с ними название сжималось до «…»
                               className={cn(
                                 'flex items-center justify-between gap-2 text-sm rounded px-2 py-1',
-                                clickable && 'cursor-pointer hover:bg-muted/50',
+                                'max-md:flex-wrap max-md:gap-y-1.5 max-md:py-2',
+                                clickable && 'cursor-pointer hover:bg-muted/50 active:bg-muted/50',
                               )}
                               onClick={clickable ? () => onSelectAttempt!(s!.attempt_id!) : undefined}
                             >
-                              <span className="flex items-center gap-1.5 min-w-0">
+                              <span className="flex items-center gap-1.5 min-w-0 max-md:w-full max-md:items-start">
                                 <Badge variant={item.kind === 'homework' ? 'outline' : 'secondary'} className="text-[11px] shrink-0">
                                   {item.kind === 'homework' ? 'ДЗ' : 'Тест'}
                                 </Badge>
-                                <span className="text-muted-foreground truncate">{item.title}</span>
+                                <span className="text-muted-foreground truncate max-md:whitespace-normal max-md:wrap-break-word">{item.title}</span>
                               </span>
                               {hidden && !s ? (
                                 // Скрыто правилом «3 дня» и учитель ещё не открыл
                                 // личный доступ — показываем это явно вместо
                                 // молчаливого «не начато», которое выглядело бы
                                 // как обычный пропуск задания учеником.
-                                <span className="flex items-center gap-2 shrink-0">
+                                <span className="flex items-center gap-2 shrink-0 max-md:ml-auto max-md:flex-wrap max-md:justify-end">
                                   <span className="text-[11px] text-muted-foreground/70" title="Ученик вступил в программу после того, как это задание было выдано группе — ему оно не видно">
                                     пропущено (вступил позже)
                                   </span>
@@ -163,7 +166,7 @@ export function ProgramProgressView({ program, readOnly = false, onSelectAttempt
                                   )}
                                 </span>
                               ) : (
-                                <span className="flex items-center gap-2 shrink-0">
+                                <span className="flex items-center gap-2 shrink-0 max-md:ml-auto max-md:flex-wrap max-md:justify-end">
                                   {hidden && (
                                     <span className="text-[11px] text-muted-foreground/70" title="Личная копия задания — без общего дедлайна группы, открыта учителем вручную">
                                       личный доступ

@@ -88,6 +88,8 @@ export function TableFilterBar({
                 'h-8 rounded-md border border-input bg-background px-2 text-sm text-foreground',
                 'focus:outline-none focus:ring-1 focus:ring-ring',
                 field.width ?? 'w-32',
+                // телефон: фиксированные ширины полей в ряд не помещались
+                'max-md:h-9 max-md:min-w-28 max-md:flex-1',
               )}
             >
               <option value="">{field.placeholder ?? `Все (${field.label})`}</option>
@@ -104,7 +106,7 @@ export function TableFilterBar({
             value={filters[field.key] ?? ''}
             onChange={e => setFilter(field.key, e.target.value)}
             placeholder={field.placeholder ?? field.label}
-            className={cn('h-8 text-sm', field.width ?? 'w-44')}
+            className={cn('h-8 text-sm', field.width ?? 'w-44', 'max-md:h-9 max-md:w-full')}
           />
         )
       })}
@@ -112,7 +114,7 @@ export function TableFilterBar({
       {hasActiveFilters && (
         <button
           onClick={clearFilters}
-          className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+          className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors max-md:py-2"
         >
           <X className="h-3.5 w-3.5" />
           Сбросить

@@ -139,14 +139,16 @@ export function RoadmapClient({ roadmaps: initialRoadmaps }: { roadmaps: Roadmap
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
+      {/* Телефон: кнопка под заголовком во всю ширину — рядом с длинным
+          описанием она выдавливалась за край экрана */}
+      <div className="flex items-center justify-between gap-3 max-md:flex-col max-md:items-stretch">
+        <div className="min-w-0">
           <h1 className="text-2xl font-semibold">Программы</h1>
           <p className="text-sm text-muted-foreground mt-1">
             Учебные маршруты (road map): темы с прикреплёнными ДЗ и тестами для ваших учеников
           </p>
         </div>
-        <Button onClick={() => { setForm({ title: '', subject: '', description: '' }); setOpen(true) }}>
+        <Button className="shrink-0 max-md:h-10" onClick={() => { setForm({ title: '', subject: '', description: '' }); setOpen(true) }}>
           <Plus className="h-4 w-4 mr-2" />
           Создать программу
         </Button>
@@ -184,8 +186,10 @@ export function RoadmapClient({ roadmaps: initialRoadmaps }: { roadmaps: Roadmap
                         description={r.description}
                       />
                     </div>
+                    {/* HTML5 drag-and-drop на сенсорном экране не работает —
+                        на телефоне ручку не показываем */}
                     {rows.length > 1 && (
-                      <div className="absolute left-1.5 top-1.5 z-10 flex items-center">
+                      <div className="absolute left-1.5 top-1.5 z-10 flex items-center max-md:hidden">
                         <span
                           draggable
                           onDragStart={(e) => {
@@ -214,7 +218,7 @@ export function RoadmapClient({ roadmaps: initialRoadmaps }: { roadmaps: Roadmap
                             слева и кнопке «изменить» справа */}
                         <div className={cn(
                           'flex items-start justify-between gap-2 pr-9',
-                          rows.length > 1 ? 'pl-6' : '',
+                          rows.length > 1 ? 'pl-6 max-md:pl-0' : '',
                         )}>
                           <CardTitle className="text-base leading-snug">{r.title}</CardTitle>
                         </div>

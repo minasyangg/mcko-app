@@ -99,7 +99,33 @@ export function TeachersClient({ teachers, students }: { teachers: TeacherRow[];
   return (
     <>
       <div className="rounded-md border overflow-hidden">
-        <table className="w-full text-sm">
+        {/* Телефон: карточки — колонка кнопок w-60 одна была шире половины экрана */}
+        <ul className="divide-y md:hidden">
+          {teachers.length === 0 && (
+            <li className="px-4 py-10 text-center text-sm text-muted-foreground">Учителей пока нет.</li>
+          )}
+          {pagedTeachers.map(t => (
+            <li key={t.id} className="flex items-center gap-3 p-3">
+              <div className="min-w-0 flex-1 space-y-0.5">
+                <p className="font-medium leading-snug wrap-break-word">{t.full_name}</p>
+                {t.email && <p className="text-xs text-muted-foreground break-all">{t.email}</p>}
+                <p className="text-xs text-muted-foreground">Учеников: {t.student_count}</p>
+              </div>
+              <div className="flex shrink-0 items-center gap-1">
+                <Button asChild size="icon" variant="outline" className="h-9 w-9" title="Кабинет учителя" aria-label="Кабинет учителя">
+                  <Link href={`/teacher/users/${t.id}/cabinet`}>
+                    <LayoutDashboard className="h-4 w-4" />
+                  </Link>
+                </Button>
+                <Button size="sm" variant="outline" className="h-9" onClick={() => openAssign(t)}>
+                  <Users className="h-3.5 w-3.5 mr-1.5" />
+                  Ученики
+                </Button>
+              </div>
+            </li>
+          ))}
+        </ul>
+        <table className="w-full text-sm max-md:hidden">
           <thead className="bg-muted/50">
             <tr>
               <th className="text-left px-4 py-3 font-medium">ФИО</th>

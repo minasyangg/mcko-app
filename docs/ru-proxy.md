@@ -81,6 +81,27 @@ caddy validate --config /etc/caddy/Caddyfile && systemctl reload caddy
 - Снимок ресурсов «до»: `/root/ru-proxy-baseline-*.txt`; памятка по откату:
   `/root/RU-PROXY-ROLLBACK.txt`.
 
+## Доска в приоритете и тревога о нагрузке (2026-10-20)
+
+Доска и прокси делят одно ядро и 1 ГБ памяти, а Caddy у них один процесс.
+
+- **Приоритет доски по процессору:** `CPUWeight=200` у `pm2-root.service`
+  (через `systemctl set-property`), у `caddy.service` — 100. Когда процессора
+  не хватает, приложение доски получает примерно вдвое больше его времени.
+  Внутри Caddy трафик доски и прокси не разделяется.
+- **Тревога в Telegram:** `scripts/server-alert.sh` в репозитории doska, cron
+  раз в минуту (`/etc/cron.d/server-load-alert`). Тревога приходит, если
+  3 минуты подряд выполняется хотя бы одно условие:
+  - процессор занят ≥85%;
+  - процессы ждут процессор ≥30% времени (PSI);
+  - свободно <150 МБ памяти.
+
+  Пока перегрузка длится — напоминание раз в час, потом приходит «отбой».
+  В сообщении — доля доски, Caddy и остального. Отправка — тем же путём, что
+  отчёт о занятиях: сервер запускает workflow `server-alert.yml`, GitHub
+  шлёт в Telegram. Ручная проверка: `server-alert.sh --dry` (замеры),
+  `--test` (сообщение).
+
 ## Откат
 
 1. **Только прокси** (если доске стало хуже) — вернуть конфиг Caddy, секунды:
@@ -93,6 +114,8 @@ caddy validate --config /etc/caddy/Caddyfile && systemctl reload caddy
    (`git log --oneline --grep='\[ru-proxy\]'`); состояние до них — тег `pre-ru-proxy`.
 3. **Подготовка сервера** обычно не откатывается — она доске только помогает.
    Команды есть в `/root/RU-PROXY-ROLLBACK.txt`.
+4. **Приоритет и тревога:** `systemctl set-property pm2-root.service CPUWeight=100`,
+   `rm /etc/cron.d/server-load-alert`.
 
 Признаки для отката: свободной памяти меньше 200 МБ (Grafana на сервере), жалобы
 на задержки в доске.

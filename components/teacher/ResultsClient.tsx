@@ -21,11 +21,16 @@ interface Props {
   programs: string[]
 }
 
+// Цвет процента — те же пороги, что в таблице (80% / 60%)
+function pctTextClass(pct: number) {
+  return pct >= 80 ? 'text-green-600' : pct >= 60 ? 'text-orange-500' : 'text-destructive'
+}
+
 function StatCard({ label, value, sub }: { label: string; value: string | number; sub?: string }) {
   return (
-    <div className="rounded-lg border bg-card p-4 space-y-1">
-      <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">{label}</p>
-      <p className="text-2xl font-bold tabular-nums">{value}</p>
+    <div className="rounded-lg border bg-card p-4 space-y-1 max-md:p-3">
+      <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide max-md:text-[11px] max-md:tracking-normal">{label}</p>
+      <p className="text-2xl font-bold tabular-nums max-md:text-xl">{value}</p>
       {sub && <p className="text-xs text-muted-foreground">{sub}</p>}
     </div>
   )
@@ -96,7 +101,7 @@ export function ResultsClient({ rows, tests, programs }: Props) {
   return (
     <>
       {/* Stats */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 max-md:gap-2">
         <StatCard label="Всего попыток" value={filtered.length} />
         <StatCard label="Средний балл" value={avgScore} sub={`${avgPct}% в среднем`} />
         <StatCard label="Проверено" value={checkedCount} sub={`${filtered.length - checkedCount} осталось`} />
@@ -104,18 +109,19 @@ export function ResultsClient({ rows, tests, programs }: Props) {
       </div>
 
       {/* Filters */}
-      <div className="flex flex-wrap gap-3 items-center">
-        <div className="relative flex-1 min-w-40">
+      {/* Телефон: поиск и выбор теста — во всю ширину, тип и статус — парой */}
+      <div className="flex flex-wrap gap-3 items-center max-md:gap-2">
+        <div className="relative flex-1 min-w-40 max-md:basis-full">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
           <Input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Поиск по ученику..."
-            className="pl-8 h-8 text-sm"
+            className="pl-8 h-8 text-sm max-md:h-9"
           />
         </div>
         {tests.length > 0 && (
-          <div className="w-44">
+          <div className="w-44 max-md:w-full">
             <SearchableSelect
               options={tests.map((t) => ({ value: t, label: t }))}
               value={filterTest === 'all' ? '' : filterTest}
@@ -126,7 +132,7 @@ export function ResultsClient({ rows, tests, programs }: Props) {
           </div>
         )}
         <Select value={filterKind} onValueChange={setFilterKind}>
-          <SelectTrigger className="h-8 text-sm w-44">
+          <SelectTrigger className="h-8 text-sm w-44 max-md:data-[size=default]:h-9 max-md:w-auto max-md:min-w-0 max-md:flex-1">
             <SelectValue placeholder="Все типы" />
           </SelectTrigger>
           <SelectContent>
@@ -136,7 +142,7 @@ export function ResultsClient({ rows, tests, programs }: Props) {
           </SelectContent>
         </Select>
         <Select value={filterStatus} onValueChange={setFilterStatus}>
-          <SelectTrigger className="h-8 text-sm w-40">
+          <SelectTrigger className="h-8 text-sm w-40 max-md:data-[size=default]:h-9 max-md:w-auto max-md:min-w-0 max-md:flex-1">
             <SelectValue placeholder="Все статусы" />
           </SelectTrigger>
           <SelectContent>
@@ -187,7 +193,66 @@ export function ResultsClient({ rows, tests, programs }: Props) {
           <p className="text-sm">Нет результатов по заданным фильтрам.</p>
         </div>
       ) : (
-        <div className="rounded-md border overflow-x-auto">
+        <div className="rounded-md border overflow-hidden">
+          {/* Телефон: карточка на попытку вместо 9 колонок таблицы */}
+          <ul className="divide-y md:hidden">
+            {visible.map((r) => (
+              <li key={r.attemptId} className="space-y-2 p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="font-medium leading-snug wrap-break-word">{r.studentName}</p>
+                    {(r.grade || r.groupName) && (
+                      <p className="mt-0.5 text-xs text-muted-foreground wrap-break-word">
+                        {[r.grade ? `${r.grade} класс` : null, r.groupName].filter(Boolean).join(' · ')}
+                      </p>
+                    )}
+                  </div>
+                  <div className="shrink-0 text-right tabular-nums">
+                    <p>
+                      <span className="font-semibold">{r.score}</span>
+                      <span className="text-muted-foreground">/{r.maxScore}</span>
+                    </p>
+                    <p className={cn('text-xs font-semibold', pctTextClass(r.percentage))}>{r.percentage}%</p>
+                  </div>
+                </div>
+                <div className="min-w-0 space-y-0.5 text-sm text-muted-foreground">
+                  <div className="flex items-start gap-1.5">
+                    <span className="line-clamp-2 wrap-break-word">{r.testTitle}</span>
+                    {r.kind === 'homework' && (
+                      <Badge variant="outline" className="mt-0.5 text-[10px] px-1 py-0 shrink-0 text-blue-600 border-blue-300">
+                        ДЗ
+                      </Badge>
+                    )}
+                  </div>
+                  {r.programTitle && (
+                    <div className="flex items-start gap-1 text-[11px] text-indigo-600 dark:text-indigo-400">
+                      <Route className="mt-0.5 h-3 w-3 shrink-0" />
+                      <span className="wrap-break-word">{r.programTitle}{r.topicTitle ? ` · ${r.topicTitle}` : ''}</span>
+                    </div>
+                  )}
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                    <Badge variant={r.status === 'checked' ? 'default' : 'secondary'} className="text-xs">
+                      {r.status === 'checked' ? 'Завершён' : 'На проверке'}
+                    </Badge>
+                    {r.submittedAt && (
+                      <span className="text-xs text-muted-foreground">{new Date(r.submittedAt).toLocaleDateString('ru-RU')}</span>
+                    )}
+                  </div>
+                  <Button
+                    variant={r.status === 'submitted' ? 'default' : 'outline'}
+                    size="sm"
+                    className="h-9 shrink-0"
+                    onClick={() => setSelectedAttemptId(r.attemptId)}
+                  >
+                    {r.status === 'submitted' ? 'Проверить' : 'Детали'}
+                  </Button>
+                </div>
+              </li>
+            ))}
+          </ul>
+          <div className="hidden overflow-x-auto md:block">
           <table className="w-full text-sm">
             <thead className="bg-muted/50 border-b">
               <tr>
@@ -272,6 +337,7 @@ export function ResultsClient({ rows, tests, programs }: Props) {
               ))}
             </tbody>
           </table>
+          </div>
         </div>
       )}
 

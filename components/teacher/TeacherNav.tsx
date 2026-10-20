@@ -1,11 +1,11 @@
 'use client'
 
 import { useState } from 'react'
-import Link from 'next/link'
+import Link, { useLinkStatus } from 'next/link'
 import { usePathname, useSearchParams } from 'next/navigation'
 import { LogoutButton } from '@/components/shared/LogoutButton'
 import { SwitchAccountButton } from '@/components/shared/SwitchAccountButton'
-import { BookOpen, Users, GraduationCap, Monitor, BarChart2, TrendingUp, Menu, X, ListChecks, Library, Bell, Settings, PenLine, ChevronDown, ClipboardCheck, Share2 } from 'lucide-react'
+import { BookOpen, Users, GraduationCap, Monitor, BarChart2, TrendingUp, Menu, X, ListChecks, Library, Bell, Settings, PenLine, ChevronDown, ClipboardCheck, Share2, Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useLiveCount } from '@/lib/hooks/usePolling'
 import { sectionOfExamTypes } from '@/lib/library/sections'
@@ -81,6 +81,22 @@ interface Props {
   pendingRequests: number
 }
 
+// Спиннер у пункта, по которому кликнули, пока страница ещё грузится
+// (useLinkStatus — только внутри <Link>). Рендерится всегда, меняется лишь
+// прозрачность — иначе подпись пункта прыгала бы при появлении значка.
+function NavPendingIndicator() {
+  const { pending } = useLinkStatus()
+  return (
+    <Loader2
+      aria-hidden
+      className={cn(
+        'h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground transition-opacity',
+        pending ? 'opacity-100' : 'opacity-0',
+      )}
+    />
+  )
+}
+
 function NavLink({
   href,
   label,
@@ -114,13 +130,19 @@ function NavLink({
     ? sectionOfExamTypes(hrefExamTypes) === sectionOfExamTypes(searchParams.getAll('exam_type'))
     : (hrefExamTypes[0] ?? '') === (searchParams.get('exam_type') ?? '')
   const active = pathMatches && examTypeMatches
+  const search = searchParams.toString()
+  const isCurrentUrl = href === (search ? `${pathname}?${search}` : pathname)
+  const hasBadge = badge != null && badge > 0
 
   return (
     <Link
       href={href}
-      onClick={onClick}
+      // Мобильное меню закрывается само, когда адрес сменится (см. TeacherNav):
+      // так спиннер у пункта виден, пока грузится страница. Сразу закрываем
+      // только при клике по уже открытой странице — перехода не будет.
+      onClick={isCurrentUrl ? onClick : undefined}
       className={cn(
-        'flex items-center gap-2.5 px-3 py-2 text-sm rounded-md mx-2 transition-colors relative',
+        'flex items-center gap-2.5 px-3 py-2 text-sm rounded-md mx-2 transition-colors relative max-md:py-2.5 active:bg-muted',
         active
           ? 'bg-primary/10 text-primary font-medium'
           : 'text-muted-foreground hover:text-foreground hover:bg-muted'
@@ -128,7 +150,7 @@ function NavLink({
     >
       {Icon && <Icon className="h-4 w-4 shrink-0" />}
       <span className="truncate">{label}</span>
-      {badge != null && badge > 0 && (
+      {hasBadge && (
         <span className={cn(
           'ml-auto inline-flex items-center justify-center rounded-full min-w-4.5 h-4.5 px-1 text-[11px] font-semibold leading-none shrink-0',
           badgeVariant === 'warning'
@@ -138,6 +160,9 @@ function NavLink({
           {badge}
         </span>
       )}
+      <span className={cn('flex shrink-0', !hasBadge && 'ml-auto')}>
+        <NavPendingIndicator />
+      </span>
     </Link>
   )
 }
@@ -169,7 +194,7 @@ function NavGroup({ item, onLinkClick, childBadges }: { item: NavItem; onLinkCli
         onClick={() => setOpen(!open)}
         aria-expanded={open}
         className={cn(
-          'flex w-full items-center gap-2.5 px-3 py-2 text-sm rounded-md mx-2 transition-colors relative',
+          'flex w-full items-center gap-2.5 px-3 py-2 text-sm rounded-md mx-2 transition-colors relative max-md:py-2.5',
           'w-[calc(100%-1rem)]',
           childActive
             ? 'text-primary font-medium'
@@ -228,6 +253,19 @@ function NavList({ isAdmin, pendingRequests, monitorBadge, moderationBadge, prop
 export function TeacherNav({ fullName, isAdmin = false, pendingRequests }: Props) {
   const [mobileOpen, setMobileOpen] = useState(false)
 
+  // Мобильное меню закрывается, когда переход уже состоялся (сменился адрес),
+  // а не в момент тапа: пока страница грузится, у выбранного пункта крутится
+  // спиннер (NavPendingIndicator), и видно, что нажатие принято. Сброс прямо
+  // в рендере — паттерн «adjusting state when a prop changes», без эффекта.
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
+  const navKey = `${pathname}?${searchParams.toString()}`
+  const [lastNavKey, setLastNavKey] = useState(navKey)
+  if (lastNavKey !== navKey) {
+    setLastNavKey(navKey)
+    setMobileOpen(false)
+  }
+
   // Единый механизм живого обновления для всех бейджей — см. lib/hooks/usePolling.
   // Раньше «на проверке» держался на postgres_changes подписке, которая в этом
   // проекте молча не работает (publication supabase_realtime пуста), а «на
@@ -272,7 +310,7 @@ export function TeacherNav({ fullName, isAdmin = false, pendingRequests }: Props
         <button
           type="button"
           onClick={() => setMobileOpen(true)}
-          className="p-1.5 rounded-md hover:bg-muted"
+          className="-mr-2 p-2.5 rounded-md hover:bg-muted active:bg-muted"
           aria-label="Открыть меню"
         >
           <Menu className="h-5 w-5" />
@@ -286,16 +324,16 @@ export function TeacherNav({ fullName, isAdmin = false, pendingRequests }: Props
             className="fixed inset-0 z-40 bg-black/40 md:hidden"
             onClick={() => setMobileOpen(false)}
           />
-          <div className="fixed inset-y-0 left-0 z-50 w-64 bg-background border-r flex flex-col md:hidden">
+          <div className="fixed inset-y-0 left-0 z-50 w-72 max-w-[85vw] bg-background border-r flex flex-col md:hidden">
             <div className="h-14 flex items-center justify-between px-4 border-b shrink-0">
               <span className="font-semibold text-sm">ExamPlatform</span>
               <button
                 type="button"
                 onClick={() => setMobileOpen(false)}
-                className="p-1.5 rounded-md hover:bg-muted"
+                className="-mr-2 p-2.5 rounded-md hover:bg-muted active:bg-muted"
                 aria-label="Закрыть меню"
               >
-                <X className="h-4 w-4" />
+                <X className="h-5 w-5" />
               </button>
             </div>
             <NavList

@@ -1,8 +1,10 @@
 import type { Metadata } from 'next'
+import { Suspense } from 'react'
 import { headers } from 'next/headers'
 import { Geist, Geist_Mono } from 'next/font/google'
 import { Toaster } from '@/components/ui/sonner'
 import { StorageUrlProvider } from '@/components/shared/StorageUrlProvider'
+import { NavigationProgress } from '@/components/shared/NavigationProgress'
 import { RU_PROXY_HEADER } from '@/lib/supabase/ru-proxy'
 import './globals.css'
 
@@ -32,6 +34,8 @@ export default async function RootLayout({
   return (
     <html lang="ru" className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}>
       <body className="min-h-full flex flex-col">
+        {/* useSearchParams внутри — без Suspense статическая сборка страницы падает */}
+        <Suspense fallback={null}><NavigationProgress /></Suspense>
         <StorageUrlProvider viaRuProxy={viaRuProxy}>{children}</StorageUrlProvider>
         <Toaster richColors position="bottom-right" />
       </body>
