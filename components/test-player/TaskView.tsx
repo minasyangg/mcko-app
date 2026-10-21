@@ -12,7 +12,7 @@ import { SolutionPhotoUpload, type SolutionPhoto } from './SolutionPhotoUpload'
 import MarkdownContent from '@/components/shared/MarkdownContent'
 import { MathText } from '@/components/shared/MathText'
 import { markdownSource } from '@/lib/tasks/prompt'
-import { CheckCircle2, AlertCircle } from 'lucide-react'
+import { CheckCircle2, AlertCircle, Camera } from 'lucide-react'
 
 // Типы заданий с развёрнутым (текстовым) ответом — там, где есть смысл
 // показать ход письменного решения на бумаге. single/multiple_choice и
@@ -35,6 +35,8 @@ interface TaskViewProps {
   isLocked?: boolean
   priorFeedback?: TaskPriorFeedback
   attemptId: string
+  /** Проверяет учитель — просим фото решения (не блокирует сдачу) */
+  photoRequired?: boolean
   solutionPhotos?: SolutionPhoto[]
   onSolutionPhotosChange?: (photos: SolutionPhoto[]) => void
 }
@@ -73,8 +75,9 @@ function toParts(raw: Json): AnswerPart[] {
 
 export function TaskView({
   task, answer, onChange, images = [], disabled, isLocked, priorFeedback,
-  attemptId, solutionPhotos = [], onSolutionPhotosChange,
+  attemptId, photoRequired = false, solutionPhotos = [], onSolutionPhotosChange,
 }: TaskViewProps) {
+  const showPhotoUpload = photoRequired || SOLUTION_PHOTO_TASK_TYPES.has(task.task_type)
   const answerObj =
     answer !== null && answer !== undefined && typeof answer === 'object' && !Array.isArray(answer)
       ? (answer as Record<string, Json | undefined>)
@@ -270,7 +273,7 @@ export function TaskView({
           )}
           {/* Зачтённое задание фото не прячет — своё же приложенное решение
               полезно видеть и после блокировки, просто без права удалить. */}
-          {SOLUTION_PHOTO_TASK_TYPES.has(task.task_type) && solutionPhotos.length > 0 && onSolutionPhotosChange && (
+          {showPhotoUpload && solutionPhotos.length > 0 && onSolutionPhotosChange && (
             <SolutionPhotoUpload
               attemptId={attemptId}
               taskId={task.id}
@@ -311,9 +314,33 @@ export function TaskView({
               )}
             </div>
           )}
+          {/* Над полем ответа, а не у кнопки фото: на телефоне кнопка уходит
+              за сгиб, и ученик узнавал бы о фото уже после того, как решил. */}
+          {photoRequired && onSolutionPhotosChange && (
+            solutionPhotos.length === 0 ? (
+              <div className="flex items-start gap-2.5 rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-900 px-3 py-2.5 sm:px-4 sm:py-3">
+                <Camera className="h-5 w-5 text-amber-600 dark:text-amber-500 shrink-0 mt-0.5" />
+                <div className="space-y-0.5">
+                  <p className="text-sm font-medium text-amber-900 dark:text-amber-200">
+                    Нужно фото решения
+                  </p>
+                  <p className="text-xs text-amber-800 dark:text-amber-300">
+                    Это задание проверяет учитель. Решите его в тетради, сфотографируйте и
+                    прикрепите фото кнопкой ниже — без фото балл может быть снижен.
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 text-xs text-green-700 dark:text-green-400">
+                <CheckCircle2 className="h-4 w-4 shrink-0" />
+                Фото решения прикреплено — учитель увидит его при проверке.
+              </div>
+            )
+          )}
+
           <div>{renderInput()}</div>
 
-          {SOLUTION_PHOTO_TASK_TYPES.has(task.task_type) && onSolutionPhotosChange && (
+          {showPhotoUpload && onSolutionPhotosChange && (
             <SolutionPhotoUpload
               attemptId={attemptId}
               taskId={task.id}

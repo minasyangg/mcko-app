@@ -32,6 +32,8 @@ interface TestPlayerProps {
   priorFeedback?: Record<string, TaskPriorFeedback>
   taskMediaMap: Record<string, TaskMediaWithUrl[]>
   solutionPhotosMap?: Record<string, SolutionPhoto[]>
+  /** Задания с ручной проверкой учителем — к ним просим фото решения */
+  photoRequiredTaskIds?: string[]
   timeLimitSec: number | null
   testTitle: string
   subject: string | null
@@ -62,6 +64,7 @@ export function TestPlayer({
   priorFeedback = {},
   taskMediaMap,
   solutionPhotosMap = {},
+  photoRequiredTaskIds = [],
   timeLimitSec,
   testTitle,
   subject,
@@ -71,6 +74,7 @@ export function TestPlayer({
   theory = [],
 }: TestPlayerProps) {
   const lockedSet = new Set(lockedTaskIds)
+  const photoRequiredSet = new Set(photoRequiredTaskIds)
   const router = useRouter()
   const supabase = createClient()
 
@@ -263,6 +267,12 @@ export function TestPlayer({
     return false
   }).length
 
+  const missingPhotoTaskNumbers = tasks
+    .filter((t) =>
+      photoRequiredSet.has(t.id) && !lockedSet.has(t.id) && (solutionPhotos[t.id]?.length ?? 0) === 0
+    )
+    .map((t) => t.task_number)
+
   return (
     <div className="flex h-[100dvh] flex-col overflow-hidden bg-background">
       {/* Sticky header */}
@@ -374,6 +384,7 @@ export function TestPlayer({
                 isLocked={lockedSet.has(currentTask.id)}
                 priorFeedback={priorFeedback[currentTask.id]}
                 attemptId={attemptId}
+                photoRequired={photoRequiredSet.has(currentTask.id)}
                 solutionPhotos={solutionPhotos[currentTask.id] ?? []}
                 onSolutionPhotosChange={(photos) =>
                   setSolutionPhotos((prev) => ({ ...prev, [currentTask.id]: photos }))
@@ -468,6 +479,7 @@ export function TestPlayer({
         onConfirm={handleSubmit}
         answeredCount={answeredCount}
         totalCount={tasks.length}
+        missingPhotoTaskNumbers={missingPhotoTaskNumbers}
         isSubmitting={isSubmitting}
       />
     </div>

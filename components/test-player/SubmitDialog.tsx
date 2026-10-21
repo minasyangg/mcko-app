@@ -18,6 +18,8 @@ interface SubmitDialogProps {
   onConfirm: () => void
   answeredCount: number
   totalCount: number
+  /** Задания с ручной проверкой, к которым не приложено фото решения */
+  missingPhotoTaskNumbers?: number[]
   isSubmitting: boolean
 }
 
@@ -27,6 +29,7 @@ export function SubmitDialog({
   onConfirm,
   answeredCount,
   totalCount,
+  missingPhotoTaskNumbers = [],
   isSubmitting,
 }: SubmitDialogProps) {
   const unanswered = totalCount - answeredCount
@@ -52,6 +55,14 @@ export function SubmitDialog({
                 Вы ответили на все <strong>{totalCount}</strong> задачи. После
                 завершения изменить ответы будет невозможно.
               </>
+            )}
+            {/* span, а не p: Description сам рендерится как <p> */}
+            {missingPhotoTaskNumbers.length > 0 && (
+              <span className="mt-2 block text-amber-700 dark:text-amber-400">
+                Нет фото решения в {missingPhotoTaskNumbers.length === 1 ? 'задании' : 'заданиях'}{' '}
+                {'№ '}{missingPhotoTaskNumbers.join(', ')} — их проверяет учитель, без фото балл
+                может быть снижен.
+              </span>
             )}
           </AlertDialogDescription>
         </AlertDialogHeader>

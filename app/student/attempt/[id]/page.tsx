@@ -245,7 +245,7 @@ export default async function AttemptPage({ params }: PageProps) {
   // Load saved answers (with lock status), task media, previously attached
   // solution photos and prior-attempt feedback in parallel. Сохранённые ответы
   // читаются ПОСЛЕ переноса ответов выше — иначе перенесённых не будет видно.
-  const [{ data: savedAnswers }, { data: rawMedia }, { data: rawSolutionMedia }, { data: prevGraded }] = await Promise.all([
+  const [{ data: savedAnswers }, { data: rawMedia }, { data: rawSolutionMedia }, { data: prevGraded }, { data: keyMethods }] = await Promise.all([
     supabase
       .from('attempt_task_answers')
       .select('task_id, answer_json, is_locked, awarded_score')
@@ -266,7 +266,24 @@ export default async function AttemptPage({ params }: PageProps) {
           .select('task_id, awarded_score, teacher_comment, is_locked')
           .eq('attempt_id', prevCompleted.id)
       : Promise.resolve({ data: null }),
+    // Ключи ответов ученику по RLS недоступны — берём service-role, но только
+    // grading_method: эталон (correct_answer) отсюда на клиент не уходит.
+    createAdminClient()
+      .from('task_answer_keys')
+      .select('task_id, grading_method')
+      .in('task_id', taskIds),
   ])
+
+  // Ручная проверка — по тому же правилу, что finalize.ts: нет ключа или
+  // метод ключа (при пустом — задания) равен 'manual'. Поле самого задания
+  // расходится с ключом в десятках заданий, поэтому смотрим именно на ключ.
+  const keyMethodMap = new Map((keyMethods ?? []).map((k) => [k.task_id, k.grading_method]))
+  const photoRequiredTaskIds = tasks
+    .filter((t) => {
+      if (!keyMethodMap.has(t.id)) return true
+      return (keyMethodMap.get(t.id) ?? t.grading_method ?? 'manual') === 'manual'
+    })
+    .map((t) => t.id)
 
   const priorFeedback: Record<string, { awardedScore: number; teacherComment: string | null }> = {}
   for (const a of prevGraded ?? []) {
@@ -333,6 +350,7 @@ export default async function AttemptPage({ params }: PageProps) {
       priorFeedback={priorFeedback}
       taskMediaMap={taskMediaMap}
       solutionPhotosMap={solutionPhotosMap}
+      photoRequiredTaskIds={photoRequiredTaskIds}
       timeLimitSec={timeLimitSec}
       testTitle={test?.title ?? 'Тест'}
       subject={test?.subject ?? null}
