@@ -147,23 +147,24 @@ export function TestPlayer({
     setShowNavigator(false)
   }
 
-  // Heartbeat
+  // Монитор учителя читает current_task_number/last_activity_at из attempts; статус-фильтр — чтобы после сдачи не упереться в trg_prevent_student_self_attempt_status
   useEffect(() => {
     async function sendHeartbeat() {
       try {
-        const { data: { user } } = await supabase.auth.getUser()
-        if (!user) return
-        await supabase.from('presence_events').insert({
-          attempt_id: attemptId,
-          student_id: user.id,
-          event_type: 'heartbeat',
-          current_task_number: tasks[currentIdx]?.task_number ?? 1,
-        })
+        await supabase
+          .from('attempts')
+          .update({
+            current_task_number: tasks[currentIdx]?.task_number ?? 1,
+            last_activity_at: new Date().toISOString(),
+          })
+          .eq('id', attemptId)
+          .eq('status', 'in_progress')
       } catch {
         // Heartbeat failure is non-critical — attempt continues
       }
     }
 
+    sendHeartbeat()
     const interval = setInterval(sendHeartbeat, HEARTBEAT_MS)
     return () => clearInterval(interval)
     // eslint-disable-next-line react-hooks/exhaustive-deps

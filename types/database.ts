@@ -2184,51 +2184,6 @@ export type Database = {
           },
         ]
       }
-      presence_events: {
-        Row: {
-          attempt_id: string | null
-          created_at: string | null
-          current_task_number: number | null
-          event_type: string
-          id: string
-          meta: Json | null
-          student_id: string | null
-        }
-        Insert: {
-          attempt_id?: string | null
-          created_at?: string | null
-          current_task_number?: number | null
-          event_type: string
-          id?: string
-          meta?: Json | null
-          student_id?: string | null
-        }
-        Update: {
-          attempt_id?: string | null
-          created_at?: string | null
-          current_task_number?: number | null
-          event_type?: string
-          id?: string
-          meta?: Json | null
-          student_id?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "presence_events_attempt_id_fkey"
-            columns: ["attempt_id"]
-            isOneToOne: false
-            referencedRelation: "attempts"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "presence_events_student_id_fkey"
-            columns: ["student_id"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       profiles: {
         Row: {
           created_at: string | null
@@ -3779,18 +3734,6 @@ export type Database = {
       delete_student_cascade: {
         Args: { target_student_id: string }
         Returns: Json
-      }
-      diagnose_roadmap_mistakes: {
-        Args: { p_lookback_days?: number; p_roadmap_id: string }
-        Returns: {
-          err_pct: number
-          fgos_grade: string
-          fipi_code: string
-          library_topic_id: string
-          topic_name: string
-          total: number
-          wrong: number
-        }[]
       }
       doska_board_in_auth_org: {
         Args: { p_board_id: string }

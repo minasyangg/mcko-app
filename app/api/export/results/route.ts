@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
 import { getAuthUser } from '@/lib/supabase/auth-user'
+import { gradeLabel } from '@/lib/students/grade-label'
 
 export async function GET(request: Request) {
   const supabase = await createClient()
@@ -122,7 +123,7 @@ export async function GET(request: Request) {
       // класс на момент сдачи, а не текущий: после ежегодного перевода
       // (миграция 047) профиль показывает уже следующий класс, и старый
       // отчёт иначе задним числом «повышал» ученика
-      a.grade_at_attempt ?? profile?.grade ?? '',
+      a.grade_at_attempt ?? gradeLabel(profile?.grade, profile?.study_stage),
       group?.name ?? '',
       test?.title ?? '',
       kind,

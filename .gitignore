@@ -39,6 +39,9 @@ book-import-sql/
 # Артефакт инкрементальной сборки TypeScript
 tsconfig.tsbuildinfo
 
+# Граф знаний graphify — локальный, пересобирается командой /graphify
+/graphify-out/
+
 # Windows-устройство, а не файл: появляется от ошибочных перенаправлений
 # вида `cmd > nul` и ломает git add
 nul

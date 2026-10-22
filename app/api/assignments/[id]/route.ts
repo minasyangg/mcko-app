@@ -49,11 +49,10 @@ export async function DELETE(
   const attemptIds = (attempts ?? []).map(a => a.id)
 
   if (attemptIds.length > 0) {
-    // Три независимые таблицы — параллельно, затем сами attempts (зависит
+    // Две независимые таблицы — параллельно, затем сами attempts (зависит
     // от того, что дочерние строки уже удалены).
     await Promise.all([
       admin.from('attempt_task_answers').delete().in('attempt_id', attemptIds),
-      admin.from('presence_events').delete().in('attempt_id', attemptIds),
       admin.from('solution_requests').delete().in('attempt_id', attemptIds),
     ])
     await admin.from('attempts').delete().in('id', attemptIds)

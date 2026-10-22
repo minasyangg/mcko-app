@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Database } from '@/types/database'
 import { getAuthUser } from '@/lib/supabase/auth-user'
+import type { StudyStage } from '@/lib/students/grade-label'
 
 export interface TestAttemptStats {
   totalAttempts: number
@@ -29,6 +30,8 @@ export interface AttemptRow {
   studentId: string
   studentName: string
   grade: string | null
+  // ступень учитывается только без снимка класса в попытке (см. grade ниже)
+  studyStage: StudyStage
   groupName: string | null
   testTitle: string
   // тип задания: обычный тест или домашнее задание; вес результата одинаковый,
@@ -225,6 +228,7 @@ export async function getAttemptRows(
       // задним числом «переезжали» в него. Фолбэк на профиль — для строк,
       // созданных до появления снимка.
       grade: a.grade_at_attempt ?? profile?.grade ?? null,
+      studyStage: a.grade_at_attempt ? null : (profile?.study_stage ?? null),
       groupName: group?.name ?? null,
       testTitle: test?.title ?? '—',
       kind,
