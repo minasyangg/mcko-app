@@ -14,6 +14,7 @@ import { AttemptDrawer } from '@/components/teacher/AttemptDrawer'
 import { TrendingUp, ChevronDown, ChevronRight, Search, Route } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { AttemptRow } from '@/lib/analytics/queries'
+import { gradeLabel, gradeWithSuffix } from '@/lib/students/grade-label'
 
 interface Props {
   rows: AttemptRow[]
@@ -201,9 +202,12 @@ export function ResultsClient({ rows, tests, programs }: Props) {
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <p className="font-medium leading-snug wrap-break-word">{r.studentName}</p>
-                    {(r.grade || r.groupName) && (
+                    {(r.grade || r.studyStage === 'student' || r.groupName) && (
                       <p className="mt-0.5 text-xs text-muted-foreground wrap-break-word">
-                        {[r.grade ? `${r.grade} класс` : null, r.groupName].filter(Boolean).join(' · ')}
+                        {[
+                          r.grade || r.studyStage === 'student' ? gradeWithSuffix(r.grade, r.studyStage) : null,
+                          r.groupName,
+                        ].filter(Boolean).join(' · ')}
                       </p>
                     )}
                   </div>
@@ -271,7 +275,7 @@ export function ResultsClient({ rows, tests, programs }: Props) {
               {visible.map((r) => (
                 <tr key={r.attemptId} className="hover:bg-muted/30 transition-colors">
                   <td className="px-4 py-3 font-medium">{r.studentName}</td>
-                  <td className="px-4 py-3 text-muted-foreground">{r.grade ?? '—'}</td>
+                  <td className="px-4 py-3 text-muted-foreground">{gradeLabel(r.grade, r.studyStage)}</td>
                   <td className="px-4 py-3 text-muted-foreground">{r.groupName ?? '—'}</td>
                   <td className="px-4 py-3 text-muted-foreground max-w-48" title={r.testTitle}>
                     <div className="flex items-center gap-1.5 min-w-0">
