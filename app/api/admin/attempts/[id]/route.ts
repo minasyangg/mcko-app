@@ -3,8 +3,8 @@ import { requireAdmin } from '@/lib/auth/authorize'
 import { updateCumulativeResult } from '@/lib/grading/finalize'
 
 // DELETE /api/admin/attempts/[id] — удалить попытку ученика. Только admin.
-// Каскадом удаляются ответы (attempt_task_answers) и события присутствия
-// (presence_events); solution_requests (без каскада) удаляются вручную.
+// Каскадом удаляются ответы (attempt_task_answers); solution_requests (без
+// каскада) удаляются вручную.
 // Накопительный итог (student_final_results) пересчитывается по оставшимся
 // завершённым попыткам.
 export async function DELETE(

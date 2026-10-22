@@ -107,13 +107,12 @@ export async function DELETE(_req: NextRequest, { params }: Params) {
     const attemptIds = (attempts ?? []).map(a => a.id)
 
     if (attemptIds.length > 0) {
-      // 3. Delete attempt_task_answers, presence_events, solution_requests —
-      // три независимые таблицы, ничто не ссылается друг на друга между
+      // 3. Delete attempt_task_answers, solution_requests —
+      // две независимые таблицы, ничто не ссылается друг на друга между
       // ними — параллельно. Должны завершиться ДО удаления самих attempts
       // (шаг 4), поэтому Promise.all, а не смешивание с ним.
       await Promise.all([
         admin.from('attempt_task_answers').delete().in('attempt_id', attemptIds),
-        admin.from('presence_events').delete().in('attempt_id', attemptIds),
         admin.from('solution_requests').delete().in('attempt_id', attemptIds),
       ])
       // 4. Delete attempts
