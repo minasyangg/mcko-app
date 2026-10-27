@@ -37,7 +37,13 @@
 //   склеиваем продолжение с предыдущей строкой;
 // - буквы А/Б/В/Г в заданиях на соответствие приходят латиницей и греческими
 //   (A, B, β, Γ) — по позиции заменяем на русские.
+//
+// Вариант ЕГЭ по физике «РЕШУ ЕГЭ» (2026-10-27): рисунок-таблицу
+// (фрагмент таблицы Менделеева в задании 16) PaddleOCR распознал таблицей с
+// буквальными «\n» в ячейках и водяным знаком сайта «решуегэ.рф» в
+// последней ячейке — переносы чинит fixCellLineBreaks, знак вырезаем.
 import { cleanParsedAnswer, detectGradingMethodInContext, normalizeAnswerForMethod, requiresExplanation } from '@/lib/grading/answer-heuristics'
+import { fixCellLineBreaks } from '@/lib/ocr/table-cells'
 import type { JsonTaskRaw, ParsedExamDocument, ParseWarning, PaddlePage } from './types'
 import type { PaddleBlock } from './types'
 
@@ -46,6 +52,10 @@ const SKIP = new Set(['header', 'footer', 'number', 'header_image', 'footer_imag
 // Заголовок задания «РЕШУ ОГЭ/ЕГЭ»: «18. Тип 18 № 2373». OCR путает
 // кириллицу с латиницей — «Tun 3 No», поэтому «Тип» допускаем и латиницей.
 const SDAMGIA_TASK_TITLE = /^#*\s*\d{1,3}\.\s*[ТT][иu][пn]\s*\d+/
+
+// Водяной знак «решуегэ.рф»/«решуогэ.рф» с рисунков сайта (вместе с
+// переносом перед ним); е/о OCR читает и латиницей
+const SDAMGIA_WATERMARK_RE = /(?:\\n|<br>|\s)*решу[еeоo]гэ\.рф/gi
 
 const isKeyTitle = (content: string) => /^Ключ\s*$/i.test(content.replace(/^#+\s*/, '').trim())
 
@@ -368,9 +378,10 @@ export function parseGeneric(pages: PaddlePage[]): ParsedExamDocument {
         else cur.conditionImageRefs.push(ref)
 
       } else if (label === 'table') {
-        // HTML table — keep as-is
-        if (inSolution) cur.solutionParts.push(block.block_content)
-        else cur.conditionParts.push(block.block_content)
+        // HTML table — как есть, кроме переносов в ячейках и водяного знака
+        const table = fixCellLineBreaks(block.block_content.replace(SDAMGIA_WATERMARK_RE, ''))
+        if (inSolution) cur.solutionParts.push(table)
+        else cur.conditionParts.push(table)
 
       } else if (label === 'figure_title') {
         const caption = `*${block.block_content.replace(/^#+\s*/, '').trim()}*`

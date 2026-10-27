@@ -11,6 +11,7 @@ import 'katex/dist/katex.min.css'
 import { FunctionGraph } from '@/components/shared/plots/FunctionGraph'
 import { DataChart } from '@/components/shared/plots/DataChart'
 import { useStorageUrl } from '@/components/shared/StorageUrlProvider'
+import { fixCellLineBreaks } from '@/lib/ocr/table-cells'
 
 // rehype-sanitize schema: allow HTML tables (PaddleOCR) + KaTeX output
 // KaTeX uses <svg>/<path> for stretchy symbols like √ even with output:'html'
@@ -233,7 +234,7 @@ const MarkdownPre: Components['pre'] = ({ node, children, ...rest }) => {
 }
 
 export default function MarkdownContent({ content }: { content: string }) {
-  const processed = prerenderMath(reformatMatchingTask(content))
+  const processed = prerenderMath(reformatMatchingTask(fixCellLineBreaks(content)))
   // .katex-display: только горизонтальный скролл (длинная формула шире
   // колонки). overflow-x:auto сам включает и вертикальный, а строчные коробки
   // дробей выступают за низ блока на 3–7 px — у каждой display-формулы
