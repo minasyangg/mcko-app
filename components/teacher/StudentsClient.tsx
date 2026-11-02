@@ -19,7 +19,8 @@ import {
   AlertDialogHeader, AlertDialogMedia, AlertDialogTitle, AlertDialogTrigger,
 } from '@/components/ui/alert-dialog'
 import { ConfirmDeleteAction } from '@/components/shared/ConfirmDeleteAction'
-import { Pencil, Trash2, UserX, Eye, EyeOff, UserMinus, AlertTriangle, Loader2 } from 'lucide-react'
+import { UserAccountFields, cleanTelegram, isTelegramValid } from '@/components/teacher/UserAccountFields'
+import { Pencil, Trash2, UserX, UserMinus, AlertTriangle, Loader2 } from 'lucide-react'
 
 export interface StudentRow {
   id: string
@@ -63,7 +64,6 @@ export function StudentsClient({ students: initial, isAdmin = false, teachers = 
   const [editTarget, setEditTarget] = useState<StudentRow | null>(null)
   const editLoadTokenRef = useRef(0)
   const [editForm, setEditForm] = useState({ full_name: '', grade: '', email: '', password: '', telegram: '', parentTelegram: '' })
-  const [showPwd, setShowPwd] = useState(false)
   const [saving, setSaving] = useState(false)
 
   // Шаринг сданных работ (087_assignment_sharing) — рубильник + whitelist
@@ -124,7 +124,6 @@ export function StudentsClient({ students: initial, isAdmin = false, teachers = 
       telegram: s.telegram_username ?? '',
       parentTelegram: s.parent_telegram_username ?? '',
     })
-    setShowPwd(false)
 
     setShareLoading(true)
     try {
@@ -139,11 +138,11 @@ export function StudentsClient({ students: initial, isAdmin = false, teachers = 
     }
   }
 
-  const editTelegram = editForm.telegram.trim().replace(/^@/, '')
-  const editTelegramValid = editTelegram === '' || /^[A-Za-z0-9_]{5,32}$/.test(editTelegram)
+  const editTelegram = cleanTelegram(editForm.telegram)
+  const editTelegramValid = isTelegramValid(editTelegram)
   // Ник родителя — необязательное поле (см. правило "опционально, не обязательно").
-  const editParentTelegram = editForm.parentTelegram.trim().replace(/^@/, '')
-  const editParentTelegramValid = editParentTelegram === '' || /^[A-Za-z0-9_]{5,32}$/.test(editParentTelegram)
+  const editParentTelegram = cleanTelegram(editForm.parentTelegram)
+  const editParentTelegramValid = isTelegramValid(editParentTelegram)
 
   async function handleSave() {
     if (!editTarget) return
@@ -571,108 +570,46 @@ export function StudentsClient({ students: initial, isAdmin = false, teachers = 
               <DialogTitle>Редактировать: {editTarget?.full_name}</DialogTitle>
             </DialogHeader>
             <div className="space-y-3 py-2">
-              <div className="space-y-1">
-                <Label htmlFor="edit-name">Полное имя</Label>
-                <Input
-                  id="edit-name"
-                  value={editForm.full_name}
-                  onChange={(e) => setEditForm((p) => ({ ...p, full_name: e.target.value }))}
-                />
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="edit-grade">Класс</Label>
-                <Input
-                  id="edit-grade"
-                  value={editForm.grade}
-                  onChange={(e) => setEditForm((p) => ({ ...p, grade: e.target.value }))}
-                  placeholder="10А, 9Б..."
-                />
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="edit-tg">
-                  Ник Telegram <span className="text-muted-foreground text-xs">(необязательно)</span>
-                </Label>
-                <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">@</span>
-                  <Input
-                    id="edit-tg"
-                    value={editForm.telegram}
-                    onChange={(e) => setEditForm((p) => ({ ...p, telegram: e.target.value.replace(/^@/, '') }))}
-                    placeholder="username"
-                    className="pl-7"
-                  />
-                </div>
-                {!editTelegramValid && <p className="text-xs text-destructive">5–32 символа: латиница, цифры, _</p>}
-                <p className="text-xs text-muted-foreground">Смена ника отвяжет старый чат — ученик заново нажмёт «Start».</p>
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="edit-tg-parent">
-                  Ник Telegram родителя <span className="text-muted-foreground text-xs">(необязательно)</span>
-                </Label>
-                <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">@</span>
-                  <Input
-                    id="edit-tg-parent"
-                    value={editForm.parentTelegram}
-                    onChange={(e) => setEditForm((p) => ({ ...p, parentTelegram: e.target.value.replace(/^@/, '') }))}
-                    placeholder="username"
-                    className="pl-7"
-                  />
-                </div>
-                {!editParentTelegramValid && <p className="text-xs text-destructive">5–32 символа: латиница, цифры, _</p>}
-                <p className="text-xs text-muted-foreground">
-                  Родитель получает те же уведомления, что и ученик (о назначении и проверке работ),
-                  тем же ботом. Чтобы подключить — родитель нажимает «Start» у бота после того, как ник сохранён здесь.
-                </p>
-              </div>
-              {editTarget?.email && (
-                <div className="space-y-1">
-                  <Label className="text-muted-foreground">Текущий email</Label>
-                  <p className="text-sm px-3 py-2 rounded-md bg-muted text-muted-foreground font-mono">{editTarget.email}</p>
-                </div>
-              )}
-              <div className="space-y-1">
-                <Label htmlFor="edit-email">Новый email <span className="text-muted-foreground text-xs">(необязательно)</span></Label>
-                <Input
-                  id="edit-email"
-                  type="email"
-                  // Браузер (особенно Chrome) агрессивно автозаполняет поля с
-                  // id/name, похожим на "email", сохранённым значением из
-                  // истории — уже ПОСЛЕ монтирования, минуя React `value`.
-                  // Живой инцидент: пустое editForm.email при открытии
-                  // формы, но DOM после autofill содержал чужой email из
-                  // истории браузера — handleSave() честно отправил его как
-                  // "новый email", сервер упал на уникальном индексе
-                  // auth.users (другой пользователь уже занимает этот email),
-                  // а рассинхрон React state vs DOM после autofill дальше
-                  // давал hydration mismatch (React error #418) в консоли.
-                  autoComplete="off"
-                  value={editForm.email}
-                  onChange={(e) => setEditForm((p) => ({ ...p, email: e.target.value }))}
-                  placeholder="Оставьте пустым, чтобы не менять"
-                />
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="edit-pwd">Новый пароль <span className="text-muted-foreground text-xs">(необязательно)</span></Label>
-                <div className="relative">
-                  <Input
-                    id="edit-pwd"
-                    autoComplete="new-password"
-                    type={showPwd ? 'text' : 'password'}
-                    value={editForm.password}
-                    onChange={(e) => setEditForm((p) => ({ ...p, password: e.target.value }))}
-                    placeholder="Минимум 6 символов"
-                    className="pr-10"
-                  />
-                  <button
-                    type="button"
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                    onClick={() => setShowPwd((v) => !v)}
-                  >
-                    {showPwd ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  </button>
-                </div>
-              </div>
+              <UserAccountFields
+                idPrefix="edit"
+                value={editForm}
+                onChange={(patch) => setEditForm((p) => ({ ...p, ...patch }))}
+                currentEmail={editTarget?.email}
+                telegramHint="Смена ника отвяжет старый чат — ученик заново нажмёт «Start»."
+                afterName={
+                  <div className="space-y-1">
+                    <Label htmlFor="edit-grade">Класс</Label>
+                    <Input
+                      id="edit-grade"
+                      value={editForm.grade}
+                      onChange={(e) => setEditForm((p) => ({ ...p, grade: e.target.value }))}
+                      placeholder="10А, 9Б..."
+                    />
+                  </div>
+                }
+                afterTelegram={
+                  <div className="space-y-1">
+                    <Label htmlFor="edit-tg-parent">
+                      Ник Telegram родителя <span className="text-muted-foreground text-xs">(необязательно)</span>
+                    </Label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">@</span>
+                      <Input
+                        id="edit-tg-parent"
+                        value={editForm.parentTelegram}
+                        onChange={(e) => setEditForm((p) => ({ ...p, parentTelegram: e.target.value.replace(/^@/, '') }))}
+                        placeholder="username"
+                        className="pl-7"
+                      />
+                    </div>
+                    {!editParentTelegramValid && <p className="text-xs text-destructive">5–32 символа: латиница, цифры, _</p>}
+                    <p className="text-xs text-muted-foreground">
+                      Родитель получает те же уведомления, что и ученик (о назначении и проверке работ),
+                      тем же ботом. Чтобы подключить — родитель нажимает «Start» у бота после того, как ник сохранён здесь.
+                    </p>
+                  </div>
+                }
+              />
 
               {/* Шаринг сданных работ (087) — рубильник + TTL + whitelist
                   получателей. Отдельный блок сохранений от editForm: каждое

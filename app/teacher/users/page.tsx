@@ -27,9 +27,10 @@ export default async function UsersPage() {
       .order('full_name'),
     supabase
       .from('profiles')
-      .select('id, full_name, is_active, created_at, email')
+      .select('id, full_name, is_active, created_at, email, telegram_username')
       .eq('role', 'teacher')
       .eq('organization_id', org)
+      .order('is_active', { ascending: false, nullsFirst: false })
       .order('full_name'),
     supabase.from('teacher_students').select('teacher_id, student_id'),
   ])
@@ -58,6 +59,7 @@ export default async function UsersPage() {
     full_name: t.full_name,
     is_active: t.is_active,
     email: t.email ?? '',
+    telegram_username: t.telegram_username,
     student_count: countByTeacher.get(t.id) ?? 0,
   }))
 
