@@ -25,6 +25,7 @@ interface TeacherRow {
   id: string
   full_name: string
   email: string
+  telegram_username?: string | null
   is_active: boolean | null
   student_count: number
 }
@@ -47,6 +48,8 @@ export function UsersClient({
   usePolling(() => router.refresh())
 
   const teacherOptions: TeacherOption[] = teachers.map(t => ({ id: t.id, full_name: t.full_name }))
+  // Закрепить нового ученика можно только за действующим учителем: деактивированный не входит в систему
+  const activeTeacherOptions = teacherOptions.filter(o => teachers.find(t => t.id === o.id)?.is_active !== false)
   const studentsForAssign = students.map(s => ({
     id: s.id, full_name: s.full_name, grade: s.grade, teacher_ids: s.teacher_ids ?? [], is_active: s.is_active,
   }))
@@ -141,7 +144,7 @@ export function UsersClient({
         </TabsContent>
 
         <TabsContent value="moderation" className="pt-4">
-          <ModerationTab pending={pending} teachers={teacherOptions} />
+          <ModerationTab pending={pending} teachers={activeTeacherOptions} />
         </TabsContent>
 
         <TabsContent value="teachers" className="pt-4">
@@ -193,7 +196,7 @@ export function UsersClient({
               <div className="space-y-1">
                 <Label>Ответственный учитель</Label>
                 <SearchableSelect
-                  options={teacherOptions.map(t => ({ value: t.id, label: t.full_name }))}
+                  options={activeTeacherOptions.map(t => ({ value: t.id, label: t.full_name }))}
                   value={form.teacher_id}
                   onChange={(v) => setForm(p => ({ ...p, teacher_id: v }))}
                   placeholder="Выберите учителя"
