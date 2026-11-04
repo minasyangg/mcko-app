@@ -626,7 +626,9 @@ async function withRetry(fn, label, attempts = 5) {
 
 const { createClient } = await import('@supabase/supabase-js')
 const sharp = (await import('sharp')).default
-const db = createClient(url, key)
+// без таймаута запрос через перехват TLS (Avast) иногда висит бесконечно — withRetry его не дождётся
+const timedFetch = (input, init = {}) => fetch(input, { ...init, signal: init.signal ?? AbortSignal.timeout(30_000) })
+const db = createClient(url, key, { global: { fetch: timedFetch } })
 
 // Рисунки — до записи книги: без них страницы показали бы битые картинки
 fs.mkdirSync(pagesDir, { recursive: true })
