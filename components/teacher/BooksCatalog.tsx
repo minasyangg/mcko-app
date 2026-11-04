@@ -20,6 +20,7 @@ import {
 } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
 import { BookOpen, Search, Loader2, X, Trash2, Pencil, ChevronDown } from 'lucide-react'
+import { bookTypeLabel } from '@/lib/books/book-types'
 
 export interface CatalogBook {
   id: string
@@ -44,13 +45,6 @@ interface ProblemHit {
   task_number: string
   section_id: string | null
   snippet: string
-}
-
-const bookTypeLabel: Record<string, string> = {
-  textbook: 'Учебник',
-  problem_book: 'Задачник',
-  workbook: 'Рабочая тетрадь',
-  didactic: 'Дидактические материалы',
 }
 
 const ALL = '_all'
@@ -293,7 +287,7 @@ export function BooksCatalog({ books: initialBooks }: { books: CatalogBook[] }) 
                                   <BookOpen className="h-8 w-8 text-primary/70 shrink-0" />
                                   <div className="flex items-center gap-1 shrink-0">
                                     <Badge variant="outline" className="text-xs">
-                                      {bookTypeLabel[book.book_type] ?? book.book_type}
+                                      {bookTypeLabel(book.book_type)}
                                     </Badge>
                                     {book.can_edit && (
                                       <Button

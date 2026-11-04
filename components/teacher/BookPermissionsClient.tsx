@@ -10,6 +10,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from '@/components/ui/alert-dialog'
 import { ChevronDown, ChevronRight, Trash2, BookOpen, Loader2 } from 'lucide-react'
+import { bookTypeLabel } from '@/lib/books/book-types'
 
 interface Grant { teacher_id: string; can_delete: boolean }
 interface BookRow {
@@ -22,11 +23,6 @@ interface BookRow {
   grants: Grant[]
 }
 interface TeacherOption { id: string; full_name: string }
-
-const bookTypeLabel: Record<string, string> = {
-  textbook: 'Учебник', problem_book: 'Задачник',
-  workbook: 'Рабочая тетрадь', didactic: 'Дидактические материалы',
-}
 
 export function BookPermissionsClient({ books: initial, teachers }: { books: BookRow[]; teachers: TeacherOption[] }) {
   const router = useRouter()
@@ -112,7 +108,7 @@ export function BookPermissionsClient({ books: initial, teachers }: { books: Boo
                 {open ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
                 <BookOpen className="h-4 w-4 text-primary/70 shrink-0" />
                 <span className="font-medium truncate">{book.title}</span>
-                <Badge variant="outline" className="text-[11px] shrink-0">{bookTypeLabel[book.book_type] ?? book.book_type}</Badge>
+                <Badge variant="outline" className="text-[11px] shrink-0">{bookTypeLabel(book.book_type)}</Badge>
                 {grantCount > 0 && (
                   <span className="text-xs text-muted-foreground shrink-0">доступ: {grantCount}</span>
                 )}
