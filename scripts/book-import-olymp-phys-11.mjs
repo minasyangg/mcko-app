@@ -26,14 +26,16 @@
 //     задачи). Глифы меньше 70×70 px — декор, выкидываются (см. AGENTS.md).
 //  5. Пишет книгу (book_type 'olympiad', «Физика», 10-11 класс), главы,
 //     параграфы, страницы и задачи. Markdown страницы собирается заново:
-//     условие задачи — непрерывный фрагмент (md_start/md_end), под ним строка
-//     «**Ответ:** …», ссылки «Дополнительные задачи — в листке …» (листки
-//     MathUs, гиперссылок в OCR нет) не переносятся.
+//     условие задачи — непрерывный фрагмент (md_start/md_end) на странице
+//     заголовка, даже если в книге оно переходит на следующую; без --answers под
+//     ним строка «**Ответ:** …» из OCR (только для сверки). Ссылки
+//     «Дополнительные задачи — в листке …» (листки MathUs, гиперссылок в OCR
+//     нет) не переносятся.
 //
 // Ответы в книге напечатаны ВВЕРХ НОГАМИ — OCR читает их с ошибками в цифрах
 // (9↔6, пропуски строк), поэтому источник истины — сверенный глазами по
 // вырезкам файл --answers (TSV «номер<TAB>ответ markdown»). С ним OCR-блоки
-// ответов в страницу не выводятся, строка «**Ответ:**» берётся из файла, а
+// ответов в страницу не выводятся, ответ попадает только в correct_answer, а
 // задача без строки в файле получает answer_source 'none' (качественные,
 // на доказательство, на построение графика).
 //
@@ -87,6 +89,15 @@ const TASK_RE = /^(\d)\.(\d{1,2})\.(\d{1,2}|[bб])\.\s*/
 const taskNo = (s) => (/^[bб]$/.test(s) ? 6 : +s) // OCR читает «6» как «b»: 2.14.b.
 const SECTION_RE = /^#*\s*(\d)\.(\d{1,2})\s+(\S.*)$/
 const CHAPTER_RE = /^#*\s*Глава\s+(\d)\s*$/
+// ссылка на листок MathUs — в OCR без гиперссылки, не переносим. Не \b: в JS
+// граница слова есть только у латиницы, после «задачи» она не срабатывает
+const EXTRA_RE = /^Дополнительные задачи(?![а-яё])/
+// опечатки OCR в названиях параграфов (и в оглавлении, и в заголовке на странице)
+const SECTION_TITLE_FIXES = {
+  'Система двух лин3': 'Система двух линз',
+  'Самониндукция': 'Самоиндукция',
+  'Основное уравнение MKT идеального газа': 'Основное уравнение МКТ идеального газа',
+}
 
 // ── Нормализация текста ──────────────────────────────────────────────────────
 const FULLWIDTH = { '（': '(', '）': ')', '；': ';', '，': ',', '：': ':', '．': '.', '！': '!', '？': '?' }
@@ -123,6 +134,8 @@ const TEXT_FIXES = [
   ['теплоноситель,ауторуй', 'теплоноситель, который'],                           // 2.15.4
   ['термодерного', 'термоядерного'],                                             // 3.25.1
   ['лаборатори физики', 'лаборатории физики'],                                   // 3.25.1
+  ['1-  $ \\alpha $, 2-  $ \\alpha $', '1 — да, 2 — да'],                         // 3.3.1: «да» прочитано как α
+  ['1-da, 2-нет', '1 — да, 2 — нет'],
   // кириллица в формулах, прочитанная латиницей
   ['\\mathrm{ec}\\mathrm{J}\\mathrm{H}', '\\text{если }'],                       // 1.10.3
   ['\\mathrm{J}_{', '\\text{Л}_{'],                                              // 4.9.1: линзы Л₁, Л₂
@@ -142,6 +155,16 @@ const TEXT_FIXES = [
   ['\\rho_{\\mathrm{b}}', '\\rho_{\\text{в}}'],
   ['5,67\\cdot10^{8}\\mathrm{\\frac{B r}{m^{2}K^{4}}}', '5{,}67\\cdot10^{-8}\\,\\frac{\\text{Вт}}{\\text{м}^{2}\\cdot\\text{К}^{4}}'], // 4.1.4
 ]
+// Буквы вариантов ответа OCR читает латиницей и греческим («A) B) B) Γ)» вместо
+// «А) Б) В) Г)»): если варианты начинаются с А/A, k-й вариант получает k-ю букву
+// русского алфавита — по одной лишь форме «B» не отличить Б от В
+const OPTION_RE = /(^|\n)(\s*)([A-Za-zА-ЯΑ-Ω])\)/g
+function fixOptionLabels(md) {
+  const labels = [...md.matchAll(OPTION_RE)].map((m) => m[3])
+  if (!labels.length || !/^[AА]$/.test(labels[0]) || labels.length > 6 || !labels.some((l) => /[A-Za-zΑ-Ω]/.test(l))) return md
+  let k = 0
+  return md.replace(OPTION_RE, (_, pre, sp) => `${pre}${sp}${'АБВГДЕ'[k++]})`)
+}
 // Строки абзаца OCR иногда разделены пустой строкой (\n\n) — в markdown это
 // разрыв абзаца посреди фразы и висящий перенос «ради-↵↵уса»: склеиваем
 function joinBrokenLines(s) {
@@ -267,7 +290,8 @@ for (let i = 0; i < flow.length; i++) {
     }
     const sm = b.c.match(SECTION_RE)
     if (sm && !TASK_RE.test(b.c.replace(/^#+\s*/, ''))) {
-      sections.push({ num: `${sm[1]}.${sm[2]}`, title: sm[3].trim(), chapterIdx: curChapter, pageStart: b.pi, headIdx: i })
+      const title = sm[3].trim()
+      sections.push({ num: `${sm[1]}.${sm[2]}`, title: SECTION_TITLE_FIXES[title] ?? title, chapterIdx: curChapter, pageStart: b.pi, headIdx: i })
       curSection = sections.length - 1; curTask = null
       continue
     }
@@ -365,7 +389,7 @@ for (const t of liveTasks) {
   t.answerImages = []
   blocks.forEach((x, k) => {
     const b = x.b
-    if (b.label === 'text' && /^Дополнительные задачи\b/.test(b.c)) return
+    if (EXTRA_RE.test(b.c)) return
     if (isFigure(b)) {
       if (isDecorative(b)) return
       // мелкая картинка у правого края — всегда рамка ответа, даже если OCR
@@ -456,15 +480,23 @@ const append = (pi, md) => {
 
 // титул и оглавление — как есть, без картинок
 for (let pi = 0; pi < CONTENT_FROM; pi++) {
-  for (const b of flow.filter((x) => x.pi === pi)) if (!isFigure(b) && b.c) append(pi, b.c)
+  for (const b of flow.filter((x) => x.pi === pi)) {
+    if (isFigure(b) || !b.c) continue
+    let s = b.c
+    for (const [from, to] of Object.entries(SECTION_TITLE_FIXES)) s = s.replaceAll(from, to)
+    append(pi, s)
+  }
 }
 // порядок вывода: каждый блок в позиции первого появления своего «владельца»
 const emitted = new Set()
 const chapterHeadPages = new Map(chapters.map((c) => [c.pageStart, c]))
+let inExtraList = false // идут названия листков после «Дополнительные задачи — в листках:»
 for (let i = 0; i < flow.length; i++) {
   const b = flow[i]
   if (b.pi < CONTENT_FROM || emitted.has(i)) continue
   const o = owners[i]
+  // список листков обрывается на первой задаче или заголовке
+  if (o?.section === undefined || sections.some((s) => s.headIdx === i)) inExtraList = false
   if (chapterHeadPages.has(b.pi) && CHAPTER_RE.test(b.c)) {
     const c = chapterHeadPages.get(b.pi)
     append(b.pi, `## Глава ${c.num}. ${c.title}`)
@@ -484,10 +516,11 @@ for (let i = 0; i < flow.length; i++) {
     const condHere = whole ? t.condition.filter((k) => !emitted.has(k)) : []
     const ansHere = [...t.answer, ...t.answerImages].filter((k) => flow[k].pi === b.pi && !emitted.has(k)).sort((x, y) => x - y)
     if (condHere.length) {
-      const md = condHere.map(blockMd).join('\n\n')
+      const md = fixOptionLabels(condHere.map(blockMd).join('\n\n'))
       const r = append(b.pi, md)
       if (!problemAnchors.has(t)) problemAnchors.set(t, { pi: t.pi, ...r })
-      if (verified?.has(t.id)) append(b.pi, `**Ответ:** ${verified.get(t.id)}`)
+      // сверенный ответ в текст страницы не пишем: читалка показывает его из
+      // correct_answer, строка «Ответ:» под условием дублировала бы его
     }
     if (ansHere.length && !verified) {
       const text = t.answer.filter((k) => flow[k].pi === b.pi).map((k) => cleanAnswer(flow[k].c)).filter(Boolean).join('; ')
@@ -501,10 +534,13 @@ for (let i = 0; i < flow.length; i++) {
     continue
   }
   if (o?.section !== undefined) {
-    if (!(b.label === 'text' && /^Дополнительные задачи\b/.test(b.c)) && !/^Дополнительные задачи\b/.test(b.c) && b.c && !(isFigure(b) && isDecorative(b))) {
-      // строка после «Дополнительные задачи — в листках» — названия листков
-      const prev = flow[i - 1]
-      if (!(prev && /^Дополнительные задачи\b/.test(prev.c) && b.bbox[0] > 100 && b.c.length < 80)) append(b.pi, blockMd(i))
+    if (EXTRA_RE.test(b.c)) inExtraList = true
+    // короткие строки после «Дополнительные задачи — в листках:» — названия листков
+    // («• Теплообмен. 8», «• Теплообмен. 9–11»), их бывает несколько подряд
+    else if (inExtraList && !isFigure(b) && b.c.length < 80) { /* пропускаем */ }
+    else {
+      inExtraList = false
+      if (b.c && !(isFigure(b) && isDecorative(b))) append(b.pi, blockMd(i))
     }
   }
   emitted.add(i)
@@ -515,7 +551,7 @@ const pageRows = pagesMd.map((parts, pi) => ({ page_index: pi, printed_page: pi 
 // ── 5. Задачи ────────────────────────────────────────────────────────────────
 const problems = liveTasks.map((t) => {
   const anchor = problemAnchors.get(t)
-  const prompt = t.condition.map(blockMd).join('\n\n')
+  const prompt = fixOptionLabels(t.condition.map(blockMd).join('\n\n'))
   const [c, s] = t.sec.split('.').map(Number)
   const answer = verified
     ? verified.get(t.id) ?? ''
@@ -667,13 +703,14 @@ const sectionIds = sections.map(() => randomUUID())
 const lastPage = raw.length - 1
 const sectionRows = [
   ...chapters.map((c, i) => ({
+    // номер в title не дублируем: читалка сама пишет «Глава N.» / «N.M.» перед названием
     id: chapterIds[i], book_id: bookId, parent_id: null, kind: 'chapter', number: String(c.num),
-    title: `Глава ${c.num}. ${c.title}`, page_start: c.pageStart, page_end: (chapters[i + 1]?.pageStart ?? lastPage + 1) - 1,
+    title: c.title, page_start: c.pageStart, page_end: (chapters[i + 1]?.pageStart ?? lastPage + 1) - 1,
     sort_order: i, grade: '10-11',
   })),
   ...sections.map((s, i) => ({
     id: sectionIds[i], book_id: bookId, parent_id: s.chapterIdx !== null ? chapterIds[s.chapterIdx] : null, kind: 'paragraph', number: s.num,
-    title: `${s.num} ${s.title}`, page_start: s.pageStart, page_end: sections[i + 1]?.pageStart ?? lastPage,
+    title: s.title, page_start: s.pageStart, page_end: sections[i + 1]?.pageStart ?? lastPage,
     sort_order: chapters.length + i, grade: '10-11',
   })),
 ]
