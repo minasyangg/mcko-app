@@ -23,6 +23,8 @@ function unescapeMath(math: string): string {
   return s
 }
 
+// Переводы строк → <br /> только в тексте вокруг формул: в выводе KaTeX они
+// есть внутри SVG-пути радикала (\sqrt), и <br /> в атрибуте d стирал знак корня.
 function renderMathText(raw: string): string {
   if (!raw) return ''
   const escaped = raw
@@ -30,17 +32,17 @@ function renderMathText(raw: string): string {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
   return escaped
-    .replace(/\$\$([^$]+)\$\$/g, (_, math) => {
+    .split(/(\$\$[^$]+\$\$|\$[^$\n]+\$)/g)
+    .map((part, i) => {
+      if (i % 2 === 0) return part.replace(/\n/g, '<br />')
+      const display = part.startsWith('$$')
+      const math = display ? part.slice(2, -2) : part.slice(1, -1)
       try {
-        return `<span>${katex.renderToString(unescapeMath(math), { displayMode: true, throwOnError: false })}</span>`
-      } catch { return `<code>$$${math}$$</code>` }
+        const html = katex.renderToString(unescapeMath(math), { displayMode: display, throwOnError: false })
+        return display ? `<span>${html}</span>` : html
+      } catch { return `<code>${part}</code>` }
     })
-    .replace(/\$([^$\n]+)\$/g, (_, math) => {
-      try {
-        return katex.renderToString(unescapeMath(math), { displayMode: false, throwOnError: false })
-      } catch { return `<code>$${math}$</code>` }
-    })
-    .replace(/\n/g, '<br />')
+    .join('')
 }
 
 export function MathText({ text, className }: Props) {

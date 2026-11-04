@@ -6,20 +6,32 @@ import { ShieldCheck } from 'lucide-react'
 import { BooksCatalog, type CatalogBook } from '@/components/teacher/BooksCatalog'
 import { AddTargetBanner } from '@/components/teacher/AddTargetBanner'
 import { getAuthUser } from '@/lib/supabase/auth-user'
+import { BOOK_TYPE_SECTIONS } from '@/lib/books/book-types'
 
-export default async function BooksPage() {
+export default async function BooksPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>
+}) {
   const supabase = await createClient()
   const { data: { user } } = await getAuthUser(supabase)
   if (!user) redirect('/login')
+
+  // ?type=olympiad — отдельный пункт «Олимпиады» в «Библиотеке»; без type — все книги
+  const typeParam = (await searchParams).type
+  const sectionType = typeof typeParam === 'string' && BOOK_TYPE_SECTIONS[typeParam] ? typeParam : null
+  const section = sectionType ? BOOK_TYPE_SECTIONS[sectionType] : null
 
   const { data: profile } = await supabase
     .from('profiles').select('role').eq('id', user.id).single()
   const isAdmin = profile?.role === 'admin'
 
-  const { data: books } = await supabase
+  let booksQuery = supabase
     .from('books')
     .select('id, title, authors, book_type, subject, grade, level, page_count, created_by')
     .eq('is_active', true)
+  if (sectionType) booksQuery = booksQuery.eq('book_type', sectionType)
+  const { data: books } = await booksQuery
     .order('subject')
     .order('grade')
     .order('title')
@@ -66,9 +78,9 @@ export default async function BooksPage() {
       <AddTargetBanner />
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold">Книги</h1>
+          <h1 className="text-2xl font-semibold">{section?.title ?? 'Книги'}</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Учебники и задачники — база заданий для домашних работ и тестов
+            {section?.description ?? 'Учебники и задачники — база заданий для домашних работ и тестов'}
           </p>
         </div>
         {isAdmin && (

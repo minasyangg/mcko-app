@@ -47,6 +47,8 @@ const navItems: NavItem[] = [
       { href: '/teacher/library', label: 'ОГЭ/ЕГЭ' },
       { href: '/teacher/library?exam_type=A-Level', label: 'A-Level' },
       { href: '/teacher/books',   label: 'Книги' },
+      // задачники с book_type='olympiad' (миграция 105) — тот же каталог с фильтром
+      { href: '/teacher/books?type=olympiad', label: 'Олимпиады' },
       // выжимки теории к урокам (миграции 098–099), подключаются к ДЗ
       { href: '/teacher/theory',  label: 'Теория' },
     ],
@@ -122,14 +124,15 @@ function NavLink({
   // одновременно). Разбираем href на путь и query и сравниваем query отдельно.
   const [hrefPath, hrefQuery] = href.split('?')
   const pathMatches = exact ? pathname === hrefPath : pathname.startsWith(hrefPath)
-  const hrefExamTypes = hrefQuery ? new URLSearchParams(hrefQuery).getAll('exam_type') : []
+  const hrefParams = new URLSearchParams(hrefQuery ?? '')
   // Библиотека: пункт подсвечен по РАЗДЕЛУ, а не по точному exam_type —
   // внутри «ОГЭ/ЕГЭ» адрес меняется фильтром (exam_type=ОГЭ&exam_type=ЕГЭ,
-  // только ОГЭ и т.п.), раздел при этом тот же.
-  const examTypeMatches = hrefPath === '/teacher/library'
-    ? sectionOfExamTypes(hrefExamTypes) === sectionOfExamTypes(searchParams.getAll('exam_type'))
-    : (hrefExamTypes[0] ?? '') === (searchParams.get('exam_type') ?? '')
-  const active = pathMatches && examTypeMatches
+  // только ОГЭ и т.п.), раздел при этом тот же. Остальные пункты различает
+  // точное совпадение exam_type и type («Книги» и «Олимпиады» = ?type=olympiad).
+  const queryMatches = hrefPath === '/teacher/library'
+    ? sectionOfExamTypes(hrefParams.getAll('exam_type')) === sectionOfExamTypes(searchParams.getAll('exam_type'))
+    : ['exam_type', 'type'].every(k => (hrefParams.get(k) ?? '') === (searchParams.get(k) ?? ''))
+  const active = pathMatches && queryMatches
   const search = searchParams.toString()
   const isCurrentUrl = href === (search ? `${pathname}?${search}` : pathname)
   const hasBadge = badge != null && badge > 0
