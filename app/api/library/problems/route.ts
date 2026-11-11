@@ -12,13 +12,23 @@ export async function GET(request: NextRequest) {
   const { data: { user }, error: authError } = await getAuthUser(supabase)
   if (authError || !user) return Response.json({ error: 'Unauthorized' }, { status: 401 })
 
-  // Fetch user + profile in one query
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('organization_id')
-    .eq('id', user.id)
-    .single()
+  // Профиль и «есть ли у организации свои задачи» — одной волной. Второй
+  // запрос под RLS видит из необщих задач только задачи своей организации,
+  // поэтому одна найденная строка и есть ответ.
+  const [{ data: profile }, { data: ownProblems }] = await Promise.all([
+    supabase
+      .from('profiles')
+      .select('organization_id')
+      .eq('id', user.id)
+      .single(),
+    supabase
+      .from('library_problems')
+      .select('id')
+      .not('organization_id', 'is', null)
+      .limit(1),
+  ])
   if (!profile) return Response.json({ error: 'Forbidden' }, { status: 403 })
+  const hasOwnProblems = (ownProblems?.length ?? 0) > 0
 
   const sp         = new URL(request.url).searchParams
   const subject    = sp.get('subject')
@@ -70,8 +80,11 @@ export async function GET(request: NextRequest) {
   } else if (isGlobalOnly) {
     query = query.is('organization_id', null)
   } else {
-    // 'all': global + own org
-    query = orgId
+    // 'all': global + own org. Условие через OR не даёт использовать частичные
+    // листинговые индексы (все они WHERE organization_id IS NULL) — запрос
+    // читает таблицу целиком. Пока своих задач у организации нет, «все» и
+    // «только общие» совпадают, и можно спросить индексируемым способом.
+    query = orgId && hasOwnProblems
       ? query.or(`organization_id.is.null,organization_id.eq.${orgId}`)
       : query.is('organization_id', null)
   }
