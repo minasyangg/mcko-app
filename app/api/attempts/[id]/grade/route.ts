@@ -73,14 +73,39 @@ export async function PATCH(
   const lockedSet = new Set<string>()
   const maxScoreById = new Map<string, number>()
   if (answerIds.length > 0) {
+    // Только ответы ЭТОЙ попытки: право на проверку выше установлено по
+    // попытке из адреса, а запись ниже идёт сервисным ключом мимо RLS. Без
+    // привязки учитель, владеющий любой попыткой, мог передать answer_id из
+    // чужой работы и выставить там баллы.
     const { data: rows } = await admin
       .from('attempt_task_answers')
-      .select('id, is_locked, test_tasks!task_id ( max_score )')
+      .select('id, is_locked, test_tasks!task_id ( max_score, task_number )')
+      .eq('attempt_id', attemptId)
       .in('id', answerIds)
+    const taskNumberById = new Map<string, string>()
     for (const r of rows ?? []) {
       if (r.is_locked) lockedSet.add(r.id)
-      const maxScore = (r.test_tasks as unknown as { max_score: number | null } | null)?.max_score
-      maxScoreById.set(r.id, maxScore ?? 1)
+      const task = r.test_tasks as unknown as { max_score: number | null; task_number: string | number | null } | null
+      maxScoreById.set(r.id, task?.max_score ?? 1)
+      taskNumberById.set(r.id, String(task?.task_number ?? '?'))
+    }
+
+    if (answerIds.some(id => !maxScoreById.has(id))) {
+      return Response.json({ error: 'Ответ не относится к этой попытке' }, { status: 400 })
+    }
+
+    // Заблокированные ответы ниже не обновляются — их баллы не проверяем,
+    // иначе старая запись с баллом выше максимума не дала бы сохранить остальное.
+    for (const a of body.answers ?? []) {
+      if (lockedSet.has(a.answer_id)) continue
+      const max = maxScoreById.get(a.answer_id) ?? 1
+      const score = a.awarded_score
+      if (typeof score !== 'number' || !Number.isFinite(score) || score < 0 || score > max) {
+        return Response.json(
+          { error: `Балл за задание ${taskNumberById.get(a.answer_id)} должен быть от 0 до ${max}` },
+          { status: 400 }
+        )
+      }
     }
   }
 
@@ -102,7 +127,7 @@ export async function PATCH(
           teacher_checked_at: now,
           is_locked: full,
           locked_in_attempt_id: full ? attemptId : null,
-        }).eq('id', a.answer_id)
+        }).eq('id', a.answer_id).eq('attempt_id', attemptId)
       })
   )
 

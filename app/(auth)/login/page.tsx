@@ -14,22 +14,13 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input'
 import { PasswordInput } from '@/components/ui/password-input'
 import { Label } from '@/components/ui/label'
+import { safeNext } from '@/lib/auth/safe-next'
 
 const schema = z.object({
   email: z.string().email('Некорректный email'),
   password: z.string().min(6, 'Минимум 6 символов'),
 })
 type FormData = z.infer<typeof schema>
-
-/* Куда вернуть человека после входа, если его сюда прислали с параметром next.
-   Пускаем только внутренние пути: «//» и «/\» браузер считает адресом другого
-   сайта, и без этой проверки ссылка на страницу входа стала бы открытым
-   редиректом. Пусто или чужое — ведём себя как раньше. */
-function safeNext(raw: string | null): string | null {
-  if (!raw) return null
-  if (!raw.startsWith('/') || raw.startsWith('//') || raw.startsWith('/\\')) return null
-  return raw
-}
 
 export default function LoginPage() {
   const router = useRouter()

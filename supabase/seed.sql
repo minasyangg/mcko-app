@@ -2,9 +2,17 @@
 -- seed.sql — Тестовые данные для ExamPlatform
 -- ============================================================
 -- Организация: МЦКО Демо
--- Admin:   admin@mcko.test   / Admin123!
--- Teacher: teacher@mcko.test / Teacher123!
--- Student: student@mcko.test / Student123!
+-- Admin:   admin@mcko.test
+-- Teacher: teacher@mcko.test
+-- Student: student@mcko.test
+--
+-- Паролей здесь нет намеренно: раньше они лежали в этом файле открытым
+-- текстом, и боевой аккаунт учителя, заведённый из seed, так с этим паролем
+-- и работал (аудит 2026-11-11). Теперь каждому пользователю ставится
+-- случайный пароль, который никто не знает. Чтобы войти в локальной базе,
+-- задайте свой:
+--   update auth.users set encrypted_password = crypt('<пароль>', gen_salt('bf', 10))
+--   where email = 'teacher@mcko.test';
 -- ============================================================
 
 -- 1. Организация
@@ -32,7 +40,7 @@ INSERT INTO auth.users (
     '00000000-0000-0000-0000-000000000000',
     'authenticated', 'authenticated',
     'admin@mcko.test',
-    crypt('Admin123!', gen_salt('bf', 10)),
+    crypt(gen_random_uuid()::text, gen_salt('bf', 10)),
     now(),
     '{"provider":"email","providers":["email"]}',
     '{"full_name":"Администратор","role":"admin"}',
@@ -53,7 +61,7 @@ INSERT INTO auth.users (
     '00000000-0000-0000-0000-000000000000',
     'authenticated', 'authenticated',
     'teacher@mcko.test',
-    crypt('Teacher123!', gen_salt('bf', 10)),
+    crypt(gen_random_uuid()::text, gen_salt('bf', 10)),
     now(),
     '{"provider":"email","providers":["email"]}',
     '{"full_name":"Иванова Мария Петровна","role":"teacher"}',
@@ -74,7 +82,7 @@ INSERT INTO auth.users (
     '00000000-0000-0000-0000-000000000000',
     'authenticated', 'authenticated',
     'student@mcko.test',
-    crypt('Student123!', gen_salt('bf', 10)),
+    crypt(gen_random_uuid()::text, gen_salt('bf', 10)),
     now(),
     '{"provider":"email","providers":["email"]}',
     '{"full_name":"Петров Алексей Иванович","role":"student"}',
