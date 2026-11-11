@@ -110,16 +110,14 @@ export async function GET(request: NextRequest) {
     total_pages: Math.ceil((count ?? 0) / perPage),
   })
 
-  // Cache public/verified library results for 30s on CDN, revalidate in background
-  // Custom-org queries are user-specific — not cached
-  const cacheHeader = isGlobalOnly && !sourceId && !q
-    ? 'public, s-maxage=30, stale-while-revalidate=60'
-    : 'private, no-store'
-
+  // Ответ содержит эталонные ответы и решения и отдаётся только после проверки
+  // входа, поэтому в общий кеш CDN ему нельзя: раньше для фильтра «Глоб.» стоял
+  // public, s-maxage=30 — и пока запись жила, тот же адрес отдавался кому
+  // угодно без сессии, мимо этой функции.
   return new Response(body, {
     headers: {
       'Content-Type': 'application/json',
-      'Cache-Control': cacheHeader,
+      'Cache-Control': 'private, no-store',
     },
   })
 }

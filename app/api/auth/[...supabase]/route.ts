@@ -2,11 +2,14 @@ import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 import type { Database } from '@/types/database'
+import { safeNext } from '@/lib/auth/safe-next'
 
 export async function GET(request: NextRequest) {
   const { searchParams, origin } = new URL(request.url)
   const code = searchParams.get('code')
-  const next = searchParams.get('next') ?? '/'
+  // next приходит из ссылки — без проверки «@evil.example» или «//evil.example»
+  // после склейки с origin увели бы человека на чужой сайт сразу после входа
+  const next = safeNext(searchParams.get('next')) ?? '/'
 
   if (code) {
     const response = NextResponse.redirect(`${origin}${next}`)
