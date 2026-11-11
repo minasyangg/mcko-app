@@ -175,43 +175,76 @@ export default async function AttemptPage({ params }: PageProps) {
       .select('id, status, started_at')
       .single()
 
-    if (createError || !newAttempt) {
-      redirect('/student')
-    }
-
-    attempt = newAttempt
-
     // Copy previous attempt answers with scores and lock status (always for multi-attempt tests)
     const asgn = assignment as any
     const maxAttempts = asgn?.max_attempts ?? 1
-    if (asgn?.preserve_answers || maxAttempts > 1) {
-      // Find most recent completed attempt
-      const prevAttempt = [...(existingAttempts ?? [])]
-        .sort((a, b) => new Date(b.started_at ?? 0).getTime() - new Date(a.started_at ?? 0).getTime())
-        .find((a) => a.status === 'submitted' || a.status === 'checked')
+    const carriesAnswers = !!asgn?.preserve_answers || maxAttempts > 1
 
-      if (prevAttempt) {
-        const { data: prevAnswers } = await supabase
-          .from('attempt_task_answers')
-          .select('task_id, answer_json, awarded_score, is_correct, is_locked, locked_in_attempt_id')
-          .eq('attempt_id', prevAttempt.id)
+    if (createError || !newAttempt) {
+      // Отказ вставки — почти всегда гонка: страница открылась дважды в одно
+      // мгновение (двойной клик, две вкладки), и параллельный запрос уже создал
+      // попытку. База вторую незавершённую не пускает (миграции 106/107) —
+      // подхватываем ту, что создана, а не выбрасываем ученика в список.
+      const { data: raced } = await supabase
+        .from('attempts')
+        .select('id, status, started_at')
+        .eq('assignment_id', assignmentId)
+        .eq('student_id', user.id)
+        .in('status', ['in_progress', 'not_started'])
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
 
-        if (prevAnswers && prevAnswers.length > 0) {
-          // service-role клиент: перенос awarded_score/is_correct/is_locked
-          // заблокирован для обычных сессий триггером
-          // prevent_student_self_grading (029) — легитимный перенос идёт в обход него
-          const admin = createAdminClient()
-          await admin.from('attempt_task_answers').insert(
-            prevAnswers.map((a) => ({
-              attempt_id: newAttempt.id,
-              task_id: a.task_id,
-              answer_json: a.answer_json,
-              awarded_score: a.awarded_score,       // carry forward score
-              is_correct: a.is_correct,              // carry forward correctness
-              is_locked: a.is_locked,                // carry forward lock
-              locked_in_attempt_id: a.locked_in_attempt_id,
-            }))
-          )
+      if (!raced) {
+        redirect('/student')
+      }
+      attempt = raced
+
+      // Ответы прошлой попытки переносит запрос, создавший попытку, одной
+      // вставкой сразу после неё. Дожидаемся её, иначе этот запрос прочитал бы
+      // попытку пустой и показал задания без зафиксированных ответов.
+      if (carriesAnswers && completedAttempts.length > 0) {
+        for (let i = 0; i < 5; i++) {
+          const { count } = await supabase
+            .from('attempt_task_answers')
+            .select('id', { count: 'exact', head: true })
+            .eq('attempt_id', raced.id)
+          if ((count ?? 0) > 0) break
+          await new Promise((resolve) => setTimeout(resolve, 150))
+        }
+      }
+    } else {
+      attempt = newAttempt
+
+      if (carriesAnswers) {
+        // Find most recent completed attempt
+        const prevAttempt = [...(existingAttempts ?? [])]
+          .sort((a, b) => new Date(b.started_at ?? 0).getTime() - new Date(a.started_at ?? 0).getTime())
+          .find((a) => a.status === 'submitted' || a.status === 'checked')
+
+        if (prevAttempt) {
+          const { data: prevAnswers } = await supabase
+            .from('attempt_task_answers')
+            .select('task_id, answer_json, awarded_score, is_correct, is_locked, locked_in_attempt_id')
+            .eq('attempt_id', prevAttempt.id)
+
+          if (prevAnswers && prevAnswers.length > 0) {
+            // service-role клиент: перенос awarded_score/is_correct/is_locked
+            // заблокирован для обычных сессий триггером
+            // prevent_student_self_grading (029) — легитимный перенос идёт в обход него
+            const admin = createAdminClient()
+            await admin.from('attempt_task_answers').insert(
+              prevAnswers.map((a) => ({
+                attempt_id: newAttempt.id,
+                task_id: a.task_id,
+                answer_json: a.answer_json,
+                awarded_score: a.awarded_score,       // carry forward score
+                is_correct: a.is_correct,              // carry forward correctness
+                is_locked: a.is_locked,                // carry forward lock
+                locked_in_attempt_id: a.locked_in_attempt_id,
+              }))
+            )
+          }
         }
       }
     }
