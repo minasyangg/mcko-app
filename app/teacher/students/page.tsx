@@ -5,6 +5,8 @@ import { Users, Plus, UsersRound } from 'lucide-react'
 import Link from 'next/link'
 import { getAuthUser } from '@/lib/supabase/auth-user'
 
+export const metadata = { title: 'Ученики' }
+
 export default async function StudentsPage() {
   const supabase = await createClient()
 

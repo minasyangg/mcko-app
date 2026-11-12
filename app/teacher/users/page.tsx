@@ -4,6 +4,8 @@ import { redirect } from 'next/navigation'
 import { UsersClient } from '@/components/teacher/UsersClient'
 import { getAuthUser } from '@/lib/supabase/auth-user'
 
+export const metadata = { title: 'Пользователи' }
+
 // Единая админ-панель пользователей: ученики + учителя на одной странице,
 // одна кнопка создания (выбор роли), карточки различаются по роли. Только admin.
 export default async function UsersPage() {

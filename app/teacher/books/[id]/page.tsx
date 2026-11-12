@@ -5,6 +5,8 @@ import { BookReader } from '@/components/teacher/BookReader'
 import { BookEditorsPanel } from '@/components/teacher/BookEditorsPanel'
 import { getAuthUser } from '@/lib/supabase/auth-user'
 
+export const metadata = { title: 'Книга' }
+
 export default async function BookPage({
   params,
   searchParams,

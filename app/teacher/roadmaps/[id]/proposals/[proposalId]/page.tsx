@@ -3,6 +3,8 @@ import { redirect, notFound } from 'next/navigation'
 import { ProposalReviewCard, type ProposalStatus } from '@/components/teacher/ProposalReviewCard'
 import { getAuthUser } from '@/lib/supabase/auth-user'
 
+export const metadata = { title: 'Предложение ДЗ' }
+
 // Страница подтверждения/правки предложения ДЗ от агента автосборки
 // (project_homework_agent). MVP-путь без inline-кнопок в Telegram: ссылка
 // на эту страницу — это и есть весь UI фазы 1 для учителя. RLS

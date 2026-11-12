@@ -9,6 +9,8 @@ import type { SolutionPhoto } from '@/components/test-player/SolutionPhotoUpload
 import { getAuthUser } from '@/lib/supabase/auth-user'
 import { loadTestTheory } from '@/lib/theory/load'
 
+export const metadata = { title: 'Выполнение задания' }
+
 interface PageProps {
   params: Promise<{ id: string }>
 }

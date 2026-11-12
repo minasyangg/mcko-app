@@ -4,6 +4,8 @@ import { BookOpen, Users, ClipboardList, MessageSquare, History, Share2 } from '
 import Link from 'next/link'
 import { getAuthUser } from '@/lib/supabase/auth-user'
 
+export const metadata = { title: 'Дашборд' }
+
 export default async function TeacherDashboard() {
   const supabase = await createClient()
 

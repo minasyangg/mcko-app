@@ -1,5 +1,7 @@
 import { redirect } from 'next/navigation'
 
+export const metadata = { title: 'Назначения' }
+
 // Назначения переехали в «Мониторинг» (первый таб). Форма создания
 // осталась по адресу /teacher/assignments/new.
 export default function AssignmentsPage() {

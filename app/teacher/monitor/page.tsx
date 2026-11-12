@@ -4,6 +4,8 @@ import type { AssignmentRow } from '@/components/teacher/AssignmentsPanel'
 import { getRoadmapSummaries } from '@/lib/roadmaps/progress'
 import { getAuthUser } from '@/lib/supabase/auth-user'
 
+export const metadata = { title: 'Мониторинг' }
+
 export default async function MonitorPage() {
   const supabase = await createClient()
 

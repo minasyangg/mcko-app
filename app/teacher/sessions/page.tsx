@@ -4,6 +4,8 @@ import { Badge } from '@/components/ui/badge'
 import { History } from 'lucide-react'
 import { getAuthUser } from '@/lib/supabase/auth-user'
 
+export const metadata = { title: 'Сессии' }
+
 const roleLabel: Record<string, string> = {
   admin: 'Админ', teacher: 'Учитель', student: 'Ученик',
 }

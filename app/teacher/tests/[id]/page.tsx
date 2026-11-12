@@ -10,6 +10,8 @@ import { getAuthUser } from '@/lib/supabase/auth-user'
 import { loadTestTheory } from '@/lib/theory/load'
 import { TheoryEditorPanel } from '@/components/theory/TheoryEditorPanel'
 
+export const metadata = { title: 'Тест' }
+
 interface PageProps {
   params: Promise<{ id: string }>
 }

@@ -21,6 +21,8 @@ import { getAuthUser } from '@/lib/supabase/auth-user'
 import { loadTestTheory } from '@/lib/theory/load'
 import { TheoryCard } from '@/components/theory/TheoryCard'
 
+export const metadata = { title: 'Результат' }
+
 interface PageProps {
   params: Promise<{ id: string }>
 }

@@ -1,5 +1,7 @@
 import { redirect } from 'next/navigation'
 
+export const metadata = { title: 'Программа' }
+
 // «Программа» переехала во вкладку на главной странице кабинета (см.
 // app/student/page.tsx + components/student/StudentHome.tsx) — весь список
 // назначений теперь в одном месте, а не разнесён по разделам. Путь оставлен

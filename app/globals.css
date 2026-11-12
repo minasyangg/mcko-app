@@ -17,7 +17,10 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-sans);
+  /* Было var(--font-sans) — ссылка на саму себя: переменная оставалась пустой,
+     и весь сайт рисовался шрифтом браузера по умолчанию (Times New Roman).
+     Geist подключается в app/layout.tsx под именем --font-geist-sans. */
+  --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
   --font-heading: var(--font-sans);
   --color-sidebar-ring: var(--sidebar-ring);

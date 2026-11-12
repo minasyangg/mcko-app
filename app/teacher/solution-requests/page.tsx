@@ -5,6 +5,8 @@ import { MessageSquare } from 'lucide-react'
 import { SolutionRequestActions } from '@/components/teacher/SolutionRequestActions'
 import { derivePromptText } from '@/lib/tasks/prompt'
 
+export const metadata = { title: 'Запросы на решения' }
+
 export default async function SolutionRequestsPage() {
   const supabase = await createClient()
 

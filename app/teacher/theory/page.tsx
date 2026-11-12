@@ -5,6 +5,8 @@ import { loadTheoryLibrary } from '@/lib/theory/load'
 import { TheoryLibraryClient } from '@/components/theory/TheoryLibraryClient'
 import { AddTargetBanner } from '@/components/teacher/AddTargetBanner'
 
+export const metadata = { title: 'Теория' }
+
 // «Библиотека → Теория»: каталог блоков теории организации (миграции 098–099).
 // Отдельный путь, а не /teacher/library/theory: пункты меню библиотеки
 // подсвечиваются по префиксу /teacher/library, и «Теория» горела бы вместе

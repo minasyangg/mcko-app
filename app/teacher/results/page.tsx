@@ -2,6 +2,8 @@ import { createClient } from '@/lib/supabase/server'
 import { ResultsClient } from '@/components/teacher/ResultsClient'
 import { getAttemptRows } from '@/lib/analytics/queries'
 
+export const metadata = { title: 'Результаты' }
+
 export default async function ResultsPage() {
   const supabase = await createClient()
   const rows = await getAttemptRows(supabase, {})

@@ -4,6 +4,8 @@ import { TelegramSettings } from '@/components/shared/TelegramSettings'
 import { getBotUsername, telegramConfigured } from '@/lib/notifications/telegram'
 import { getAuthUser } from '@/lib/supabase/auth-user'
 
+export const metadata = { title: 'Настройки' }
+
 export default async function TeacherSettingsPage() {
   const supabase = await createClient()
   const { data: { user } } = await getAuthUser(supabase)

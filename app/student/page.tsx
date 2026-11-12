@@ -3,6 +3,8 @@ import { StudentHome, type AssignmentCardData, type RoadmapGroup } from '@/compo
 import type { TimelineTopic } from '@/components/student/RoadmapTimeline'
 import { getAuthUser } from '@/lib/supabase/auth-user'
 
+export const metadata = { title: 'Мои задания' }
+
 type Search = { tab?: string }
 
 interface RoadmapTopicRow {

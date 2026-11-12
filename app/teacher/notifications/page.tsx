@@ -4,6 +4,8 @@ import { NotificationsAdminClient } from '@/components/teacher/NotificationsAdmi
 import { User, Baby, GraduationCap } from 'lucide-react'
 import { getAuthUser } from '@/lib/supabase/auth-user'
 
+export const metadata = { title: 'Уведомления' }
+
 // Админ-панель уведомлений: статус telegram-бота, тумблеры событий,
 // последние отправки (журнал).
 export default async function NotificationsPage() {

@@ -3,6 +3,8 @@ import { redirect } from 'next/navigation'
 import { SharedWithMeTable, type SharedRow } from '@/components/teacher/SharedWithMeTable'
 import { getAuthUser } from '@/lib/supabase/auth-user'
 
+export const metadata = { title: 'Расшарено мне' }
+
 // «Расшарено мне» — сданные работы, которыми ученики поделились с этим
 // учителем (assignment_shares, 087). RLS ("ashares: teacher reads own as
 // recipient") сам ограничивает выборку тем, что реально расшарено —

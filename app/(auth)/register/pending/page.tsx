@@ -5,6 +5,8 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { getAuthUser } from '@/lib/supabase/auth-user'
 
+export const metadata = { title: 'Заявка на рассмотрении' }
+
 // Куда идёт человек сразу после отправки заявки — и куда middleware держит
 // его же, если админ заявку отклонил (см. proxy.ts). Текст и иконка теперь
 // зависят от статуса: раньше «rejected» видел ровно тот же текст «проходит

@@ -2,6 +2,8 @@ import { createClient } from '@/lib/supabase/server'
 import { notFound, redirect } from 'next/navigation'
 import ImportFlow from './ImportFlow'
 
+export const metadata = { title: 'Импорт теста' }
+
 interface PageProps {
   params: Promise<{ id: string }>
 }

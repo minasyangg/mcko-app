@@ -3,6 +3,8 @@ import { TestsListClient, type TestRow } from '@/components/teacher/TestsListCli
 import type { ProposalRow } from '@/components/teacher/ProposalsListClient'
 import { getAuthUser } from '@/lib/supabase/auth-user'
 
+export const metadata = { title: 'Мои задания' }
+
 export default async function TestsPage() {
   const supabase = await createClient()
 

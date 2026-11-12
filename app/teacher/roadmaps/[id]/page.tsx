@@ -3,6 +3,8 @@ import { redirect, notFound } from 'next/navigation'
 import { RoadmapEditor, type EditorTopic } from '@/components/teacher/RoadmapEditor'
 import { getAuthUser } from '@/lib/supabase/auth-user'
 
+export const metadata = { title: 'Программа' }
+
 export default async function RoadmapEditPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
   const supabase = await createClient()
