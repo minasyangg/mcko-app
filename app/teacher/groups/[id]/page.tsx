@@ -9,6 +9,8 @@ import { DeleteGroupButton } from '@/components/teacher/DeleteGroupButton'
 import { EditGroupDialog } from '@/components/teacher/EditGroupDialog'
 import { BroadcastDialog } from '@/components/teacher/BroadcastDialog'
 
+export const metadata = { title: 'Группа' }
+
 interface Props {
   params: Promise<{ id: string }>
 }

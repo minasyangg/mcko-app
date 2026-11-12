@@ -3,6 +3,8 @@ import { redirect, notFound } from 'next/navigation'
 import { AttendanceJournalClient } from '@/components/teacher/AttendanceJournalClient'
 import { getAuthUser } from '@/lib/supabase/auth-user'
 
+export const metadata = { title: 'Журнал посещения' }
+
 export default async function AttendanceJournalPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
   const supabase = await createClient()

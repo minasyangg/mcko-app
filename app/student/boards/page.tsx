@@ -5,6 +5,8 @@ import { Button } from '@/components/ui/button'
 import { PenLine } from 'lucide-react'
 import { getAuthUser } from '@/lib/supabase/auth-user'
 
+export const metadata = { title: 'Мои доски' }
+
 // Доски, куда ученика добавили участником (041_doska_boards.sql). У одного
 // учителя их может быть несколько — по одной на предмет, поэтому предмет и
 // вынесен на карточку: без него список выглядит как несколько одинаковых строк.

@@ -6,6 +6,8 @@ import { ArrowLeft } from 'lucide-react'
 import { BookPermissionsClient } from '@/components/teacher/BookPermissionsClient'
 import { getAuthUser } from '@/lib/supabase/auth-user'
 
+export const metadata = { title: 'Права доступа к книгам' }
+
 // Права доступа к книгам — только admin. Централизованно: для каждой книги
 // какие учителя могут редактировать и удалять её. Просмотр остаётся общим.
 export default async function BookPermissionsPage() {

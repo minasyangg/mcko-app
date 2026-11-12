@@ -11,6 +11,8 @@ import ReviewBoard, {
 import { formatAnswerJsonRaw } from '@/lib/grading/format-answer-display'
 import { formatCompositeAnswerForEdit } from '@/lib/grading/multi-part-answer'
 
+export const metadata = { title: 'Проверка задач' }
+
 interface PageProps {
   params: Promise<{ id: string }>
 }

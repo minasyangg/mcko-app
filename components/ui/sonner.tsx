@@ -1,15 +1,16 @@
 "use client"
 
-import { useTheme } from "next-themes"
 import { Toaster as Sonner, type ToasterProps } from "sonner"
 import { CircleCheckIcon, InfoIcon, TriangleAlertIcon, OctagonXIcon, Loader2Icon } from "lucide-react"
 
+// Тема уведомлений — всегда светлая, как и весь сайт. Раньше она бралась из
+// next-themes, но ThemeProvider в приложении не подключён, поэтому тема
+// оказывалась «как в системе»: при тёмной теме ОС уведомление было тёмным
+// поверх светлой страницы.
 const Toaster = ({ ...props }: ToasterProps) => {
-  const { theme = "system" } = useTheme()
-
   return (
     <Sonner
-      theme={theme as ToasterProps["theme"]}
+      theme="light"
       className="toaster group"
       icons={{
         success: (

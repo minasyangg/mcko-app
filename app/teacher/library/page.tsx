@@ -7,6 +7,8 @@ import { AddTargetBanner } from '@/components/teacher/AddTargetBanner'
 import { getAuthUser } from '@/lib/supabase/auth-user'
 import { examTypesOfSection, sectionOfExamTypes, type LibrarySection } from '@/lib/library/sections'
 
+export const metadata = { title: 'Библиотека' }
+
 // Общее число задач библиотеки — только для подписи «всего задач». Точный
 // count по ~21k строк на каждое открытие страницы был самым долгим местом
 // (при холодном кеше БД — секунды), а меняется число редко (импорт задач),

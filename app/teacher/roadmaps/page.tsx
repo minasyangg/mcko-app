@@ -3,6 +3,8 @@ import { redirect } from 'next/navigation'
 import { RoadmapClient, type RoadmapRow } from '@/components/teacher/RoadmapClient'
 import { getAuthUser } from '@/lib/supabase/auth-user'
 
+export const metadata = { title: 'Программы' }
+
 // Программы (road map) — только учитель. Админ смотрит кабинеты учителей через
 // раздел «Пользователи».
 export default async function RoadmapsPage() {

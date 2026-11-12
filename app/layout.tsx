@@ -8,18 +8,22 @@ import { NavigationProgress } from '@/components/shared/NavigationProgress'
 import { RU_PROXY_HEADER } from '@/lib/supabase/ru-proxy'
 import './globals.css'
 
+// cyrillic обязателен: интерфейс на русском, а без этого набора кириллица
+// рисовалась бы запасным системным шрифтом рядом с латиницей и цифрами в Geist
 const geistSans = Geist({
   variable: '--font-geist-sans',
-  subsets: ['latin'],
+  subsets: ['latin', 'cyrillic'],
 })
 
 const geistMono = Geist_Mono({
   variable: '--font-geist-mono',
-  subsets: ['latin'],
+  subsets: ['latin', 'cyrillic'],
 })
 
 export const metadata: Metadata = {
-  title: 'ExamPlatform',
+  // Страницы задают своё короткое название (export const metadata = { title })
+  // — во вкладке и в истории браузера оно встаёт перед названием сайта
+  title: { default: 'ExamPlatform', template: '%s · ExamPlatform' },
   description: 'Платформа компьютерного тестирования для школьников',
 }
 

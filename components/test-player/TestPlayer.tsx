@@ -177,6 +177,48 @@ export function TestPlayer({
     }
   }, [])
 
+  // Вкладку закрыли, свернули или ушли на другой сайт, пока ответ ещё ждёт
+  // debounce (DEBOUNCE_MS): без этого последний введённый ответ терялся молча.
+  // keepalive позволяет запросу дойти, даже когда страница уже выгружается.
+  // Обычный путь сохранения не трогаем: если запрос отсюда не дойдёт, ответ
+  // остаётся в pendingRef и уйдёт по таймеру, как раньше.
+  useEffect(() => {
+    const inFlight = new Map<string, Json>()
+
+    function flushOnHide() {
+      for (const [taskId, answerJson] of Object.entries(pendingRef.current)) {
+        if (inFlight.get(taskId) === answerJson) continue  // visibilitychange и pagehide приходят парой
+        inFlight.set(taskId, answerJson)
+        fetch(`/api/attempts/${attemptId}/answers`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ task_id: taskId, answer_json: answerJson }),
+          keepalive: true,
+        })
+          .then((res) => {
+            // снимаем с очереди, только если за это время не ввели ничего нового
+            if (res.ok && pendingRef.current[taskId] === answerJson) {
+              delete pendingRef.current[taskId]
+              setSavedTaskIds((prev) => new Set([...prev, taskId]))
+            }
+          })
+          .catch(() => { /* не дошло — сохранит таймер или следующий уход */ })
+          .finally(() => { if (inFlight.get(taskId) === answerJson) inFlight.delete(taskId) })
+      }
+    }
+
+    function onVisibilityChange() {
+      if (document.visibilityState === 'hidden') flushOnHide()
+    }
+
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    window.addEventListener('pagehide', flushOnHide)
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+      window.removeEventListener('pagehide', flushOnHide)
+    }
+  }, [attemptId])
+
   async function handleSubmit() {
     setIsSubmitting(true)
     // Flush any unsaved answers first

@@ -1,6 +1,8 @@
 import { createClient } from '@/lib/supabase/server'
 import { ScoringRulesClient } from '@/components/teacher/ScoringRulesClient'
 
+export const metadata = { title: 'Правила оценивания' }
+
 export default async function ScoringRulesPage() {
   const supabase = await createClient()
 

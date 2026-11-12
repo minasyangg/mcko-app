@@ -15,6 +15,7 @@ import { Input } from '@/components/ui/input'
 import { PasswordInput } from '@/components/ui/password-input'
 import { Label } from '@/components/ui/label'
 import { safeNext } from '@/lib/auth/safe-next'
+import { authErrorMessage } from '@/lib/auth/error-messages'
 
 const schema = z.object({
   email: z.string().email('Некорректный email'),
@@ -40,7 +41,7 @@ export default function LoginPage() {
       password: data.password,
     })
     if (error) {
-      toast.error(error.message)
+      toast.error(authErrorMessage(error, 'Не удалось войти. Попробуйте ещё раз.'))
       return
     }
     // Держим индикатор до самого перехода: isSubmitting снимется раньше, чем

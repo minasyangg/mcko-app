@@ -4,6 +4,8 @@ import { LogoutButton } from '@/components/shared/LogoutButton'
 import { UserX } from 'lucide-react'
 import { getAuthUser } from '@/lib/supabase/auth-user'
 
+export const metadata = { title: 'Аккаунт не настроен' }
+
 export default async function NoProfilePage() {
   const supabase = await createClient()
   const { data: { user } } = await getAuthUser(supabase)

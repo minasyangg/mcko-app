@@ -9,6 +9,8 @@ import { getRoadmapDetail } from '@/lib/roadmaps/progress'
 import { ProgramProgressView } from '@/components/teacher/ProgramProgressView'
 import { getAuthUser } from '@/lib/supabase/auth-user'
 
+export const metadata = { title: 'Кабинет учителя' }
+
 function fmtDateTime(iso: string | null) {
   if (!iso) return null
   return new Date(iso).toLocaleString('ru-RU', {

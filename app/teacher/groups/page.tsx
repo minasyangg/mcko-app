@@ -6,6 +6,8 @@ import { Plus, Users } from 'lucide-react'
 import { DeleteGroupButton } from '@/components/teacher/DeleteGroupButton'
 import { EditGroupDialog } from '@/components/teacher/EditGroupDialog'
 
+export const metadata = { title: 'Группы' }
+
 export default async function GroupsPage() {
   const supabase = await createClient()
 

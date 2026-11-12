@@ -8,6 +8,8 @@ import { ArrowLeft, Download, Users, Target, TrendingUp, Award } from 'lucide-re
 import { getTestAttemptStats, getTaskStats, getAttemptRows } from '@/lib/analytics/queries'
 import { derivePromptText } from '@/lib/tasks/prompt'
 
+export const metadata = { title: 'Аналитика' }
+
 interface Props {
   params: Promise<{ id: string }>
 }

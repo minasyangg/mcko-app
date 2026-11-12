@@ -8,6 +8,8 @@ import { AddTargetBanner } from '@/components/teacher/AddTargetBanner'
 import { getAuthUser } from '@/lib/supabase/auth-user'
 import { BOOK_TYPE_SECTIONS } from '@/lib/books/book-types'
 
+export const metadata = { title: 'Книги' }
+
 export default async function BooksPage({
   searchParams,
 }: {

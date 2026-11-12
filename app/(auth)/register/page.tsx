@@ -13,6 +13,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input'
 import { PasswordInput } from '@/components/ui/password-input'
 import { Label } from '@/components/ui/label'
+import { authErrorMessage } from '@/lib/auth/error-messages'
 
 const schema = z.object({
   full_name: z.string().trim().min(2, 'Минимум 2 символа'),
@@ -77,7 +78,7 @@ export default function RegisterPage() {
       },
     })
     if (error) {
-      toast.error(error.message)
+      toast.error(authErrorMessage(error, 'Не удалось зарегистрироваться. Попробуйте ещё раз или обратитесь к администратору.'))
       return
     }
     router.push('/register/pending')

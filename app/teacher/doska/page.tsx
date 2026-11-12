@@ -4,6 +4,8 @@ import { DoskaBoardsClient } from '@/components/teacher/DoskaBoardsClient'
 import { PenLine } from 'lucide-react'
 import { getAuthUser } from '@/lib/supabase/auth-user'
 
+export const metadata = { title: 'Доски' }
+
 // Список досок учителя. Раньше доска заводилась кнопкой напротив ученика в
 // списке учеников — одна на пару, без предмета и без возможности её увидеть
 // потом. Теперь это отдельный раздел: здесь доски заводят, находят и удаляют.
