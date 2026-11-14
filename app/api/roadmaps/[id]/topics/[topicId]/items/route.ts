@@ -4,6 +4,7 @@ import { zUuid } from '@/lib/uuid'
 import { authorizeRoadmap } from '@/lib/roadmaps/authorize'
 import { deleteAssignmentsDeep } from '@/lib/assignments/cleanup'
 import { notifyAssignmentCreated } from '@/lib/notifications/send'
+import { opensLater, parseAssignmentDates } from '@/lib/assignments/opening'
 
 const schema = z.object({
   test_id: zUuid(),
@@ -28,7 +29,10 @@ export async function POST(request: NextRequest, { params }: Params) {
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.issues[0]?.message ?? 'Invalid body' }, { status: 400 })
   }
-  const { test_id, kind, starts_at, ends_at, max_attempts } = parsed.data
+  const { test_id, kind, max_attempts } = parsed.data
+  const dates = parseAssignmentDates(parsed.data)
+  if (!dates.ok) return NextResponse.json({ error: dates.error }, { status: 400 })
+  const deferred = opensLater(dates.startsAt)
 
   // Тема принадлежит программе
   const { data: topic } = await admin
@@ -56,15 +60,17 @@ export async function POST(request: NextRequest, { params }: Params) {
     student_id: null,
     roadmap_topic_id: topicId,
     kind,
-    starts_at: starts_at || null,
-    ends_at: ends_at || null,
+    starts_at: dates.startsAt,
+    ends_at: dates.endsAt,
     max_attempts,
     created_by: userId,
+    // Откроется позже — уведомит /api/notifications/dispatch в момент открытия
+    notified_at: deferred ? null : new Date().toISOString(),
   }).select('id').single()
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
   // телеграм-уведомление ученикам программы — после ответа
-  after(() => notifyAssignmentCreated(assignment.id))
+  if (!deferred) after(() => notifyAssignmentCreated(assignment.id))
 
   return NextResponse.json({ id: assignment.id }, { status: 201 })
 }

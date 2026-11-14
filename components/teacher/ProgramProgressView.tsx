@@ -10,6 +10,7 @@ import { ChevronDown, ChevronRight, UserPlus, Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 import { closedReasonLabel } from '@/lib/assignments/completion'
+import { opensLater } from '@/lib/assignments/opening'
 import { CloseAssignmentButton } from '@/components/teacher/CloseAssignmentButton'
 import type { ProgramDetail } from '@/lib/roadmaps/progress'
 
@@ -167,6 +168,11 @@ export function ProgramProgressView({ program, readOnly = false, onSelectAttempt
                                 </span>
                               ) : (
                                 <span className="flex items-center gap-2 shrink-0 max-md:ml-auto max-md:flex-wrap max-md:justify-end">
+                                  {opensLater(item.starts_at) && (
+                                    <span className="text-[11px] text-amber-700 dark:text-amber-400" title="До этого момента ученики задание не видят">
+                                      откроется {new Date(item.starts_at!).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                                    </span>
+                                  )}
                                   {hidden && (
                                     <span className="text-[11px] text-muted-foreground/70" title="Личная копия задания — без общего дедлайна группы, открыта учителем вручную">
                                       личный доступ

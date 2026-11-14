@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { StudentHome, type AssignmentCardData, type RoadmapGroup } from '@/components/student/StudentHome'
 import type { TimelineTopic } from '@/components/student/RoadmapTimeline'
 import { getAuthUser } from '@/lib/supabase/auth-user'
+import { openedAt } from '@/lib/assignments/opening'
 
 export const metadata = { title: 'Мои задания' }
 
@@ -96,13 +97,14 @@ export default async function StudentHomePage({ searchParams }: { searchParams: 
   )
 
   // Правило «вступил в группу больше чем на 3 дня позже назначения» — общее
-  // для обычных и программных назначений, см. миграцию 058.
+  // для обычных и программных назначений, см. миграцию 058. Отсчёт — от
+  // открытия назначения (миграция 110), а не от создания.
   const THREE_DAYS_MS = 3 * 24 * 60 * 60 * 1000
-  const notJoinedLate = (a: { group_id: string | null; created_at: string | null }) => {
+  const notJoinedLate = (a: { group_id: string | null; created_at: string | null; starts_at: string | null }) => {
     if (!a.group_id) return true
     const joinedAt = joinedAtByGroup.get(a.group_id)
     if (joinedAt == null) return true
-    return joinedAt <= new Date(a.created_at ?? 0).getTime() + THREE_DAYS_MS
+    return joinedAt <= new Date(openedAt(a) ?? 0).getTime() + THREE_DAYS_MS
   }
 
   // ── Обычные назначения (лично или на группу, вне программ) ──
@@ -154,7 +156,7 @@ export default async function StudentHomePage({ searchParams }: { searchParams: 
     // ни здесь, ни в общем списке (тот исключает их фильтром roadmap_topic_id
     // is null) — кнопка технически открывала доступ, но кабинет его не видел.
     supabase.from('assignments')
-      .select('id, roadmap_topic_id, kind, max_attempts, ends_at, closed_at, created_at, group_id, test_versions!test_version_id(tests!test_id(title, subject, exam_type, is_active))')
+      .select('id, roadmap_topic_id, kind, max_attempts, starts_at, ends_at, closed_at, created_at, group_id, test_versions!test_version_id(tests!test_id(title, subject, exam_type, is_active))')
       .or(groupIds.length > 0
         ? `student_id.eq.${user.id},group_id.in.(${groupIds.join(',')})`
         : `student_id.eq.${user.id}`)
@@ -236,7 +238,7 @@ export default async function StudentHomePage({ searchParams }: { searchParams: 
       max_score: fin?.max_score ?? attempt?.max_score ?? null,
       attempts_used: attemptsUsed,
       max_attempts: a.max_attempts ?? 1,
-      created_at: a.created_at,
+      created_at: openedAt(a),
       ends_at: a.ends_at,
       closed_reason: closedReason,
       submitted_late: attempt?.submitted_late ?? null,
@@ -267,7 +269,7 @@ export default async function StudentHomePage({ searchParams }: { searchParams: 
       max_score: fin?.max_score ?? attempt?.max_score ?? null,
       attempts_used: attemptsUsed,
       max_attempts: a.max_attempts ?? 1,
-      created_at: a.created_at,
+      created_at: openedAt(a),
       ends_at: a.ends_at,
       closed_reason: closedReason,
       submitted_late: attempt?.submitted_late ?? null,
@@ -300,7 +302,7 @@ export default async function StudentHomePage({ searchParams }: { searchParams: 
       max_score: fin?.max_score ?? attempt?.max_score ?? null,
       attempts_used: Math.max(fin?.attempt_count ?? 0, usedByAssignment.get(a.id) ?? 0),
       max_attempts: a.max_attempts ?? 1,
-      created_at: a.created_at,
+      created_at: openedAt(a),
       ends_at: a.ends_at,
       closed_reason: fin?.closed_reason ?? (a.closed_at ? 'forced' : null),
       submitted_late: attempt?.submitted_late ?? null,

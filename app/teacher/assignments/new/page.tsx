@@ -15,6 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { ArrowLeft, Loader2, AlertTriangle } from 'lucide-react'
 import { SearchableSelect } from '@/components/shared/SearchableSelect'
 import { visibleTopicsInTreeOrder, type RoadmapTopicRow } from '@/lib/roadmaps/topic-order'
+import { localInputToIso, openingHint, opensLater, toLocalInputValue } from '@/lib/assignments/opening'
 import Link from 'next/link'
 
 const schema = z.object({
@@ -93,6 +94,14 @@ export default function NewAssignmentPage() {
   const studentId = watch('student_id')
   const groupId = watch('group_id')
   const roadmapTopicId = watch('roadmap_topic_id')
+  const startsAtValue = watch('starts_at')
+  const opensInFuture = opensLater(localInputToIso(startsAtValue))
+
+  // Открытие по умолчанию — сейчас. Ставим после монтирования, а не в
+  // defaultValues: при серверном рендере часовой пояс другой (UTC).
+  useEffect(() => {
+    setValue('starts_at', toLocalInputValue())
+  }, [setValue])
 
   // roadmapId → его системная группа (roadmaps.group_id) — используется
   // ниже для already-taken/duplicates и не хранится в форме напрямую
@@ -247,7 +256,9 @@ export default function NewAssignmentPage() {
     const res = await fetch('/api/assignments', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data),
+      // datetime-local — время без часового пояса; переводим в UTC здесь, в
+      // поясе учителя, иначе сервер прочтёт его как UTC (сдвиг на 3 часа)
+      body: JSON.stringify({ ...data, starts_at: localInputToIso(data.starts_at), ends_at: localInputToIso(data.ends_at) }),
     })
     const json = await res.json()
     if (!res.ok) {
@@ -410,15 +421,18 @@ export default function NewAssignmentPage() {
               </div>
 
               {/* Даты */}
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <Label htmlFor="starts_at">Начало</Label>
-                  <Input id="starts_at" type="datetime-local" {...register('starts_at')} />
+              <div className="space-y-1">
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <Label htmlFor="starts_at">Открыть</Label>
+                    <Input id="starts_at" type="datetime-local" {...register('starts_at')} />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="ends_at">Срок сдачи</Label>
+                    <Input id="ends_at" type="datetime-local" {...register('ends_at')} />
+                  </div>
                 </div>
-                <div className="space-y-1">
-                  <Label htmlFor="ends_at">Конец</Label>
-                  <Input id="ends_at" type="datetime-local" {...register('ends_at')} />
-                </div>
+                <p className="text-xs text-muted-foreground">{openingHint(opensInFuture)}</p>
               </div>
 
               {/* Попытки */}

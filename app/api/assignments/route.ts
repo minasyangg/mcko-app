@@ -5,6 +5,7 @@ import { z } from 'zod'
 import { zUuid } from '@/lib/uuid'
 import { notifyAssignmentCreated } from '@/lib/notifications/send'
 import { getAuthUser } from '@/lib/supabase/auth-user'
+import { opensLater, parseAssignmentDates } from '@/lib/assignments/opening'
 
 const schema = z.object({
   test_id: zUuid(),
@@ -45,7 +46,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: parsed.error.issues[0]?.message ?? 'Invalid body' }, { status: 400 })
   }
 
-  const { test_id, target_type, roadmap_topic_id, group_id, student_id, starts_at, ends_at, max_attempts, preserve_answers, kind } = parsed.data
+  const { test_id, target_type, roadmap_topic_id, group_id, student_id, max_attempts, preserve_answers, kind } = parsed.data
+  const dates = parseAssignmentDates(parsed.data)
+  if (!dates.ok) return NextResponse.json({ error: dates.error }, { status: 400 })
 
   if (target_type === 'roadmap_topic' && !roadmap_topic_id) {
     return NextResponse.json({ error: 'Выберите тему программы' }, { status: 400 })
@@ -171,6 +174,7 @@ export async function POST(request: Request) {
   // поля kind наследует тип самого теста, а не гадает заново.
   const { data: testKindRow } = await admin.from('tests').select('kind').eq('id', test_id).single()
   const assignmentKind = kind ?? (testKindRow?.kind === 'homework' ? 'homework' : 'test')
+  const deferred = opensLater(dates.startsAt)
 
   const { data: assignment, error } = await admin.from('assignments').insert({
     test_version_id: test.current_published_version_id,
@@ -179,17 +183,20 @@ export async function POST(request: Request) {
     student_id: target_type === 'student' ? student_id : null,
     roadmap_topic_id: target_type === 'roadmap_topic' ? roadmap_topic_id : null,
     kind: assignmentKind,
-    starts_at: starts_at || null,
-    ends_at: ends_at || null,
+    starts_at: dates.startsAt,
+    ends_at: dates.endsAt,
     max_attempts,
     preserve_answers,
     created_by: user.id,
+    // Откроется позже — уведомление отправит /api/notifications/dispatch в
+    // момент открытия (миграция 110); открыто сразу — уведомляем здесь
+    notified_at: deferred ? null : new Date().toISOString(),
   }).select('id').single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
   // телеграм-уведомление ученикам цели — после ответа, не задерживая запрос
-  after(() => notifyAssignmentCreated(assignment.id))
+  if (!deferred) after(() => notifyAssignmentCreated(assignment.id))
 
   return NextResponse.json({ id: assignment.id }, { status: 201 })
 }
