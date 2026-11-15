@@ -118,6 +118,7 @@ export type Database = {
           id: string
           kind: string | null
           max_attempts: number | null
+          notified_at: string | null
           organization_id: string
           preserve_answers: boolean
           roadmap_topic_id: string | null
@@ -136,6 +137,7 @@ export type Database = {
           id?: string
           kind?: string | null
           max_attempts?: number | null
+          notified_at?: string | null
           organization_id: string
           preserve_answers?: boolean
           roadmap_topic_id?: string | null
@@ -154,6 +156,7 @@ export type Database = {
           id?: string
           kind?: string | null
           max_attempts?: number | null
+          notified_at?: string | null
           organization_id?: string
           preserve_answers?: boolean
           roadmap_topic_id?: string | null
@@ -3774,6 +3777,10 @@ export type Database = {
           id: string
           is_active: boolean
         }[]
+      }
+      notification_dispatch_secret_ok: {
+        Args: { p_secret: string }
+        Returns: boolean
       }
       promote_student_grades: {
         Args: { p_actor?: string; p_force?: boolean }

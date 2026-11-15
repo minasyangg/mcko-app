@@ -27,6 +27,7 @@ import {
   Users, Loader2, X, AlertTriangle, Search, GripVertical, Eye, EyeOff, Info,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { localInputToIso, openingHint, opensLater, toLocalInputValue } from '@/lib/assignments/opening'
 
 export interface EditorTopic {
   id: string
@@ -35,7 +36,7 @@ export interface EditorTopic {
   sort_order: number
   parent_id: string | null
   visible_to_students: boolean
-  items: { assignment_id: string; test_id: string | null; test_title: string; kind: 'homework' | 'test'; max_attempts: number; ends_at: string | null }[]
+  items: { assignment_id: string; test_id: string | null; test_title: string; kind: 'homework' | 'test'; max_attempts: number; starts_at: string | null; ends_at: string | null }[]
 }
 
 interface TopicNode extends EditorTopic {
@@ -363,7 +364,7 @@ export function RoadmapEditor({ roadmap, topics, tests, students, memberIds, gro
 
   // — Привязка задания к теме —
   const [itemTopic, setItemTopic] = useState<EditorTopic | null>(null)
-  const [itemForm, setItemForm] = useState({ test_id: '', kind: 'homework' as 'homework' | 'test', max_attempts: 1, ends_at: '' })
+  const [itemForm, setItemForm] = useState({ test_id: '', kind: 'homework' as 'homework' | 'test', max_attempts: 1, starts_at: '', ends_at: '' })
 
   // Сверка повторов при привязке теста к теме — тот же механизм и те же
   // пороги, что на экране «Назначить тест» (см. /api/assignments/duplicates).
@@ -378,7 +379,8 @@ export function RoadmapEditor({ roadmap, topics, tests, students, memberIds, gro
 
   function openItem(topic: EditorTopic) {
     setItemTopic(topic)
-    setItemForm({ test_id: '', kind: 'homework', max_attempts: 1, ends_at: '' })
+    // открытие по умолчанию — сейчас (диалог открывается кликом, в браузере)
+    setItemForm({ test_id: '', kind: 'homework', max_attempts: 1, starts_at: toLocalInputValue(), ends_at: '' })
     setItemGroupWarning(null)
   }
 
@@ -408,7 +410,9 @@ export function RoadmapEditor({ roadmap, topics, tests, students, memberIds, gro
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           test_id: itemForm.test_id, kind: itemForm.kind,
-          max_attempts: itemForm.max_attempts, ends_at: itemForm.ends_at || null,
+          max_attempts: itemForm.max_attempts,
+          // datetime-local без часового пояса — переводим в UTC в поясе учителя
+          starts_at: localInputToIso(itemForm.starts_at), ends_at: localInputToIso(itemForm.ends_at),
         }),
       })
       const json = await res.json().catch(() => ({}))
@@ -681,17 +685,25 @@ export function RoadmapEditor({ roadmap, topics, tests, students, memberIds, gro
                 </SelectContent>
               </Select>
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <Label htmlFor="it-att">Попыток</Label>
-                <Input id="it-att" type="number" min={1} value={itemForm.max_attempts}
-                  onChange={(e) => setItemForm(p => ({ ...p, max_attempts: Math.max(1, Number(e.target.value) || 1) }))} />
+            <div className="space-y-1">
+              <Label htmlFor="it-att">Попыток</Label>
+              <Input id="it-att" type="number" min={1} className="w-32" value={itemForm.max_attempts}
+                onChange={(e) => setItemForm(p => ({ ...p, max_attempts: Math.max(1, Number(e.target.value) || 1) }))} />
+            </div>
+            <div className="space-y-1">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label htmlFor="it-start">Открыть</Label>
+                  <Input id="it-start" type="datetime-local" value={itemForm.starts_at}
+                    onChange={(e) => setItemForm(p => ({ ...p, starts_at: e.target.value }))} />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="it-end">Срок сдачи</Label>
+                  <Input id="it-end" type="datetime-local" value={itemForm.ends_at}
+                    onChange={(e) => setItemForm(p => ({ ...p, ends_at: e.target.value }))} />
+                </div>
               </div>
-              <div className="space-y-1">
-                <Label htmlFor="it-end">Срок до</Label>
-                <Input id="it-end" type="datetime-local" value={itemForm.ends_at}
-                  onChange={(e) => setItemForm(p => ({ ...p, ends_at: e.target.value }))} />
-              </div>
+              <p className="text-xs text-muted-foreground">{openingHint(opensLater(localInputToIso(itemForm.starts_at)))}</p>
             </div>
 
             {/* Мягкое предупреждение, не блокирует привязку — повтор задачи
@@ -1032,6 +1044,11 @@ function TopicTreeItem({
                     </button>
                   ) : (
                     <span className="flex-1 truncate max-md:line-clamp-2 max-md:whitespace-normal max-md:wrap-break-word">{it.test_title}</span>
+                  )}
+                  {opensLater(it.starts_at) && (
+                    <span className="text-xs text-amber-700 dark:text-amber-400 shrink-0" title="До этого момента ученики задание не видят">
+                      откроется {new Date(it.starts_at!).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                    </span>
                   )}
                   <span className="text-xs text-muted-foreground shrink-0">{it.max_attempts} поп.</span>
                   <Button size="icon" variant="ghost" className="h-6 w-6 text-muted-foreground max-md:h-8 max-md:w-8"

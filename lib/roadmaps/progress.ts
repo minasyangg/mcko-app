@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Database } from '@/types/database'
 import { visibleTopicsInTreeOrder, type RoadmapTopicRow } from '@/lib/roadmaps/topic-order'
+import { openedAt } from '@/lib/assignments/opening'
 
 type Client = SupabaseClient<Database>
 
@@ -178,6 +179,8 @@ export interface ProgramTopicItem {
   title: string
   kind: string
   max_attempts: number
+  /** Дата открытия (миграция 110): до неё ученики задание не видят. */
+  starts_at: string | null
   ends_at: string | null
   test_version_id: string
 }
@@ -223,14 +226,14 @@ export async function getRoadmapDetail(supabase: Client, roadmapId: string): Pro
     ? await supabase
         .from('assignments')
         .select(`
-          id, roadmap_topic_id, kind, max_attempts, ends_at, closed_at, test_version_id,
+          id, roadmap_topic_id, kind, max_attempts, starts_at, ends_at, closed_at, test_version_id,
           group_id, student_id, created_at,
           test_versions!test_version_id ( tests!test_id ( title, kind ) )
         `)
         .in('roadmap_topic_id', topicIds)
     : { data: [] as {
         id: string; roadmap_topic_id: string | null; kind: string | null
-        max_attempts: number | null; ends_at: string | null; closed_at: string | null
+        max_attempts: number | null; starts_at: string | null; ends_at: string | null; closed_at: string | null
         test_version_id: string; group_id: string | null; student_id: string | null
         created_at: string | null
         test_versions: { tests: { title: string; kind: string } | null } | null
@@ -314,21 +317,21 @@ export async function getRoadmapDetail(supabase: Client, roadmapId: string): Pro
     personalItems.map(a => [`${a.test_version_id}_${a.student_id}`, a.id])
   )
 
-  // Повторяет student_sees_group_assignment (миграция 058): группового
+  // Повторяет student_sees_group_assignment (миграции 058, 110): группового
   // назначения ученику не видно, если он вступил в группу больше чем на 3 дня
-  // позже создания САМОГО назначения. Нет created_at/added_at — не скрываем
-  // (осторожный дефолт «показать», а не наоборот).
+  // позже открытия САМОГО назначения. Нет дат — не скрываем (осторожный
+  // дефолт «показать», а не наоборот).
   const THREE_DAYS_MS = 3 * 24 * 60 * 60 * 1000
-  function isHiddenByLateJoin(assignmentCreatedAt: string | null, studentId: string): boolean {
+  function isHiddenByLateJoin(assignmentOpenedAt: string | null, studentId: string): boolean {
     const joinedAt = joinedAtByStudent.get(studentId)
-    if (!assignmentCreatedAt || !joinedAt) return false
-    return new Date(joinedAt).getTime() > new Date(assignmentCreatedAt).getTime() + THREE_DAYS_MS
+    if (!assignmentOpenedAt || !joinedAt) return false
+    return new Date(joinedAt).getTime() > new Date(assignmentOpenedAt).getTime() + THREE_DAYS_MS
   }
 
   const statuses: ProgramItemStatus[] = []
   for (const a of groupItems) {
     for (const sid of studentIds) {
-      const hidden = isHiddenByLateJoin(a.created_at, sid)
+      const hidden = isHiddenByLateJoin(openedAt(a), sid)
       const key = `${a.id}_${sid}`
       const latest = latestByKey.get(key)
       const sfrRow = sfrByKey.get(key)
@@ -391,6 +394,7 @@ export async function getRoadmapDetail(supabase: Client, roadmapId: string): Pro
       title: a.test_versions?.tests?.title ?? 'Тест',
       kind: a.kind ?? a.test_versions?.tests?.kind ?? 'test',
       max_attempts: a.max_attempts ?? 1,
+      starts_at: a.starts_at,
       ends_at: a.ends_at,
       test_version_id: a.test_version_id,
     })

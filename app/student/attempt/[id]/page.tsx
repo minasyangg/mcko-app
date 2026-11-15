@@ -8,6 +8,7 @@ import type { TestTask, TaskMediaWithUrl } from '@/types/domain'
 import type { SolutionPhoto } from '@/components/test-player/SolutionPhotoUpload'
 import { getAuthUser } from '@/lib/supabase/auth-user'
 import { loadTestTheory } from '@/lib/theory/load'
+import { openedAt } from '@/lib/assignments/opening'
 
 export const metadata = { title: 'Выполнение задания' }
 
@@ -92,11 +93,12 @@ export default async function AttemptPage({ params }: PageProps) {
   ])
 
   // Групповое назначение не показываем, если ученик вступил в группу больше
-  // чем на 3 дня ПОЗЖЕ, чем оно создано (см. миграцию 058 и её RLS-двойник
+  // чем на 3 дня ПОЗЖЕ, чем оно открылось (см. миграции 058 и 110 и RLS-двойник
   // student_sees_group_assignment): иначе, придя в давнюю группу, ученик
   // получает прямую ссылку доступа ко всей истории назначений группы.
+  // Само неоткрытое назначение ученику не отдаёт RLS — сюда оно не доходит.
   const joinedLate = !!membership?.added_at &&
-    new Date(membership.added_at).getTime() > new Date(assignment.created_at ?? 0).getTime() + 3 * 24 * 60 * 60 * 1000
+    new Date(membership.added_at).getTime() > new Date(openedAt(assignment) ?? 0).getTime() + 3 * 24 * 60 * 60 * 1000
   const hasAccess = assignment.student_id === user.id || (!!membership && !joinedLate)
   if (!hasAccess) {
     redirect('/student')
