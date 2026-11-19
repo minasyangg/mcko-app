@@ -20,6 +20,7 @@ import { EditRoadmapDialog } from '@/components/teacher/EditRoadmapDialog'
 import { BroadcastDialog } from '@/components/teacher/BroadcastDialog'
 import { TestPreviewModalById } from '@/components/teacher/TestPreviewModalById'
 import { AssignmentStatsModal } from '@/components/teacher/AssignmentStatsModal'
+import { AddAttemptsDialog } from '@/components/teacher/AddAttemptsDialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { SearchableSelect } from '@/components/shared/SearchableSelect'
 import {
@@ -1050,7 +1051,13 @@ function TopicTreeItem({
                       откроется {new Date(it.starts_at!).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
                     </span>
                   )}
-                  <span className="text-xs text-muted-foreground shrink-0">{it.max_attempts} поп.</span>
+                  <AddAttemptsDialog assignmentId={it.assignment_id} maxAttempts={it.max_attempts} title={it.test_title}>
+                    <button type="button"
+                      className="text-xs text-muted-foreground shrink-0 rounded px-1 -mx-1 hover:bg-muted hover:text-foreground underline-offset-2 hover:underline max-md:py-1.5"
+                      title="Добавить попытки">
+                      {it.max_attempts} поп.
+                    </button>
+                  </AddAttemptsDialog>
                   <Button size="icon" variant="ghost" className="h-6 w-6 text-muted-foreground max-md:h-8 max-md:w-8"
                     title="Статистика назначения" aria-label="Статистика назначения" onClick={() => onOpenStats(it.assignment_id)}>
                     <Info className="h-3.5 w-3.5" />
