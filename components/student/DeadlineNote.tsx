@@ -5,9 +5,14 @@ import { cn } from '@/lib/utils'
 // RoadmapTimeline: раньше в обоих местах была одна и та же серая строка
 // «До: дата» без реакции на просрочку — теперь единая точка, вместо
 // дублирования сравнения дат и цветов в двух компонентах.
-export function DeadlineNote({ createdAt, endsAt, className }: {
+export function DeadlineNote({ createdAt, endsAt, extraOpen = false, className }: {
   createdAt: string | null
   endsAt: string | null
+  /**
+   * Следующая попытка — дополнительная (учитель добавил попытки, 112). Срок
+   * остаётся прежним, но после него такую попытку не называем просрочкой.
+   */
+  extraOpen?: boolean
   className?: string
 }) {
   if (!endsAt) return null
@@ -16,6 +21,14 @@ export function DeadlineNote({ createdAt, endsAt, className }: {
   const createdLabel = createdAt
     ? new Date(createdAt).toLocaleDateString('ru-RU', { day: '2-digit', month: 'long' })
     : null
+
+  if (state.kind === 'overdue' && extraOpen) {
+    return (
+      <p className={cn('text-xs font-medium text-sky-700 dark:text-sky-400', className)}>
+        Срок был до {endsLabel} · открыта дополнительная попытка
+      </p>
+    )
+  }
 
   if (state.kind === 'overdue') {
     return (

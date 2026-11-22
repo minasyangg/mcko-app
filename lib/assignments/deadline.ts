@@ -28,3 +28,16 @@ export function deadlineState(endsAt: string | null, now: Date = new Date()): De
   if (diffMs <= SOON_THRESHOLD_DAYS * MS_PER_DAY) return { kind: 'soon', days }
   return { kind: 'ok', days }
 }
+
+// Следующая попытка ученика — дополнительная: учитель добавил попытки сверх
+// исходного лимита (assignments.extra_attempts, 112), и исходные уже
+// израсходованы. Срок ends_at при этом не меняется — такую попытку в
+// интерфейсе называем «дополнительной», а не просрочкой.
+export function nextAttemptIsExtra(a: {
+  max_attempts: number
+  extra_attempts?: number | null
+  attempts_used: number
+}): boolean {
+  const extra = a.extra_attempts ?? 0
+  return extra > 0 && a.attempts_used >= a.max_attempts - extra && a.attempts_used < a.max_attempts
+}

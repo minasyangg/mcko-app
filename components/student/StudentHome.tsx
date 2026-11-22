@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { ClipboardList, Route } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { closedReasonLabel } from '@/lib/assignments/completion'
+import { nextAttemptIsExtra } from '@/lib/assignments/deadline'
 import { cardKind, CARD_KIND_CLASS } from '@/lib/assignments/card-style'
 import { RoadmapTimeline, type TimelineTopic } from '@/components/student/RoadmapTimeline'
 import { ShareAssignmentDialog } from '@/components/student/ShareAssignmentDialog'
@@ -34,6 +35,10 @@ export interface AssignmentCardData {
   closed_reason: string | null
   /** Последняя попытка сдана после assignment.ends_at. null — срока не было. */
   submitted_late: boolean | null
+  /** Последняя попытка — дополнительная, сверх исходного лимита (112) */
+  is_extra_attempt?: boolean
+  /** Сколько попыток учитель добавил сверх исходного лимита */
+  extra_attempts?: number
 }
 
 export interface RoadmapGroup {
@@ -69,6 +74,7 @@ function AssignmentCard({ a }: { a: AssignmentCardData }) {
   const isClosed = a.closed_reason != null
   const canStart = !isClosed && attemptsLeft > 0 && !['in_progress', 'submitted'].includes(a.status)
   const kind = cardKind({ status: a.status, score: a.score, maxScore: a.max_score, isClosed })
+  const extraNext = !isClosed && nextAttemptIsExtra(a)
 
   return (
     <Card className={cn('flex flex-col', CARD_KIND_CLASS[kind])}>
@@ -96,14 +102,15 @@ function AssignmentCard({ a }: { a: AssignmentCardData }) {
             что на странице результата */}
         <div className="flex items-center gap-1.5 flex-wrap">
           <StatusBadge status={a.status} score={a.score} maxScore={a.max_score} />
-          {a.submitted_late && isDone && (
-            <span className="text-[11px] text-muted-foreground">сдано с опозданием</span>
+          {isDone && (a.is_extra_attempt
+            ? <span className="text-[11px] text-sky-700 dark:text-sky-400">решено в доп. попытку</span>
+            : a.submitted_late && <span className="text-[11px] text-muted-foreground">сдано с опозданием</span>
           )}
         </div>
 
         <div className="space-y-1 text-xs">
           {a.time_limit_sec && <p>Время: {Math.round(a.time_limit_sec / 60)} мин</p>}
-          {!isClosed && !isDone && <DeadlineNote createdAt={a.created_at} endsAt={a.ends_at} />}
+          {!isClosed && !isDone && <DeadlineNote createdAt={a.created_at} endsAt={a.ends_at} extraOpen={extraNext} />}
           {isClosed
             ? ((a.max_attempts ?? 1) > 1 || a.closed_reason !== 'attempts_exhausted') && (
                 <p className="font-medium text-emerald-700 dark:text-emerald-400">
@@ -126,7 +133,7 @@ function AssignmentCard({ a }: { a: AssignmentCardData }) {
           )}
           {isDone && canStart ? (
             <Button asChild size="sm" className="w-full">
-              <Link href={`/student/attempt/${a.assignment_id}`}>Пройти ещё раз</Link>
+              <Link href={`/student/attempt/${a.assignment_id}`}>{extraNext ? 'Дополнительная попытка' : 'Пройти ещё раз'}</Link>
             </Button>
           ) : !isDone && a.status === 'in_progress' ? (
             <Button asChild size="sm" className="w-full">

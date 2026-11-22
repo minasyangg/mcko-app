@@ -111,7 +111,7 @@ export default async function StudentHomePage({ searchParams }: { searchParams: 
   let plainQuery = supabase
     .from('assignments')
     .select(`
-      id, starts_at, ends_at, max_attempts, closed_at, created_at, group_id, kind,
+      id, starts_at, ends_at, max_attempts, extra_attempts, closed_at, created_at, group_id, kind,
       groups ( name ),
       test_versions!test_version_id (
         id, time_limit_sec,
@@ -156,7 +156,7 @@ export default async function StudentHomePage({ searchParams }: { searchParams: 
     // ни здесь, ни в общем списке (тот исключает их фильтром roadmap_topic_id
     // is null) — кнопка технически открывала доступ, но кабинет его не видел.
     supabase.from('assignments')
-      .select('id, roadmap_topic_id, kind, max_attempts, starts_at, ends_at, closed_at, created_at, group_id, test_versions!test_version_id(tests!test_id(title, subject, exam_type, is_active))')
+      .select('id, roadmap_topic_id, kind, max_attempts, extra_attempts, starts_at, ends_at, closed_at, created_at, group_id, test_versions!test_version_id(tests!test_id(title, subject, exam_type, is_active))')
       .or(groupIds.length > 0
         ? `student_id.eq.${user.id},group_id.in.(${groupIds.join(',')})`
         : `student_id.eq.${user.id}`)
@@ -179,7 +179,7 @@ export default async function StudentHomePage({ searchParams }: { searchParams: 
     ? await Promise.all([
         supabase
           .from('attempts')
-          .select('id, assignment_id, status, score, max_score, submitted_late')
+          .select('id, assignment_id, status, score, max_score, submitted_late, is_extra_attempt')
           .in('assignment_id', allAssignmentIds)
           .eq('student_id', user.id)
           .order('created_at', { ascending: false }),
@@ -191,7 +191,7 @@ export default async function StudentHomePage({ searchParams }: { searchParams: 
       ])
     : [{ data: [] }, { data: [] }]
 
-  type AttemptRow = { id: string; assignment_id: string | null; status: string; score: number | null; max_score: number | null; submitted_late: boolean | null }
+  type AttemptRow = { id: string; assignment_id: string | null; status: string; score: number | null; max_score: number | null; submitted_late: boolean | null; is_extra_attempt: boolean | null }
   const attemptMap = new Map<string, AttemptRow>()
   const usedByAssignment = new Map<string, number>()
   for (const a of (attempts ?? []) as AttemptRow[]) {
@@ -242,6 +242,8 @@ export default async function StudentHomePage({ searchParams }: { searchParams: 
       ends_at: a.ends_at,
       closed_reason: closedReason,
       submitted_late: attempt?.submitted_late ?? null,
+      is_extra_attempt: attempt?.is_extra_attempt ?? false,
+      extra_attempts: a.extra_attempts ?? 0,
     })
   }
 
@@ -273,6 +275,8 @@ export default async function StudentHomePage({ searchParams }: { searchParams: 
       ends_at: a.ends_at,
       closed_reason: closedReason,
       submitted_late: attempt?.submitted_late ?? null,
+      is_extra_attempt: attempt?.is_extra_attempt ?? false,
+      extra_attempts: a.extra_attempts ?? 0,
     })
   }
 
@@ -306,6 +310,8 @@ export default async function StudentHomePage({ searchParams }: { searchParams: 
       ends_at: a.ends_at,
       closed_reason: fin?.closed_reason ?? (a.closed_at ? 'forced' : null),
       submitted_late: attempt?.submitted_late ?? null,
+      is_extra_attempt: attempt?.is_extra_attempt ?? false,
+      extra_attempts: a.extra_attempts ?? 0,
     })
     itemsByTopic.set(tid, arr)
   }

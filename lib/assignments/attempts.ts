@@ -11,7 +11,11 @@ export interface AddAttemptsResult {
   reopenedStudents: number
   /** Назначение завершено учителем для всех — новые попытки сами его не откроют */
   closedForAll: boolean
-  /** Дедлайн прошёл — ученик не начнёт попытку, пока срок не продлят */
+  /**
+   * Дедлайн уже прошёл. Попытки всё равно открыты (срок никогда не запрещал
+   * начать — только помечал сдачу submitted_late), а работа в добавленную
+   * попытку отмечается is_extra_attempt — «решено в доп. попытку», не опоздание.
+   */
   deadlinePassed: boolean
 }
 
@@ -31,7 +35,7 @@ export async function addAttempts(
 ): Promise<AddAttemptsResult | { error: string }> {
   const { data: assignment } = await admin
     .from('assignments')
-    .select('max_attempts, closed_at, ends_at')
+    .select('max_attempts, extra_attempts, closed_at, ends_at')
     .eq('id', opts.assignmentId)
     .single()
   if (!assignment) return { error: 'Назначение не найдено' }
@@ -42,9 +46,11 @@ export async function addAttempts(
     return { error: `Не больше ${MAX_TOTAL_ATTEMPTS} попыток на назначение (сейчас ${current})` }
   }
 
+  // ends_at не трогаем: срок — факт исходного задания. Сколько попыток
+  // добавлено, помним отдельно, чтобы отличать доп. попытку от опоздания (112).
   const { error: updErr } = await admin
     .from('assignments')
-    .update({ max_attempts: maxAttempts })
+    .update({ max_attempts: maxAttempts, extra_attempts: (assignment.extra_attempts ?? 0) + opts.add })
     .eq('id', opts.assignmentId)
   if (updErr) return { error: updErr.message }
 

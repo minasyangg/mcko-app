@@ -118,6 +118,7 @@ export type Database = {
           id: string
           kind: string | null
           max_attempts: number | null
+          extra_attempts: number
           notified_at: string | null
           organization_id: string
           preserve_answers: boolean
@@ -137,6 +138,7 @@ export type Database = {
           id?: string
           kind?: string | null
           max_attempts?: number | null
+          extra_attempts?: number
           notified_at?: string | null
           organization_id: string
           preserve_answers?: boolean
@@ -156,6 +158,7 @@ export type Database = {
           id?: string
           kind?: string | null
           max_attempts?: number | null
+          extra_attempts?: number
           notified_at?: string | null
           organization_id?: string
           preserve_answers?: boolean
@@ -360,6 +363,7 @@ export type Database = {
           student_id: string
           submitted_at: string | null
           submitted_late: boolean | null
+          is_extra_attempt: boolean
           teacher_comment: string | null
           teacher_reviewed_at: string | null
         }
@@ -378,6 +382,7 @@ export type Database = {
           student_id: string
           submitted_at?: string | null
           submitted_late?: boolean | null
+          is_extra_attempt?: boolean
           teacher_comment?: string | null
           teacher_reviewed_at?: string | null
         }
@@ -396,6 +401,7 @@ export type Database = {
           student_id?: string
           submitted_at?: string | null
           submitted_late?: boolean | null
+          is_extra_attempt?: boolean
           teacher_comment?: string | null
           teacher_reviewed_at?: string | null
         }

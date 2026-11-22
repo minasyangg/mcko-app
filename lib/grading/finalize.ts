@@ -99,7 +99,7 @@ export async function finalizeAttempt(
 
   const { data: assignment } = await admin
     .from('assignments')
-    .select('id, test_version_id, max_attempts, ends_at, test_versions!test_version_id(tests!test_id(scoring_rule_id))')
+    .select('id, test_version_id, max_attempts, extra_attempts, ends_at, test_versions!test_version_id(tests!test_id(scoring_rule_id))')
     .eq('id', attempt.assignment_id)
     .single()
   if (!assignment) return null
@@ -246,7 +246,25 @@ export async function finalizeAttempt(
     ? new Date(now).getTime() > new Date(assignment.ends_at).getTime()
     : null
 
+  // Попытка сверх исходного лимита — её добавил учитель (112). Номер попытки —
+  // эта плюс ранее сданные; исходный лимит = max_attempts - extra_attempts.
+  // В аналитике такая сдача — «решено в доп. попытку», а не опоздание, поэтому
+  // флаг отдельный, а submitted_late остаётся честным фактом о сроке.
+  const extraAttempts = assignment.extra_attempts ?? 0
+  let isExtraAttempt = false
+  if (extraAttempts > 0) {
+    const { count: prevCompleted } = await admin
+      .from('attempts')
+      .select('id', { count: 'exact', head: true })
+      .eq('assignment_id', attempt.assignment_id)
+      .eq('student_id', attempt.student_id)
+      .in('status', ['submitted', 'checked'])
+      .neq('id', attemptId)
+    isExtraAttempt = (prevCompleted ?? 0) + 1 > (assignment.max_attempts ?? 1) - extraAttempts
+  }
+
   await admin.from('attempts').update({
+    is_extra_attempt: isExtraAttempt,
     status: newStatus,
     submitted_at: now,
     score: totalScore,
