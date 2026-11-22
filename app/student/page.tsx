@@ -141,16 +141,17 @@ export default async function StudentHomePage({ searchParams }: { searchParams: 
   // ── Программы ученика: roadmaps → topics → assignments(roadmap_topic_id) ──
   const { data: roadmaps } = groupIds.length
     ? await supabase.from('roadmaps')
-        .select('id, title, subject, group_id')
+        .select('id, title, subject, group_id, created_by')
         .in('group_id', groupIds)
         .order('subject')
         .order('title')
-    : { data: [] as { id: string; title: string; subject: string | null; group_id: string | null }[] }
+    : { data: [] as { id: string; title: string; subject: string | null; group_id: string | null; created_by: string }[] }
 
   const roadmapIds = (roadmaps ?? []).map(r => r.id)
   const roadmapById = new Map((roadmaps ?? []).map(r => [r.id, r]))
 
-  const [{ data: topics }, { data: rawRoadmapItems }] = await Promise.all([
+  const ownerIds = [...new Set((roadmaps ?? []).map(r => r.created_by))]
+  const [{ data: topics }, { data: rawRoadmapItems }, { data: owners }] = await Promise.all([
     roadmapIds.length
       ? supabase.from('roadmap_topics')
           .select('id, roadmap_id, parent_id, title, sort_order, visible_to_students')
@@ -169,7 +170,15 @@ export default async function StudentHomePage({ searchParams }: { searchParams: 
         ? `student_id.eq.${user.id},group_id.in.(${groupIds.join(',')})`
         : `student_id.eq.${user.id}`)
       .not('roadmap_topic_id', 'is', null),
+    // ФИ учителя-владельца в заголовке программы — чтобы ученик не путал
+    // программы разных учителей. Профили учителей ученику RLS не отдаёт,
+    // поэтому служебным клиентом и только имя владельцев своих программ.
+    ownerIds.length
+      ? createAdminClient().from('profiles').select('id, full_name').in('id', ownerIds).limit(ownerIds.length)
+      : Promise.resolve({ data: [] as { id: string; full_name: string }[] }),
   ])
+  // full_name — «Фамилия Имя [Отчество]», в подписи хватает ФИ
+  const ownerName = new Map((owners ?? []).map(o => [o.id, o.full_name.trim().split(/s+/).slice(0, 2).join(' ')]))
 
   const topicById = new Map((topics ?? []).map(t => [t.id, t]))
   const roadmapItems = (rawRoadmapItems ?? []).filter(a => {
@@ -362,6 +371,7 @@ export default async function StudentHomePage({ searchParams }: { searchParams: 
     id: r.id,
     title: r.title,
     subject: r.subject,
+    teacher: ownerName.get(r.created_by) || null,
     // Порядок тем — DFS-обход дерева (см. topicsInTreeOrder), не плоский
     // ORDER BY sort_order: то поле уникально только среди siblings одного
     // parent_id, поэтому глобальная сортировка перемешивала бы ветки.

@@ -50,6 +50,8 @@ export interface RoadmapGroup {
   id: string
   title: string
   subject: string | null
+  /** ФИ учителя, чья программа */
+  teacher: string | null
   topics: TimelineTopic[]
 }
 
@@ -286,6 +288,9 @@ export function StudentHome({
               <section key={rm.id} className="space-y-2">
                 <h2 className="text-lg font-semibold border-b pb-1">
                   {rm.title}{rm.subject ? ` · ${rm.subject}` : ''}
+                  {rm.teacher && (
+                    <span className="ml-3 text-sm font-normal text-muted-foreground">Учитель: {rm.teacher}</span>
+                  )}
                 </h2>
                 <RoadmapTimeline topics={rm.topics} />
               </section>
