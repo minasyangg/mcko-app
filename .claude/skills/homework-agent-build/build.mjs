@@ -56,7 +56,7 @@ function sql(text) {
   return out.results[0].rows
 }
 
-const plain = md => md.replace(/\$\$?/g, '').replace(/\*\*/g, '').replace(/\\,/g, ' ').replace(/\s+/g, ' ').trim()
+const plain = md => md.replace(/<[^>]+>/g, ' ').replace(/\$\$?/g, '').replace(/\*\*/g, '').replace(/\\,/g, ' ').replace(/\s+/g, ' ').trim()
 
 const only = process.argv.slice(3)
 const built = fs.existsSync(path.join(here, 'built.json')) ? JSON.parse(fs.readFileSync(path.join(here, 'built.json'), 'utf8')) : {}
@@ -72,12 +72,14 @@ for (const T of TESTS) {
     : []
   const libRows = byPrefix('library_problems', libP)
   const bookRows = byPrefix('book_problems', bookP)
+  // у test_tasks нет is_active, поэтому задания тестов — полными id
+  const taskRows = T.items.filter(i => i.task).map(i => ({ id: i.task }))
   const full = p => {
-    const m = [...libRows, ...bookRows].filter(r => r.id.startsWith(p))
+    const m = [...libRows, ...bookRows, ...taskRows].filter(r => r.id.startsWith(p))
     if (m.length !== 1) throw new Error(`${T.key}: префикс ${p} → ${m.length} совпадений`)
     return m[0].id
   }
-  const ids = T.items.map(i => full((i.lib ?? i.book).replace(/-$/, '')))
+  const ids = T.items.map(i => full((i.lib ?? i.book ?? i.task).replace(/-$/, '')))
 
   // уже начатый черновик (обрыв сети) — дособираем с первого отсутствующего номера
   const dup = must(await admin.from('tests').select('id, status').eq('created_by', T.teacherId).eq('title', T.title).is('deleted_at', null), 'проверка дубля')
@@ -125,6 +127,48 @@ for (const T of TESTS) {
         }), `ключ ${n}`)
       }
       console.log(`№${String(n).padStart(2)} lib  ${id.slice(0, 8)} → ${r.taskId.slice(0, 8)} рис:${r.hasImages ? 'да' : 'нет'}  ${it.note}`)
+    } else if (it.task) {
+      // задание другого теста (блок 1–5 пробника ОГЭ и т. п.): рисунки копируются
+      // физически, чтобы удаление исходного теста не ломало ДЗ
+      const src = must(await admin.from('test_tasks')
+        .select('prompt_html, task_type, grading_method, answer_format_hint, options, answer_parts, library_problem_id, book_problem_id, task_answer_keys(correct_answer, grading_method, grading_config)')
+        .eq('id', id).single(), `исходное задание ${n}`)
+      const srcKey = Array.isArray(src.task_answer_keys) ? src.task_answer_keys[0] : src.task_answer_keys
+      const md = it.md ?? src.prompt_html
+      const task = must(await admin.from('test_tasks').insert({
+        test_version_id: version.id, task_number: n, sort_order: n,
+        prompt_html: md, prompt_text: plain(md),
+        task_type: it.task_type ?? src.task_type, grading_method: it.grading_method ?? src.grading_method,
+        answer_format_hint: it.hint ?? src.answer_format_hint, options: src.options ?? [], answer_parts: src.answer_parts ?? [],
+        max_score: it.max ?? 1, has_images: false, review_status: 'approved',
+        library_problem_id: src.library_problem_id, book_problem_id: src.book_problem_id,
+      }).select('id').single(), `задание ${n}`)
+      // it.media — задания, чьи рисунки приложить (общий план блока); по умолчанию свои
+      const media = must(await admin.from('task_media').select('storage_path, media_type, placement, sort_order, alt_text')
+        .in('task_id', it.media ?? [id]).order('sort_order'), `рисунки ${n}`)
+      const copied = []
+      for (const m of media) {
+        const dest = `homework-copy/${task.id}/${m.storage_path.split('/').pop()}`
+        const { error } = await admin.storage.from('task-media').copy(m.storage_path, dest)
+        if (error) throw new Error(`копия рисунка ${m.storage_path}: ${error.message}`)
+        copied.push({ task_id: task.id, storage_path: dest, media_type: m.media_type, placement: m.placement ?? 'above_text', sort_order: copied.length, alt_text: m.alt_text })
+      }
+      if (copied.length) {
+        must(await admin.from('task_media').insert(copied), `рисунки ${n}`)
+        must(await admin.from('test_tasks').update({ has_images: true }).eq('id', task.id), `has_images ${n}`)
+      }
+      if (it.solution) {
+        const solMd = it.solution.join('\n\n')
+        must(await admin.from('task_solutions').insert({
+          task_id: task.id, solution_html: solMd, solution_text: plain(solMd), has_images: false, access_policy: 'by_request',
+        }), `решение ${n}`)
+      }
+      // ключ — последним: по нему повторный запуск считает задание собранным
+      must(await admin.from('task_answer_keys').insert({
+        task_id: task.id, correct_answer: it.key ?? srcKey.correct_answer,
+        grading_method: it.key_method ?? srcKey.grading_method, grading_config: srcKey?.grading_config ?? {},
+      }), `ключ ${n}`)
+      console.log(`№${String(n).padStart(2)} test ${id.slice(0, 8)} → ${task.id.slice(0, 8)} рис:${copied.length}  ${it.note}`)
     } else {
       const max = it.max ?? 1
       const r = await addBookProblemToVersion(admin, { testVersionId: version.id, bookProblemId: id, taskNumber: n, maxScore: max })

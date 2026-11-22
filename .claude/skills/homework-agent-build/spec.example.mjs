@@ -12,6 +12,10 @@
 //     та же книжная задача, но с автопроверкой; solution тогда необязателен.
 //     composite: task_type 'composite', grading_method/key_method 'normalized',
 //     parts [{type:'numeric', label}], key {parts: {label: {value, method}}}.
+//   { task: '<полный id test_tasks>', md, key, key_method, task_type, grading_method, hint,
+//     media: [id заданий-источников рисунков], solution, note } — задание другого теста
+//     (блоки 1–5 пробников ОГЭ: в библиотеке Решу ОГЭ у них потерян вопрос). Не заданные
+//     поля берутся из исходного задания и его ключа; рисунки копируются в task-media.
 
 const ORG = '11111111-1111-1111-1111-111111111111'
 const TEACHER = '33333333-3333-3333-3333-333333333333'
