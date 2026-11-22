@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { authorizeShareAdmin } from '@/lib/sharing/authorize'
 import { createClient } from '@/lib/supabase/server'
 import { getAuthUser } from '@/lib/supabase/auth-user'
+import { getAppSettings } from '@/lib/settings/server'
 
 type Params = { params: Promise<{ id: string }> }
 
@@ -15,7 +16,7 @@ export async function GET(_request: NextRequest, { params }: Params) {
   if ('error' in auth) return auth.error
   const { admin, orgId } = auth
 
-  const [{ data: settings }, { data: recipients }, { data: orgTeachers }] = await Promise.all([
+  const [{ data: settings }, { data: recipients }, { data: orgTeachers }, appSettings] = await Promise.all([
     admin
       .from('student_share_settings')
       .select('enabled, default_ttl_days')
@@ -31,11 +32,12 @@ export async function GET(_request: NextRequest, { params }: Params) {
       .eq('role', 'teacher')
       .eq('organization_id', orgId)
       .order('full_name'),
+    getAppSettings(),
   ])
 
   return NextResponse.json({
     enabled: settings?.enabled ?? false,
-    default_ttl_days: settings?.default_ttl_days ?? 14,
+    default_ttl_days: settings?.default_ttl_days ?? appSettings.share_ttl_default_days,
     recipients: (recipients ?? []).map(r => ({
       teacher_id: r.teacher_id,
       full_name: (r.profiles as unknown as { full_name: string } | null)?.full_name ?? '—',

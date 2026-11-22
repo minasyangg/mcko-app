@@ -38,6 +38,27 @@ export type Database = {
         }
         Relationships: []
       }
+      app_settings: {
+        Row: {
+          key: string
+          updated_at: string
+          updated_by: string | null
+          value: Json
+        }
+        Insert: {
+          key: string
+          updated_at?: string
+          updated_by?: string | null
+          value: Json
+        }
+        Update: {
+          key?: string
+          updated_at?: string
+          updated_by?: string | null
+          value?: Json
+        }
+        Relationships: []
+      }
       assignment_shares: {
         Row: {
           assignment_id: string
@@ -3633,6 +3654,14 @@ export type Database = {
       }
     }
     Functions: {
+      app_setting_int: {
+        Args: { p_default: number; p_key: string }
+        Returns: number
+      }
+      set_notification_dispatch_schedule: {
+        Args: { p_schedule: string }
+        Returns: undefined
+      }
       auth_org: { Args: never; Returns: string }
       auth_role: { Args: never; Returns: string }
       book_problem_stats: {

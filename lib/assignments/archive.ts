@@ -1,12 +1,13 @@
 import { finalizeAttempt, updateCumulativeResult, type AdminClient } from '@/lib/grading/finalize'
 import { openedAt } from '@/lib/assignments/opening'
+import { DAY_MS } from '@/lib/settings/registry'
 
 // Архив заданий в кабинете ученика (миграция 113).
 //
 // Старые назначения (ОГЭ прошлого года у тех, кто уже готовится к ЕГЭ)
 // заслоняли актуальную программу в «Мои задания». Убрать в архив можно только
-// назначение, открытое больше ARCHIVE_AFTER_DAYS дней назад, — свежие задания
-// так не спрятать.
+// назначение, открытое больше archive_after_days дней назад (настройка
+// системы, 114; по умолчанию полгода), — свежие задания так не спрятать.
 //
 // Архив закрывает назначение для ученика и пишет итог, как завершение учителем
 // (lib/assignments/close.ts): начатая попытка с ответами сдаётся и проверяется,
@@ -14,13 +15,15 @@ import { openedAt } from '@/lib/assignments/opening'
 // «0 баллов, 0 попыток», а не отсутствие строки: в статистике это осознанное
 // «не сделано», а не пропуск.
 
-/** Сколько дней назначение должно провисеть, чтобы его можно было убрать в архив */
-export const ARCHIVE_AFTER_DAYS = 183
-
-export function canArchive(a: { starts_at?: string | null; created_at?: string | null }, now: Date = new Date()): boolean {
+/** Назначение провисело archiveAfterDays дней с открытия — его можно убрать в архив */
+export function canArchive(
+  a: { starts_at?: string | null; created_at?: string | null },
+  archiveAfterDays: number,
+  now: Date = new Date()
+): boolean {
   const opened = openedAt(a)
   if (!opened) return false
-  return now.getTime() - new Date(opened).getTime() >= ARCHIVE_AFTER_DAYS * 24 * 60 * 60 * 1000
+  return now.getTime() - new Date(opened).getTime() >= archiveAfterDays * DAY_MS
 }
 
 // Пустая строка, пустой массив/объект — ответа нет (поле очищали)

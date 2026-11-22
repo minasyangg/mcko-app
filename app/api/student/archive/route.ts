@@ -3,7 +3,8 @@ import { z } from 'zod'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getAuthUser } from '@/lib/supabase/auth-user'
-import { ARCHIVE_AFTER_DAYS, archiveForStudent, canArchive, unarchiveForStudent } from '@/lib/assignments/archive'
+import { archiveForStudent, canArchive, unarchiveForStudent } from '@/lib/assignments/archive'
+import { getAppSettings } from '@/lib/settings/server'
 
 const bodySchema = z.object({ assignment_id: z.string().uuid() })
 
@@ -42,7 +43,8 @@ async function authorize(assignmentId: string) {
 }
 
 // POST { assignment_id } — убрать в архив. Только назначения старше
-// ARCHIVE_AFTER_DAYS дней: назначение закрывается, итог пишется в БД.
+// archive_after_days дней (настройка системы): назначение закрывается, итог
+// пишется в БД.
 export async function POST(request: NextRequest) {
   const parsed = bodySchema.safeParse(await request.json().catch(() => null))
   if (!parsed.success) return NextResponse.json({ error: 'assignment_id обязателен' }, { status: 400 })
@@ -51,9 +53,10 @@ export async function POST(request: NextRequest) {
   if ('error' in auth) return auth.error
   const { admin, studentId, assignment } = auth
 
-  if (!canArchive(assignment)) {
+  const { archive_after_days: archiveAfterDays } = await getAppSettings()
+  if (!canArchive(assignment, archiveAfterDays)) {
     return NextResponse.json(
-      { error: `В архив можно убрать только задание, выданное больше ${ARCHIVE_AFTER_DAYS} дней назад` },
+      { error: `В архив можно убрать только задание, выданное больше ${archiveAfterDays} дней назад` },
       { status: 409 }
     )
   }

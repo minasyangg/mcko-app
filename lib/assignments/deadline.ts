@@ -17,15 +17,21 @@ export interface DeadlineState {
 // notJoinedLate в app/student/page.tsx) — согласованность формулировки в
 // интерфейсе, не переиспользование той же логики (смысл разный: там — окно
 // видимости назначения, здесь — подсветка приближающегося срока).
+// Значение по умолчанию; в интерфейсе порог — настройка системы
+// deadline_soon_days (114), DeadlineNote передаёт её третьим аргументом.
 const SOON_THRESHOLD_DAYS = 3
 const MS_PER_DAY = 24 * 60 * 60 * 1000
 
-export function deadlineState(endsAt: string | null, now: Date = new Date()): DeadlineState {
+export function deadlineState(
+  endsAt: string | null,
+  now: Date = new Date(),
+  soonDays: number = SOON_THRESHOLD_DAYS
+): DeadlineState {
   if (!endsAt) return { kind: 'none', days: null }
   const diffMs = new Date(endsAt).getTime() - now.getTime()
   const days = Math.ceil(Math.abs(diffMs) / MS_PER_DAY)
   if (diffMs < 0) return { kind: 'overdue', days }
-  if (diffMs <= SOON_THRESHOLD_DAYS * MS_PER_DAY) return { kind: 'soon', days }
+  if (diffMs <= soonDays * MS_PER_DAY) return { kind: 'soon', days }
   return { kind: 'ok', days }
 }
 

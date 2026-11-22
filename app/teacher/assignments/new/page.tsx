@@ -15,7 +15,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { ArrowLeft, Loader2, AlertTriangle } from 'lucide-react'
 import { SearchableSelect } from '@/components/shared/SearchableSelect'
 import { visibleTopicsInTreeOrder, type RoadmapTopicRow } from '@/lib/roadmaps/topic-order'
-import { localInputToIso, openingHint, opensLater, toLocalInputValue } from '@/lib/assignments/opening'
+import { localInputToIso, opensLater, toLocalInputValue } from '@/lib/assignments/opening'
+import { OpeningHint } from '@/components/teacher/OpeningHint'
 import Link from 'next/link'
 
 const schema = z.object({
@@ -432,7 +433,7 @@ export default function NewAssignmentPage() {
                     <Input id="ends_at" type="datetime-local" {...register('ends_at')} />
                   </div>
                 </div>
-                <p className="text-xs text-muted-foreground">{openingHint(opensInFuture)}</p>
+                <OpeningHint deferred={opensInFuture} />
               </div>
 
               {/* Попытки */}

@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { authorizeAssignmentOwner } from '@/lib/assignments/authorize'
-import { addAttempts, MAX_ADD_ATTEMPTS } from '@/lib/assignments/attempts'
+import { addAttempts } from '@/lib/assignments/attempts'
+import { getAppSettings } from '@/lib/settings/server'
 
+// Верхняя граница «за раз» — настройка системы (attempts_add_max, 114)
 const schema = z.object({
-  add: z.number().int().min(1, 'Добавьте хотя бы одну попытку').max(MAX_ADD_ATTEMPTS, `За раз — не больше ${MAX_ADD_ATTEMPTS} попыток`),
+  add: z.number().int().min(1, 'Добавьте хотя бы одну попытку'),
 })
 
 // POST /api/assignments/[id]/attempts — добавить попытки всем адресатам
@@ -28,7 +30,14 @@ export async function POST(
     return NextResponse.json({ error: parsed.error.issues[0]?.message ?? 'Invalid body' }, { status: 400 })
   }
 
-  const result = await addAttempts(auth.admin, { assignmentId, add: parsed.data.add })
+  const settings = await getAppSettings()
+  if (parsed.data.add > settings.attempts_add_max) {
+    return NextResponse.json({ error: `За раз — не больше ${settings.attempts_add_max} попыток` }, { status: 400 })
+  }
+
+  const result = await addAttempts(auth.admin, {
+    assignmentId, add: parsed.data.add, maxTotal: settings.attempts_total_max,
+  })
   if ('error' in result) return NextResponse.json({ error: result.error }, { status: 400 })
 
   return NextResponse.json({

@@ -5,6 +5,8 @@ import { LogoutButton } from '@/components/shared/LogoutButton'
 import { StudentNav } from '@/components/student/StudentNav'
 import { Settings } from 'lucide-react'
 import { getAuthUser } from '@/lib/supabase/auth-user'
+import { getAppSettings } from '@/lib/settings/server'
+import { AppSettingsProvider } from '@/components/shared/AppSettingsProvider'
 
 export default async function StudentLayout({ children }: { children: React.ReactNode }) {
   const supabase = await createClient()
@@ -19,6 +21,8 @@ export default async function StudentLayout({ children }: { children: React.Reac
 
   if (!profile) redirect('/no-profile')
   if (profile.role !== 'student') redirect('/teacher')
+
+  const settings = await getAppSettings()
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -48,7 +52,9 @@ export default async function StudentLayout({ children }: { children: React.Reac
           </div>
         </div>
       </header>
-      <main className="flex-1 container mx-auto px-4 py-6">{children}</main>
+      <main className="flex-1 container mx-auto px-4 py-6">
+        <AppSettingsProvider value={settings}>{children}</AppSettingsProvider>
+      </main>
     </div>
   )
 }

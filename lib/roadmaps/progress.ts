@@ -2,6 +2,8 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Database } from '@/types/database'
 import { visibleTopicsInTreeOrder, type RoadmapTopicRow } from '@/lib/roadmaps/topic-order'
 import { openedAt } from '@/lib/assignments/opening'
+import { joinedTooLate } from '@/lib/settings/registry'
+import { getAppSettings } from '@/lib/settings/server'
 
 type Client = SupabaseClient<Database>
 
@@ -317,15 +319,13 @@ export async function getRoadmapDetail(supabase: Client, roadmapId: string): Pro
     personalItems.map(a => [`${a.test_version_id}_${a.student_id}`, a.id])
   )
 
-  // Повторяет student_sees_group_assignment (миграции 058, 110): группового
-  // назначения ученику не видно, если он вступил в группу больше чем на 3 дня
-  // позже открытия САМОГО назначения. Нет дат — не скрываем (осторожный
-  // дефолт «показать», а не наоборот).
-  const THREE_DAYS_MS = 3 * 24 * 60 * 60 * 1000
+  // Повторяет student_sees_group_assignment (миграции 058, 110, 114): группового
+  // назначения ученику не видно, если он вступил в группу больше чем на
+  // late_join_days дней позже открытия САМОГО назначения. Нет дат — не
+  // скрываем (осторожный дефолт «показать», а не наоборот).
+  const { late_join_days: lateJoinDays } = await getAppSettings()
   function isHiddenByLateJoin(assignmentOpenedAt: string | null, studentId: string): boolean {
-    const joinedAt = joinedAtByStudent.get(studentId)
-    if (!assignmentOpenedAt || !joinedAt) return false
-    return new Date(joinedAt).getTime() > new Date(assignmentOpenedAt).getTime() + THREE_DAYS_MS
+    return joinedTooLate(joinedAtByStudent.get(studentId), assignmentOpenedAt, lateJoinDays)
   }
 
   const statuses: ProgramItemStatus[] = []

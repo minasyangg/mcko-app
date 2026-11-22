@@ -14,6 +14,8 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog'
 import { Check, X } from 'lucide-react'
+import { useAppSettings } from '@/components/shared/AppSettingsProvider'
+import { DAY_MS } from '@/lib/settings/registry'
 
 interface Props {
   requestId: string
@@ -23,6 +25,7 @@ interface Props {
 export function SolutionRequestActions({ requestId, studentName }: Props) {
   const router = useRouter()
   const supabase = createClient()
+  const { solution_access_days: accessDays } = useAppSettings()
   const [loading, setLoading] = useState<'approve' | 'reject' | null>(null)
   const [rejectDialog, setRejectDialog] = useState(false)
   const [teacherNote, setTeacherNote] = useState('')
@@ -30,7 +33,7 @@ export function SolutionRequestActions({ requestId, studentName }: Props) {
   async function approve() {
     setLoading('approve')
     const { data: { user } } = await supabase.auth.getUser()
-    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
+    const expiresAt = new Date(Date.now() + accessDays * DAY_MS).toISOString()
 
     const { error } = await supabase
       .from('solution_requests')

@@ -4,6 +4,8 @@ import type { TimelineTopic } from '@/components/student/RoadmapTimeline'
 import { getAuthUser } from '@/lib/supabase/auth-user'
 import { openedAt } from '@/lib/assignments/opening'
 import { canArchive } from '@/lib/assignments/archive'
+import { DAY_MS } from '@/lib/settings/registry'
+import { getAppSettings } from '@/lib/settings/server'
 
 export const metadata = { title: 'Мои задания' }
 
@@ -87,25 +89,28 @@ export default async function StudentHomePage({ searchParams }: { searchParams: 
   const { data: { user } } = await getAuthUser(supabase)
   if (!user) return null
 
-  const { data: memberships } = await supabase
-    .from('group_members')
-    .select('group_id, added_at')
-    .eq('user_id', user.id)
+  const [{ data: memberships }, settings] = await Promise.all([
+    supabase
+      .from('group_members')
+      .select('group_id, added_at')
+      .eq('user_id', user.id),
+    getAppSettings(),
+  ])
 
   const groupIds = (memberships ?? []).map((m) => m.group_id as string)
   const joinedAtByGroup = new Map(
     (memberships ?? []).map((m) => [m.group_id as string, new Date(m.added_at as string).getTime()])
   )
 
-  // Правило «вступил в группу больше чем на 3 дня позже назначения» — общее
-  // для обычных и программных назначений, см. миграцию 058. Отсчёт — от
-  // открытия назначения (миграция 110), а не от создания.
-  const THREE_DAYS_MS = 3 * 24 * 60 * 60 * 1000
+  // Правило «вступил в группу позже назначения» — общее для обычных и
+  // программных назначений, см. миграцию 058. Отсчёт — от открытия назначения
+  // (миграция 110), а не от создания; порог — настройка late_join_days (114).
+  const lateJoinMs = settings.late_join_days * DAY_MS
   const notJoinedLate = (a: { group_id: string | null; created_at: string | null; starts_at: string | null }) => {
     if (!a.group_id) return true
     const joinedAt = joinedAtByGroup.get(a.group_id)
     if (joinedAt == null) return true
-    return joinedAt <= new Date(openedAt(a) ?? 0).getTime() + THREE_DAYS_MS
+    return joinedAt <= new Date(openedAt(a) ?? 0).getTime() + lateJoinMs
   }
 
   // ── Обычные назначения (лично или на группу, вне программ) ──
@@ -250,7 +255,7 @@ export default async function StudentHomePage({ searchParams }: { searchParams: 
       is_extra_attempt: attempt?.is_extra_attempt ?? false,
       extra_attempts: a.extra_attempts ?? 0,
       archived: fin?.archived_at != null,
-      can_archive: fin?.archived_at == null && canArchive(a, now),
+      can_archive: fin?.archived_at == null && canArchive(a, settings.archive_after_days, now),
     })
   }
 
@@ -285,7 +290,7 @@ export default async function StudentHomePage({ searchParams }: { searchParams: 
       is_extra_attempt: attempt?.is_extra_attempt ?? false,
       extra_attempts: a.extra_attempts ?? 0,
       archived: fin?.archived_at != null,
-      can_archive: fin?.archived_at == null && canArchive(a, now),
+      can_archive: fin?.archived_at == null && canArchive(a, settings.archive_after_days, now),
     })
   }
 

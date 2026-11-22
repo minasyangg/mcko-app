@@ -1,10 +1,5 @@
 import { updateCumulativeResult, type AdminClient } from '@/lib/grading/finalize'
 
-/** Сколько попыток можно добавить за одно действие */
-export const MAX_ADD_ATTEMPTS = 10
-/** Потолок лимита попыток на назначение — защита от опечатки «+100» подряд */
-export const MAX_TOTAL_ATTEMPTS = 50
-
 export interface AddAttemptsResult {
   maxAttempts: number
   /** Ученики, которым назначение снова открылось (кончились попытки → есть новые) */
@@ -31,7 +26,12 @@ export interface AddAttemptsResult {
 // пересчёт сохраняет: им новые попытки не нужны / запрещены явно.
 export async function addAttempts(
   admin: AdminClient,
-  opts: { assignmentId: string; add: number }
+  opts: {
+    assignmentId: string
+    add: number
+    /** Потолок лимита попыток на назначение — защита от опечатки «+100» подряд (настройка attempts_total_max) */
+    maxTotal: number
+  }
 ): Promise<AddAttemptsResult | { error: string }> {
   const { data: assignment } = await admin
     .from('assignments')
@@ -42,8 +42,8 @@ export async function addAttempts(
 
   const current = assignment.max_attempts ?? 1
   const maxAttempts = current + opts.add
-  if (maxAttempts > MAX_TOTAL_ATTEMPTS) {
-    return { error: `Не больше ${MAX_TOTAL_ATTEMPTS} попыток на назначение (сейчас ${current})` }
+  if (maxAttempts > opts.maxTotal) {
+    return { error: `Не больше ${opts.maxTotal} попыток на назначение (сейчас ${current})` }
   }
 
   // ends_at не трогаем: срок — факт исходного задания. Сколько попыток

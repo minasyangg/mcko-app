@@ -1,4 +1,7 @@
+'use client'
+
 import { deadlineState } from '@/lib/assignments/deadline'
+import { useAppSettings } from '@/components/shared/AppSettingsProvider'
 import { cn } from '@/lib/utils'
 
 // Строка срока сдачи — общая для AssignmentCard (StudentHome) и
@@ -15,8 +18,10 @@ export function DeadlineNote({ createdAt, endsAt, extraOpen = false, className }
   extraOpen?: boolean
   className?: string
 }) {
+  // порог «срок скоро» — настройка системы deadline_soon_days (114)
+  const { deadline_soon_days: soonDays } = useAppSettings()
   if (!endsAt) return null
-  const state = deadlineState(endsAt)
+  const state = deadlineState(endsAt, new Date(), soonDays)
   const endsLabel = new Date(endsAt).toLocaleDateString('ru-RU', { day: '2-digit', month: 'long' })
   const createdLabel = createdAt
     ? new Date(createdAt).toLocaleDateString('ru-RU', { day: '2-digit', month: 'long' })

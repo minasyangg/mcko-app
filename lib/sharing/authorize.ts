@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getAuthUser } from '@/lib/supabase/auth-user'
+import { getAppSettings } from '@/lib/settings/server'
 
 type AdminClient = ReturnType<typeof createAdminClient>
 
@@ -119,5 +120,7 @@ export async function authorizeStudentShare(
     .eq('student_id', user.id)
     .single()
 
-  return { admin, studentId: user.id, ttlDays: settings?.default_ttl_days ?? 14 }
+  // своего срока у ученика нет — общий срок из настроек системы (114)
+  const ttlDays = settings?.default_ttl_days ?? (await getAppSettings()).share_ttl_default_days
+  return { admin, studentId: user.id, ttlDays }
 }

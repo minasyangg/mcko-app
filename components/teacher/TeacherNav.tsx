@@ -5,7 +5,7 @@ import Link, { useLinkStatus } from 'next/link'
 import { usePathname, useSearchParams } from 'next/navigation'
 import { LogoutButton } from '@/components/shared/LogoutButton'
 import { SwitchAccountButton } from '@/components/shared/SwitchAccountButton'
-import { BookOpen, Users, GraduationCap, Monitor, BarChart2, TrendingUp, Menu, X, ListChecks, Library, Bell, Settings, PenLine, ChevronDown, ClipboardCheck, Share2, Loader2 } from 'lucide-react'
+import { BookOpen, Users, GraduationCap, Monitor, BarChart2, TrendingUp, Menu, X, ListChecks, Library, Bell, Settings, PenLine, ChevronDown, ClipboardCheck, Share2, Loader2, SlidersHorizontal } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useLiveCount } from '@/lib/hooks/usePolling'
 import { sectionOfExamTypes } from '@/lib/library/sections'
@@ -75,6 +75,8 @@ const navItems: NavItem[] = [
   { href: '/teacher/scoring-rules', label: 'Правила', icon: ListChecks },
   // настройка событий telegram/email-уведомлений организации
   { href: '/teacher/notifications', label: 'Уведомления', icon: Bell, adminOnly: true },
+  // сроки и пороги системы (app_settings, 114) вместо ручной правки БД
+  { href: '/teacher/system-settings', label: 'Настройки системы', icon: SlidersHorizontal, adminOnly: true },
 ]
 
 interface Props {

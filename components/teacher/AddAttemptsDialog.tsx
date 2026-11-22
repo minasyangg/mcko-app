@@ -8,8 +8,7 @@ import { Button } from '@/components/ui/button'
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
 } from '@/components/ui/dialog'
-
-const MAX_ADD = 10
+import { useAppSettings } from '@/components/shared/AppSettingsProvider'
 
 function attemptsWord(n: number) {
   const m10 = n % 10, m100 = n % 100
@@ -40,6 +39,8 @@ interface Props {
 // по каждому заданию (POST /api/assignments/[id]/attempts).
 export function AddAttemptsDialog({ assignmentId, maxAttempts, title, children, onAdded }: Props) {
   const router = useRouter()
+  // сколько можно добавить за раз — настройка системы (сервер проверяет её же)
+  const { attempts_add_max: maxAdd } = useAppSettings()
   const [open, setOpen] = useState(false)
   const [add, setAdd] = useState(1)
   const [loading, setLoading] = useState(false)
@@ -103,7 +104,7 @@ export function AddAttemptsDialog({ assignmentId, maxAttempts, title, children, 
             <div className="text-xs text-muted-foreground">станет {maxAttempts + add}</div>
           </div>
           <Button type="button" variant="outline" size="icon" aria-label="Больше"
-            disabled={add >= MAX_ADD || loading} onClick={() => setAdd(a => Math.min(MAX_ADD, a + 1))}>
+            disabled={add >= maxAdd || loading} onClick={() => setAdd(a => Math.min(maxAdd, a + 1))}>
             <Plus className="h-4 w-4" />
           </Button>
         </div>

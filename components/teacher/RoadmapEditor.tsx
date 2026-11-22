@@ -28,7 +28,8 @@ import {
   Users, Loader2, X, AlertTriangle, Search, GripVertical, Eye, EyeOff, Info,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { localInputToIso, openingHint, opensLater, toLocalInputValue } from '@/lib/assignments/opening'
+import { localInputToIso, opensLater, toLocalInputValue } from '@/lib/assignments/opening'
+import { OpeningHint } from '@/components/teacher/OpeningHint'
 
 export interface EditorTopic {
   id: string
@@ -704,7 +705,7 @@ export function RoadmapEditor({ roadmap, topics, tests, students, memberIds, gro
                     onChange={(e) => setItemForm(p => ({ ...p, ends_at: e.target.value }))} />
                 </div>
               </div>
-              <p className="text-xs text-muted-foreground">{openingHint(opensLater(localInputToIso(itemForm.starts_at)))}</p>
+              <OpeningHint deferred={opensLater(localInputToIso(itemForm.starts_at))} />
             </div>
 
             {/* Мягкое предупреждение, не блокирует привязку — повтор задачи

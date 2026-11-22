@@ -4,6 +4,8 @@ import { zUuid } from '@/lib/uuid'
 import { authorizeRoadmap } from '@/lib/roadmaps/authorize'
 import { notifyAssignmentCreated } from '@/lib/notifications/send'
 import { openedAt } from '@/lib/assignments/opening'
+import { joinedTooLate } from '@/lib/settings/registry'
+import { getAppSettings } from '@/lib/settings/server'
 
 const schema = z.object({ student_id: zUuid() })
 
@@ -59,15 +61,13 @@ export async function POST(request: NextRequest, { params }: Params) {
     return NextResponse.json({ error: 'Ученик не состоит в группе программы' }, { status: 400 })
   }
 
-  // Реальная проверка правила «3 дня» — та же формула, что в
-  // student_sees_group_assignment (058, отсчёт от открытия — 110). Не даём
+  // Реальная проверка правила «вступил позже» — та же формула, что в
+  // student_sees_group_assignment (058, отсчёт от открытия — 110, порог из
+  // настроек — 114). Не даём
   // открыть доступ, если назначение и так видно ученику: персональная копия
   // тут бессмысленна и задвоила бы попытки/прогресс по одному и тому же тесту.
-  const THREE_DAYS_MS = 3 * 24 * 60 * 60 * 1000
-  const joinedAt = membership.added_at ? new Date(membership.added_at).getTime() : null
-  const opened = openedAt(source)
-  const openedTime = opened ? new Date(opened).getTime() : null
-  const isHidden = joinedAt !== null && openedTime !== null && joinedAt > openedTime + THREE_DAYS_MS
+  const { late_join_days: lateJoinDays } = await getAppSettings()
+  const isHidden = joinedTooLate(membership.added_at, openedAt(source), lateJoinDays)
   if (!isHidden) {
     return NextResponse.json({ error: 'Это задание ученику уже видно, открывать доступ не нужно' }, { status: 400 })
   }
