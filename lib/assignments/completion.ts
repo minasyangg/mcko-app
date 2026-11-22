@@ -14,7 +14,7 @@ export const CLOSED_REASON_LABEL: Record<Exclude<ClosedReason, null>, string> = 
   max_score: 'набран максимальный балл',
   attempts_exhausted: 'попытки исчерпаны',
   forced: 'завершено учителем',
-  archived: 'убрано учеником в архив',
+  archived: 'убрано в архив',
 }
 
 export function closedReasonLabel(reason: string | null | undefined): string | null {

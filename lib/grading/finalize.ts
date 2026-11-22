@@ -405,6 +405,8 @@ export async function updateCumulativeResult(
     closed_at: closedReason ? (existing?.closed_at ?? now) : null,
     closed_by: closedReason === 'forced' ? (opts?.forceCloseBy ?? existing?.closed_by ?? null) : null,
     archived_at: archivedAt,
+    // возврат из архива запоминаем: автоархив прошлого года (115) не уберёт снова
+    ...(opts?.archive === false ? { unarchived_at: now } : {}),
     updated_at: now,
   }, { onConflict: 'student_id,assignment_id' })
 

@@ -2844,6 +2844,7 @@ export type Database = {
       student_final_results: {
         Row: {
           archived_at: string | null
+          unarchived_at: string | null
           assignment_id: string | null
           attempt_count: number | null
           closed_at: string | null
@@ -2861,6 +2862,7 @@ export type Database = {
         }
         Insert: {
           archived_at?: string | null
+          unarchived_at?: string | null
           assignment_id?: string | null
           attempt_count?: number | null
           closed_at?: string | null
@@ -2878,6 +2880,7 @@ export type Database = {
         }
         Update: {
           archived_at?: string | null
+          unarchived_at?: string | null
           assignment_id?: string | null
           attempt_count?: number | null
           closed_at?: string | null

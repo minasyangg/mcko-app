@@ -84,7 +84,7 @@ export function CloseAssignmentButton({
         variant="ghost" size="sm" className={btnClass} disabled={loading}
         onClick={handleReopen}
         title={closedReason === 'archived'
-          ? 'Ученик убрал задание в архив — вернуть его ученику (потраченные попытки не возвращаются)'
+          ? 'Задание в архиве ученика — вернуть его ученику (потраченные попытки не возвращаются)'
           : 'Снять принудительное завершение (потраченные попытки не возвращаются)'}
       >
         {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />}

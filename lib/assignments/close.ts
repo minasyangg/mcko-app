@@ -147,11 +147,12 @@ export async function reopenAssignment(
   // Ученику учитель может открыть и задание, которое тот сам убрал в архив
   // (113), — архив при этом снимается. «Открыть для всех» архивы учеников не
   // трогает: их строки вернутся к closed_reason = archived при пересчёте.
+  // unarchived_at — чтобы автоархив прошлого года (115) не убрал его снова.
   let clearQuery = admin
     .from('student_final_results')
     .update({
       closed_reason: null, closed_at: null, closed_by: null, status: 'in_progress',
-      ...(studentId ? { archived_at: null } : {}),
+      ...(studentId ? { archived_at: null, unarchived_at: new Date().toISOString() } : {}),
     })
     .eq('assignment_id', assignmentId)
     .in('closed_reason', studentId ? ['forced', 'archived'] : ['forced'])

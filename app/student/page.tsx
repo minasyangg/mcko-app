@@ -1,9 +1,11 @@
+import { after } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { StudentHome, type AssignmentCardData, type RoadmapGroup } from '@/components/student/StudentHome'
 import type { TimelineTopic } from '@/components/student/RoadmapTimeline'
 import { getAuthUser } from '@/lib/supabase/auth-user'
 import { openedAt } from '@/lib/assignments/opening'
-import { canArchive } from '@/lib/assignments/archive'
+import { archiveForStudent, canArchive, shouldAutoArchive } from '@/lib/assignments/archive'
 import { DAY_MS } from '@/lib/settings/registry'
 import { getAppSettings } from '@/lib/settings/server'
 
@@ -185,30 +187,33 @@ export default async function StudentHomePage({ searchParams }: { searchParams: 
     ? await Promise.all([
         supabase
           .from('attempts')
-          .select('id, assignment_id, status, score, max_score, submitted_late, is_extra_attempt')
+          .select('id, assignment_id, status, score, max_score, submitted_late, is_extra_attempt, created_at, last_activity_at')
           .in('assignment_id', allAssignmentIds)
           .eq('student_id', user.id)
           .order('created_at', { ascending: false }),
         supabase
           .from('student_final_results')
-          .select('assignment_id, final_score, max_score, attempt_count, closed_reason, archived_at')
+          .select('assignment_id, final_score, max_score, attempt_count, closed_reason, archived_at, unarchived_at')
           .in('assignment_id', allAssignmentIds)
           .eq('student_id', user.id),
       ])
     : [{ data: [] }, { data: [] }]
 
-  type AttemptRow = { id: string; assignment_id: string | null; status: string; score: number | null; max_score: number | null; submitted_late: boolean | null; is_extra_attempt: boolean | null }
+  type AttemptRow = { id: string; assignment_id: string | null; status: string; score: number | null; max_score: number | null; submitted_late: boolean | null; is_extra_attempt: boolean | null; created_at: string | null; last_activity_at: string | null }
   const attemptMap = new Map<string, AttemptRow>()
   const usedByAssignment = new Map<string, number>()
+  const lastActivity = new Map<string, number>()
   for (const a of (attempts ?? []) as AttemptRow[]) {
     if (!a.assignment_id) continue
     if (!attemptMap.has(a.assignment_id)) attemptMap.set(a.assignment_id, a)
+    const t = Math.max(new Date(a.created_at ?? 0).getTime(), new Date(a.last_activity_at ?? 0).getTime())
+    lastActivity.set(a.assignment_id, Math.max(lastActivity.get(a.assignment_id) ?? 0, t))
     if (['submitted', 'checked'].includes(a.status)) {
       usedByAssignment.set(a.assignment_id, (usedByAssignment.get(a.assignment_id) ?? 0) + 1)
     }
   }
 
-  type FinalRow = { assignment_id: string | null; final_score: number | null; max_score: number | null; attempt_count: number | null; closed_reason: string | null; archived_at: string | null }
+  type FinalRow = { assignment_id: string | null; final_score: number | null; max_score: number | null; attempt_count: number | null; closed_reason: string | null; archived_at: string | null; unarchived_at: string | null }
   const finalMap = new Map<string, FinalRow>()
   for (const f of (finals ?? []) as FinalRow[]) {
     if (f.assignment_id) finalMap.set(f.assignment_id, f)
@@ -217,6 +222,29 @@ export default async function StudentHomePage({ searchParams }: { searchParams: 
   // Порог архива (113) считаем здесь, а не в браузере: одно «сейчас» на всю
   // страницу и без расхождения гидратации
   const now = new Date()
+
+  // Задания прошлого учебного года уходят в архив сами (115): на этой
+  // странице они уже архивные, а итог пишется после ответа — ученик не ждёт
+  // сдачи и проверки старых попыток.
+  const autoArchived = new Set(
+    [...plainAssignments, ...roadmapItems]
+      .filter(a => shouldAutoArchive(a, finalMap.get(a.id), lastActivity.get(a.id), now))
+      .map(a => a.id)
+  )
+  if (autoArchived.size > 0) {
+    const studentId = user.id
+    after(async () => {
+      const admin = createAdminClient()
+      for (const assignmentId of autoArchived) {
+        try {
+          await archiveForStudent(admin, { assignmentId, studentId })
+        } catch (e) {
+          console.error('auto-archive failed', assignmentId, e)
+        }
+      }
+    })
+  }
+  const isArchived = (id: string, fin: FinalRow | undefined) => fin?.archived_at != null || autoArchived.has(id)
 
   // ── Собираем единые карточки для табов «Всё» / «Тесты» / «ДЗ» ──
   const cards: AssignmentCardData[] = []
@@ -228,7 +256,7 @@ export default async function StudentHomePage({ searchParams }: { searchParams: 
     const fin = finalMap.get(a.id)
     const status = (attempt?.status as AssignmentCardData['status']) ?? 'not_started'
     const attemptsUsed = Math.max(fin?.attempt_count ?? 0, usedByAssignment.get(a.id) ?? 0)
-    const closedReason = (a.closed_at ? 'forced' : null) ?? fin?.closed_reason ?? null
+    const closedReason = (a.closed_at ? 'forced' : null) ?? fin?.closed_reason ?? (autoArchived.has(a.id) ? 'archived' : null)
     const group = a.groups as any
 
     cards.push({
@@ -254,8 +282,8 @@ export default async function StudentHomePage({ searchParams }: { searchParams: 
       submitted_late: attempt?.submitted_late ?? null,
       is_extra_attempt: attempt?.is_extra_attempt ?? false,
       extra_attempts: a.extra_attempts ?? 0,
-      archived: fin?.archived_at != null,
-      can_archive: fin?.archived_at == null && canArchive(a, settings.archive_after_days, now),
+      archived: isArchived(a.id, fin),
+      can_archive: !isArchived(a.id, fin) && canArchive(a, settings.archive_after_days, now),
     })
   }
 
@@ -266,7 +294,7 @@ export default async function StudentHomePage({ searchParams }: { searchParams: 
     const fin = finalMap.get(a.id)
     const status = (attempt?.status as AssignmentCardData['status']) ?? 'not_started'
     const attemptsUsed = Math.max(fin?.attempt_count ?? 0, usedByAssignment.get(a.id) ?? 0)
-    const closedReason = fin?.closed_reason ?? (a.closed_at ? 'forced' : null)
+    const closedReason = fin?.closed_reason ?? (a.closed_at ? 'forced' : null) ?? (autoArchived.has(a.id) ? 'archived' : null)
     const topic = topicById.get(a.roadmap_topic_id as string)
     const roadmap = topic ? roadmapById.get(topic.roadmap_id) : null
 
@@ -289,8 +317,8 @@ export default async function StudentHomePage({ searchParams }: { searchParams: 
       submitted_late: attempt?.submitted_late ?? null,
       is_extra_attempt: attempt?.is_extra_attempt ?? false,
       extra_attempts: a.extra_attempts ?? 0,
-      archived: fin?.archived_at != null,
-      can_archive: fin?.archived_at == null && canArchive(a, settings.archive_after_days, now),
+      archived: isArchived(a.id, fin),
+      can_archive: !isArchived(a.id, fin) && canArchive(a, settings.archive_after_days, now),
     })
   }
 
@@ -322,7 +350,7 @@ export default async function StudentHomePage({ searchParams }: { searchParams: 
       max_attempts: a.max_attempts ?? 1,
       created_at: openedAt(a),
       ends_at: a.ends_at,
-      closed_reason: fin?.closed_reason ?? (a.closed_at ? 'forced' : null),
+      closed_reason: fin?.closed_reason ?? (a.closed_at ? 'forced' : null) ?? (autoArchived.has(a.id) ? 'archived' : null),
       submitted_late: attempt?.submitted_late ?? null,
       is_extra_attempt: attempt?.is_extra_attempt ?? false,
       extra_attempts: a.extra_attempts ?? 0,

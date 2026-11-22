@@ -15,6 +15,36 @@ import { DAY_MS } from '@/lib/settings/registry'
 // «0 баллов, 0 попыток», а не отсутствие строки: в статистике это осознанное
 // «не сделано», а не пропуск.
 
+// Граница учебных лет для автоархива (115): открытое до 20 июня включительно
+// по Москве — прошлый учебный год. Москва без перехода на летнее время, UTC+3.
+const MSK_OFFSET_MS = 3 * 60 * 60 * 1000
+
+/** Начало текущего учебного года для архива — последнее наступившее 21 июня, 00:00 МСК */
+export function schoolYearStart(now: Date = new Date()): Date {
+  const june21 = (year: number) => new Date(Date.UTC(year, 5, 21) - MSK_OFFSET_MS)
+  const y = now.getUTCFullYear()
+  return now >= june21(y) ? june21(y) : june21(y - 1)
+}
+
+/**
+ * Назначение прошлого учебного года, которое уходит в архив само (115).
+ * Не уходит, если ученик уже возвращал его из архива или работал в нём
+ * в текущем учебном году — начатую попытку автоархив не сдаёт.
+ */
+export function shouldAutoArchive(
+  a: { starts_at?: string | null; created_at?: string | null },
+  fin: { archived_at: string | null; unarchived_at: string | null } | undefined,
+  lastActivityMs: number | undefined,
+  now: Date = new Date()
+): boolean {
+  const opened = openedAt(a)
+  if (!opened || fin?.archived_at != null) return false
+  const yearStart = schoolYearStart(now).getTime()
+  if (new Date(opened).getTime() >= yearStart) return false
+  if (fin?.unarchived_at && new Date(fin.unarchived_at).getTime() >= yearStart) return false
+  return lastActivityMs == null || lastActivityMs < yearStart
+}
+
 /** Назначение провисело archiveAfterDays дней с открытия — его можно убрать в архив */
 export function canArchive(
   a: { starts_at?: string | null; created_at?: string | null },

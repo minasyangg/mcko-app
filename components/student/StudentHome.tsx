@@ -269,7 +269,8 @@ export function StudentHome({
         ) : (
           <div className="space-y-3">
             <p className="text-sm text-muted-foreground">
-              Старые задания, которые вы убрали из списка. Результаты по ним сохранены у учителя.
+              Старые задания: убранные вами и задания прошлого учебного года (выданные до 20 июня) —
+              они попадают сюда сами. Результаты по ним сохранены у учителя.
             </p>
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {archived.map(a => <AssignmentCard key={a.assignment_id} a={a} />)}
