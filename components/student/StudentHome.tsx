@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { ClipboardList, Route } from 'lucide-react'
+import { ChevronDown, ClipboardList, Route } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { closedReasonLabel } from '@/lib/assignments/completion'
 import { nextAttemptIsExtra } from '@/lib/assignments/deadline'
@@ -53,6 +53,59 @@ export interface RoadmapGroup {
   /** ФИ учителя, чья программа */
   teacher: string | null
   topics: TimelineTopic[]
+}
+
+// Программа во вкладке «Программа». Если программ несколько, каждая
+// сворачивается и по умолчанию свёрнута: иначе до последней приходилось
+// листать через все темы предыдущих. Счётчик тем виден и в свёрнутом виде.
+function RoadmapSection({ rm, collapsible }: { rm: RoadmapGroup; collapsible: boolean }) {
+  const [open, setOpen] = useState(!collapsible)
+  const withItems = rm.topics.filter(t => t.items.length > 0)
+  const done = withItems.filter(t => t.state === 'done').length
+
+  const title = (
+    <>
+      <span className="text-lg font-semibold">{rm.title}{rm.subject ? ` · ${rm.subject}` : ''}</span>
+      {rm.teacher && (
+        <span className="ml-3 text-sm font-normal text-muted-foreground">Учитель: {rm.teacher}</span>
+      )}
+    </>
+  )
+
+  if (!collapsible) {
+    return (
+      <section className="space-y-2">
+        <h2 className="border-b pb-1">{title}</h2>
+        <RoadmapTimeline topics={rm.topics} />
+      </section>
+    )
+  }
+
+  return (
+    <section className="rounded-lg border">
+      <h2>
+        <button
+          type="button"
+          onClick={() => setOpen(o => !o)}
+          aria-expanded={open}
+          className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-muted/50 rounded-lg transition-colors"
+        >
+          <span className="flex-1 min-w-0">{title}</span>
+          {withItems.length > 0 && (
+            <span className="text-xs text-muted-foreground tabular-nums shrink-0">
+              пройдено {done} из {withItems.length}
+            </span>
+          )}
+          <ChevronDown className={cn('h-4 w-4 shrink-0 text-muted-foreground transition-transform', open && 'rotate-180')} />
+        </button>
+      </h2>
+      {open && (
+        <div className="px-4 pb-4 pt-1 border-t">
+          <RoadmapTimeline topics={rm.topics} />
+        </div>
+      )}
+    </section>
+  )
 }
 
 function StatusBadge({ status, score, maxScore }: { status: AssignmentStatus; score?: number | null; maxScore?: number | null }) {
@@ -283,17 +336,9 @@ export function StudentHome({
         !hasRoadmaps ? (
           <EmptyState text="Вам пока не назначена ни одна программа." />
         ) : (
-          <div className="space-y-8">
+          <div className={roadmaps.length > 1 ? 'space-y-3' : 'space-y-8'}>
             {roadmaps.map(rm => (
-              <section key={rm.id} className="space-y-2">
-                <h2 className="text-lg font-semibold border-b pb-1">
-                  {rm.title}{rm.subject ? ` · ${rm.subject}` : ''}
-                  {rm.teacher && (
-                    <span className="ml-3 text-sm font-normal text-muted-foreground">Учитель: {rm.teacher}</span>
-                  )}
-                </h2>
-                <RoadmapTimeline topics={rm.topics} />
-              </section>
+              <RoadmapSection key={rm.id} rm={rm} collapsible={roadmaps.length > 1} />
             ))}
           </div>
         )
