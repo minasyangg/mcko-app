@@ -8,12 +8,13 @@
  * (student_final_results.closed_reason, миграция 038).
  * null — открыто, оставшиеся попытки можно тратить.
  */
-export type ClosedReason = 'max_score' | 'attempts_exhausted' | 'forced' | null
+export type ClosedReason = 'max_score' | 'attempts_exhausted' | 'forced' | 'archived' | null
 
 export const CLOSED_REASON_LABEL: Record<Exclude<ClosedReason, null>, string> = {
   max_score: 'набран максимальный балл',
   attempts_exhausted: 'попытки исчерпаны',
   forced: 'завершено учителем',
+  archived: 'убрано в архив',
 }
 
 export function closedReasonLabel(reason: string | null | undefined): string | null {

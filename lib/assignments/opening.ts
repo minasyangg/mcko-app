@@ -5,11 +5,19 @@
 // До даты открытия ученик назначение не видит и начать не может (RLS), а
 // уведомление уходит в момент открытия (/api/notifications/dispatch).
 
-/** Подсказка под полем «Открыть» в формах назначения. Расписание рассылки — миграция 111. */
-export function openingHint(deferred: boolean): string {
-  return deferred
-    ? 'Ученики увидят задание в момент открытия. Уведомление придёт в течение 30 минут; с 23:30 до 7:00 уведомления не отправляются.'
-    : 'Откроется сразу. Поставьте дату позже — до неё ученики задание не увидят.'
+import { DEFAULT_SETTINGS, dispatchAllDay, lastDispatchTime, type AppSettings } from '@/lib/settings/registry'
+
+/**
+ * Подсказка под полем «Открыть» в формах назначения. Расписание рассылки —
+ * настройки системы (114), по умолчанию — как в миграции 111.
+ */
+export function openingHint(
+  deferred: boolean,
+  s: Pick<AppSettings, 'notify_from_hour' | 'notify_to_hour' | 'notify_interval_min'> = DEFAULT_SETTINGS
+): string {
+  if (!deferred) return 'Откроется сразу. Поставьте дату позже — до неё ученики задание не увидят.'
+  const quiet = dispatchAllDay(s) ? '' : `; с ${lastDispatchTime(s)} до ${s.notify_from_hour}:00 уведомления не отправляются`
+  return `Ученики увидят задание в момент открытия. Уведомление придёт в течение ${s.notify_interval_min} минут${quiet}.`
 }
 
 /** Момент, с которого назначение доступно ученику: дата открытия, но не раньше создания. */

@@ -5,13 +5,15 @@ import Link from 'next/link'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { ClipboardList, Route } from 'lucide-react'
+import { ChevronDown, ClipboardList, Route } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { closedReasonLabel } from '@/lib/assignments/completion'
+import { nextAttemptIsExtra } from '@/lib/assignments/deadline'
 import { cardKind, CARD_KIND_CLASS } from '@/lib/assignments/card-style'
 import { RoadmapTimeline, type TimelineTopic } from '@/components/student/RoadmapTimeline'
 import { ShareAssignmentDialog } from '@/components/student/ShareAssignmentDialog'
 import { DeadlineNote } from '@/components/student/DeadlineNote'
+import { ArchiveAssignmentButton } from '@/components/student/ArchiveAssignmentButton'
 
 export type AssignmentStatus = 'not_started' | 'in_progress' | 'submitted' | 'checked'
 
@@ -34,13 +36,76 @@ export interface AssignmentCardData {
   closed_reason: string | null
   /** Последняя попытка сдана после assignment.ends_at. null — срока не было. */
   submitted_late: boolean | null
+  /** Последняя попытка — дополнительная, сверх исходного лимита (112) */
+  is_extra_attempt?: boolean
+  /** Сколько попыток учитель добавил сверх исходного лимита */
+  extra_attempts?: number
+  /** Ученик убрал задание в архив (113) */
+  archived?: boolean
+  /** Задание выдано больше полугода назад — можно убрать в архив */
+  can_archive?: boolean
 }
 
 export interface RoadmapGroup {
   id: string
   title: string
   subject: string | null
+  /** ФИ учителя, чья программа */
+  teacher: string | null
   topics: TimelineTopic[]
+}
+
+// Программа во вкладке «Программа». Если программ несколько, каждая
+// сворачивается и по умолчанию свёрнута: иначе до последней приходилось
+// листать через все темы предыдущих. Счётчик тем виден и в свёрнутом виде.
+function RoadmapSection({ rm, collapsible }: { rm: RoadmapGroup; collapsible: boolean }) {
+  const [open, setOpen] = useState(!collapsible)
+  const withItems = rm.topics.filter(t => t.items.length > 0)
+  const done = withItems.filter(t => t.state === 'done').length
+
+  const title = (
+    <>
+      <span className="text-lg font-semibold">{rm.title}{rm.subject ? ` · ${rm.subject}` : ''}</span>
+      {rm.teacher && (
+        <span className="ml-3 text-sm font-normal text-muted-foreground">Учитель: {rm.teacher}</span>
+      )}
+    </>
+  )
+
+  if (!collapsible) {
+    return (
+      <section className="space-y-2">
+        <h2 className="border-b pb-1">{title}</h2>
+        <RoadmapTimeline topics={rm.topics} />
+      </section>
+    )
+  }
+
+  return (
+    <section className="rounded-lg border">
+      <h2>
+        <button
+          type="button"
+          onClick={() => setOpen(o => !o)}
+          aria-expanded={open}
+          className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-muted/50 rounded-lg transition-colors"
+        >
+          <span className="flex-1 min-w-0">{title}</span>
+          {withItems.length > 0 && (
+            <span className="text-xs text-muted-foreground tabular-nums shrink-0">
+              пройдено {done} из {withItems.length}
+            </span>
+          )}
+          <ChevronDown className={cn('h-4 w-4 shrink-0 text-muted-foreground transition-transform', open && 'rotate-180')} />
+        </button>
+      </h2>
+      {open && (
+        <div className="px-4 pb-4 pt-1 border-t">
+          <RoadmapTimeline topics={rm.topics} />
+        </div>
+      )}
+    </section>
+  )
 }
 
 function StatusBadge({ status, score, maxScore }: { status: AssignmentStatus; score?: number | null; maxScore?: number | null }) {
@@ -69,6 +134,7 @@ function AssignmentCard({ a }: { a: AssignmentCardData }) {
   const isClosed = a.closed_reason != null
   const canStart = !isClosed && attemptsLeft > 0 && !['in_progress', 'submitted'].includes(a.status)
   const kind = cardKind({ status: a.status, score: a.score, maxScore: a.max_score, isClosed })
+  const extraNext = !isClosed && nextAttemptIsExtra(a)
 
   return (
     <Card className={cn('flex flex-col', CARD_KIND_CLASS[kind])}>
@@ -96,14 +162,15 @@ function AssignmentCard({ a }: { a: AssignmentCardData }) {
             что на странице результата */}
         <div className="flex items-center gap-1.5 flex-wrap">
           <StatusBadge status={a.status} score={a.score} maxScore={a.max_score} />
-          {a.submitted_late && isDone && (
-            <span className="text-[11px] text-muted-foreground">сдано с опозданием</span>
+          {isDone && (a.is_extra_attempt
+            ? <span className="text-[11px] text-sky-700 dark:text-sky-400">решено в доп. попытку</span>
+            : a.submitted_late && <span className="text-[11px] text-muted-foreground">сдано с опозданием</span>
           )}
         </div>
 
         <div className="space-y-1 text-xs">
           {a.time_limit_sec && <p>Время: {Math.round(a.time_limit_sec / 60)} мин</p>}
-          {!isClosed && !isDone && <DeadlineNote createdAt={a.created_at} endsAt={a.ends_at} />}
+          {!isClosed && !isDone && <DeadlineNote createdAt={a.created_at} endsAt={a.ends_at} extraOpen={extraNext} />}
           {isClosed
             ? ((a.max_attempts ?? 1) > 1 || a.closed_reason !== 'attempts_exhausted') && (
                 <p className="font-medium text-emerald-700 dark:text-emerald-400">
@@ -126,7 +193,7 @@ function AssignmentCard({ a }: { a: AssignmentCardData }) {
           )}
           {isDone && canStart ? (
             <Button asChild size="sm" className="w-full">
-              <Link href={`/student/attempt/${a.assignment_id}`}>Пройти ещё раз</Link>
+              <Link href={`/student/attempt/${a.assignment_id}`}>{extraNext ? 'Дополнительная попытка' : 'Пройти ещё раз'}</Link>
             </Button>
           ) : !isDone && a.status === 'in_progress' ? (
             <Button asChild size="sm" className="w-full">
@@ -136,11 +203,14 @@ function AssignmentCard({ a }: { a: AssignmentCardData }) {
             <Button asChild size="sm" className="w-full">
               <Link href={`/student/attempt/${a.assignment_id}`}>Начать {a.kind === 'homework' ? 'ДЗ' : 'тест'}</Link>
             </Button>
-          ) : !isDone && !canStart ? (
+          ) : !isDone && !canStart && !a.archived ? (
             <p className="text-xs text-muted-foreground text-center">
               {isClosed ? 'Завершено' : 'Попытки исчерпаны'}
             </p>
           ) : null}
+          {(a.archived || a.can_archive) && (
+            <ArchiveAssignmentButton assignmentId={a.assignment_id} title={a.test_title} archived={!!a.archived} />
+          )}
         </div>
       </CardContent>
     </Card>
@@ -156,13 +226,14 @@ function EmptyState({ text }: { text: string }) {
   )
 }
 
-type Tab = 'all' | 'test' | 'homework' | 'roadmap'
+export type Tab = 'all' | 'test' | 'homework' | 'roadmap' | 'archive'
 
 const TABS: { key: Tab; label: string }[] = [
   { key: 'all', label: 'Всё' },
   { key: 'test', label: 'Тесты' },
   { key: 'homework', label: 'ДЗ' },
   { key: 'roadmap', label: 'Программа' },
+  { key: 'archive', label: 'Архив' },
 ]
 
 // Три стадии одной и той же работы, а не «Сделано» + «Результаты» отдельно:
@@ -201,8 +272,16 @@ export function StudentHome({
 }) {
   const [tab, setTab] = useState<Tab>(initialTab ?? 'all')
 
-  const filtered = tab === 'all' ? assignments : tab === 'roadmap' ? [] : assignments.filter(a => a.kind === tab)
+  // Архивные (113) — только во вкладке «Архив»; сама вкладка появляется,
+  // когда в архиве что-то есть. «Программа» архив не учитывает: там темы
+  // программы целиком, а не список дел.
+  const active = assignments.filter(a => !a.archived)
+  const archived = assignments.filter(a => a.archived)
+  const filtered = tab === 'all' ? active
+    : tab === 'roadmap' || tab === 'archive' ? []
+    : active.filter(a => a.kind === tab)
   const hasRoadmaps = roadmaps.length > 0
+  const tabs = TABS.filter(t => t.key !== 'archive' || archived.length > 0 || tab === 'archive')
 
   return (
     <div className="space-y-6">
@@ -220,7 +299,7 @@ export function StudentHome({
           прокрутки, даже когда контент физически помещался и скроллить
           было нечего. sm:overflow-visible явно гасит это на десктопе. */}
       <div className="flex gap-1 border-b overflow-x-auto sm:overflow-visible -mx-4 px-4 sm:mx-0 sm:px-0">
-        {TABS.map(t => (
+        {tabs.map(t => (
           <button
             key={t.key}
             onClick={() => setTab(t.key)}
@@ -232,22 +311,34 @@ export function StudentHome({
             }
           >
             {t.label}
+            {t.key === 'archive' && archived.length > 0 && (
+              <span className="ml-1.5 text-xs text-muted-foreground tabular-nums">{archived.length}</span>
+            )}
           </button>
         ))}
       </div>
 
-      {tab === 'roadmap' ? (
+      {tab === 'archive' ? (
+        archived.length === 0 ? (
+          <EmptyState text="В архиве пусто." />
+        ) : (
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Старые задания: убранные вами и задания прошлого учебного года (выданные до 20 июня) —
+              они попадают сюда сами. Результаты по ним сохранены у учителя.
+            </p>
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {archived.map(a => <AssignmentCard key={a.assignment_id} a={a} />)}
+            </div>
+          </div>
+        )
+      ) : tab === 'roadmap' ? (
         !hasRoadmaps ? (
           <EmptyState text="Вам пока не назначена ни одна программа." />
         ) : (
-          <div className="space-y-8">
+          <div className={roadmaps.length > 1 ? 'space-y-3' : 'space-y-8'}>
             {roadmaps.map(rm => (
-              <section key={rm.id} className="space-y-2">
-                <h2 className="text-lg font-semibold border-b pb-1">
-                  {rm.title}{rm.subject ? ` · ${rm.subject}` : ''}
-                </h2>
-                <RoadmapTimeline topics={rm.topics} />
-              </section>
+              <RoadmapSection key={rm.id} rm={rm} collapsible={roadmaps.length > 1} />
             ))}
           </div>
         )

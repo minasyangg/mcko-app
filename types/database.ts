@@ -38,6 +38,27 @@ export type Database = {
         }
         Relationships: []
       }
+      app_settings: {
+        Row: {
+          key: string
+          updated_at: string
+          updated_by: string | null
+          value: Json
+        }
+        Insert: {
+          key: string
+          updated_at?: string
+          updated_by?: string | null
+          value: Json
+        }
+        Update: {
+          key?: string
+          updated_at?: string
+          updated_by?: string | null
+          value?: Json
+        }
+        Relationships: []
+      }
       assignment_shares: {
         Row: {
           assignment_id: string
@@ -118,6 +139,7 @@ export type Database = {
           id: string
           kind: string | null
           max_attempts: number | null
+          extra_attempts: number
           notified_at: string | null
           organization_id: string
           preserve_answers: boolean
@@ -137,6 +159,7 @@ export type Database = {
           id?: string
           kind?: string | null
           max_attempts?: number | null
+          extra_attempts?: number
           notified_at?: string | null
           organization_id: string
           preserve_answers?: boolean
@@ -156,6 +179,7 @@ export type Database = {
           id?: string
           kind?: string | null
           max_attempts?: number | null
+          extra_attempts?: number
           notified_at?: string | null
           organization_id?: string
           preserve_answers?: boolean
@@ -360,6 +384,7 @@ export type Database = {
           student_id: string
           submitted_at: string | null
           submitted_late: boolean | null
+          is_extra_attempt: boolean
           teacher_comment: string | null
           teacher_reviewed_at: string | null
         }
@@ -378,6 +403,7 @@ export type Database = {
           student_id: string
           submitted_at?: string | null
           submitted_late?: boolean | null
+          is_extra_attempt?: boolean
           teacher_comment?: string | null
           teacher_reviewed_at?: string | null
         }
@@ -396,6 +422,7 @@ export type Database = {
           student_id?: string
           submitted_at?: string | null
           submitted_late?: boolean | null
+          is_extra_attempt?: boolean
           teacher_comment?: string | null
           teacher_reviewed_at?: string | null
         }
@@ -2816,6 +2843,8 @@ export type Database = {
       }
       student_final_results: {
         Row: {
+          archived_at: string | null
+          unarchived_at: string | null
           assignment_id: string | null
           attempt_count: number | null
           closed_at: string | null
@@ -2832,6 +2861,8 @@ export type Database = {
           updated_at: string | null
         }
         Insert: {
+          archived_at?: string | null
+          unarchived_at?: string | null
           assignment_id?: string | null
           attempt_count?: number | null
           closed_at?: string | null
@@ -2848,6 +2879,8 @@ export type Database = {
           updated_at?: string | null
         }
         Update: {
+          archived_at?: string | null
+          unarchived_at?: string | null
           assignment_id?: string | null
           attempt_count?: number | null
           closed_at?: string | null
@@ -3624,6 +3657,14 @@ export type Database = {
       }
     }
     Functions: {
+      app_setting_int: {
+        Args: { p_default: number; p_key: string }
+        Returns: number
+      }
+      set_notification_dispatch_schedule: {
+        Args: { p_schedule: string }
+        Returns: undefined
+      }
       auth_org: { Args: never; Returns: string }
       auth_role: { Args: never; Returns: string }
       book_problem_stats: {

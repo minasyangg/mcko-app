@@ -1,8 +1,13 @@
+import { after } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { StudentHome, type AssignmentCardData, type RoadmapGroup } from '@/components/student/StudentHome'
 import type { TimelineTopic } from '@/components/student/RoadmapTimeline'
 import { getAuthUser } from '@/lib/supabase/auth-user'
 import { openedAt } from '@/lib/assignments/opening'
+import { archiveForStudent, canArchive, shouldAutoArchive } from '@/lib/assignments/archive'
+import { DAY_MS } from '@/lib/settings/registry'
+import { getAppSettings } from '@/lib/settings/server'
 
 export const metadata = { title: 'Мои задания' }
 
@@ -86,32 +91,35 @@ export default async function StudentHomePage({ searchParams }: { searchParams: 
   const { data: { user } } = await getAuthUser(supabase)
   if (!user) return null
 
-  const { data: memberships } = await supabase
-    .from('group_members')
-    .select('group_id, added_at')
-    .eq('user_id', user.id)
+  const [{ data: memberships }, settings] = await Promise.all([
+    supabase
+      .from('group_members')
+      .select('group_id, added_at')
+      .eq('user_id', user.id),
+    getAppSettings(),
+  ])
 
   const groupIds = (memberships ?? []).map((m) => m.group_id as string)
   const joinedAtByGroup = new Map(
     (memberships ?? []).map((m) => [m.group_id as string, new Date(m.added_at as string).getTime()])
   )
 
-  // Правило «вступил в группу больше чем на 3 дня позже назначения» — общее
-  // для обычных и программных назначений, см. миграцию 058. Отсчёт — от
-  // открытия назначения (миграция 110), а не от создания.
-  const THREE_DAYS_MS = 3 * 24 * 60 * 60 * 1000
+  // Правило «вступил в группу позже назначения» — общее для обычных и
+  // программных назначений, см. миграцию 058. Отсчёт — от открытия назначения
+  // (миграция 110), а не от создания; порог — настройка late_join_days (114).
+  const lateJoinMs = settings.late_join_days * DAY_MS
   const notJoinedLate = (a: { group_id: string | null; created_at: string | null; starts_at: string | null }) => {
     if (!a.group_id) return true
     const joinedAt = joinedAtByGroup.get(a.group_id)
     if (joinedAt == null) return true
-    return joinedAt <= new Date(openedAt(a) ?? 0).getTime() + THREE_DAYS_MS
+    return joinedAt <= new Date(openedAt(a) ?? 0).getTime() + lateJoinMs
   }
 
   // ── Обычные назначения (лично или на группу, вне программ) ──
   let plainQuery = supabase
     .from('assignments')
     .select(`
-      id, starts_at, ends_at, max_attempts, closed_at, created_at, group_id, kind,
+      id, starts_at, ends_at, max_attempts, extra_attempts, closed_at, created_at, group_id, kind,
       groups ( name ),
       test_versions!test_version_id (
         id, time_limit_sec,
@@ -133,16 +141,17 @@ export default async function StudentHomePage({ searchParams }: { searchParams: 
   // ── Программы ученика: roadmaps → topics → assignments(roadmap_topic_id) ──
   const { data: roadmaps } = groupIds.length
     ? await supabase.from('roadmaps')
-        .select('id, title, subject, group_id')
+        .select('id, title, subject, group_id, created_by')
         .in('group_id', groupIds)
         .order('subject')
         .order('title')
-    : { data: [] as { id: string; title: string; subject: string | null; group_id: string | null }[] }
+    : { data: [] as { id: string; title: string; subject: string | null; group_id: string | null; created_by: string }[] }
 
   const roadmapIds = (roadmaps ?? []).map(r => r.id)
   const roadmapById = new Map((roadmaps ?? []).map(r => [r.id, r]))
 
-  const [{ data: topics }, { data: rawRoadmapItems }] = await Promise.all([
+  const ownerIds = [...new Set((roadmaps ?? []).map(r => r.created_by))]
+  const [{ data: topics }, { data: rawRoadmapItems }, { data: owners }] = await Promise.all([
     roadmapIds.length
       ? supabase.from('roadmap_topics')
           .select('id, roadmap_id, parent_id, title, sort_order, visible_to_students')
@@ -156,12 +165,20 @@ export default async function StudentHomePage({ searchParams }: { searchParams: 
     // ни здесь, ни в общем списке (тот исключает их фильтром roadmap_topic_id
     // is null) — кнопка технически открывала доступ, но кабинет его не видел.
     supabase.from('assignments')
-      .select('id, roadmap_topic_id, kind, max_attempts, starts_at, ends_at, closed_at, created_at, group_id, test_versions!test_version_id(tests!test_id(title, subject, exam_type, is_active))')
+      .select('id, roadmap_topic_id, kind, max_attempts, extra_attempts, starts_at, ends_at, closed_at, created_at, group_id, test_versions!test_version_id(tests!test_id(title, subject, exam_type, is_active))')
       .or(groupIds.length > 0
         ? `student_id.eq.${user.id},group_id.in.(${groupIds.join(',')})`
         : `student_id.eq.${user.id}`)
       .not('roadmap_topic_id', 'is', null),
+    // ФИ учителя-владельца в заголовке программы — чтобы ученик не путал
+    // программы разных учителей. Профили учителей ученику RLS не отдаёт,
+    // поэтому служебным клиентом и только имя владельцев своих программ.
+    ownerIds.length
+      ? createAdminClient().from('profiles').select('id, full_name').in('id', ownerIds).limit(ownerIds.length)
+      : Promise.resolve({ data: [] as { id: string; full_name: string }[] }),
   ])
+  // full_name — «Фамилия Имя [Отчество]», в подписи хватает ФИ
+  const ownerName = new Map((owners ?? []).map(o => [o.id, o.full_name.trim().split(/s+/).slice(0, 2).join(' ')]))
 
   const topicById = new Map((topics ?? []).map(t => [t.id, t]))
   const roadmapItems = (rawRoadmapItems ?? []).filter(a => {
@@ -179,34 +196,64 @@ export default async function StudentHomePage({ searchParams }: { searchParams: 
     ? await Promise.all([
         supabase
           .from('attempts')
-          .select('id, assignment_id, status, score, max_score, submitted_late')
+          .select('id, assignment_id, status, score, max_score, submitted_late, is_extra_attempt, created_at, last_activity_at')
           .in('assignment_id', allAssignmentIds)
           .eq('student_id', user.id)
           .order('created_at', { ascending: false }),
         supabase
           .from('student_final_results')
-          .select('assignment_id, final_score, max_score, attempt_count, closed_reason')
+          .select('assignment_id, final_score, max_score, attempt_count, closed_reason, archived_at, unarchived_at')
           .in('assignment_id', allAssignmentIds)
           .eq('student_id', user.id),
       ])
     : [{ data: [] }, { data: [] }]
 
-  type AttemptRow = { id: string; assignment_id: string | null; status: string; score: number | null; max_score: number | null; submitted_late: boolean | null }
+  type AttemptRow = { id: string; assignment_id: string | null; status: string; score: number | null; max_score: number | null; submitted_late: boolean | null; is_extra_attempt: boolean | null; created_at: string | null; last_activity_at: string | null }
   const attemptMap = new Map<string, AttemptRow>()
   const usedByAssignment = new Map<string, number>()
+  const lastActivity = new Map<string, number>()
   for (const a of (attempts ?? []) as AttemptRow[]) {
     if (!a.assignment_id) continue
     if (!attemptMap.has(a.assignment_id)) attemptMap.set(a.assignment_id, a)
+    const t = Math.max(new Date(a.created_at ?? 0).getTime(), new Date(a.last_activity_at ?? 0).getTime())
+    lastActivity.set(a.assignment_id, Math.max(lastActivity.get(a.assignment_id) ?? 0, t))
     if (['submitted', 'checked'].includes(a.status)) {
       usedByAssignment.set(a.assignment_id, (usedByAssignment.get(a.assignment_id) ?? 0) + 1)
     }
   }
 
-  type FinalRow = { assignment_id: string | null; final_score: number | null; max_score: number | null; attempt_count: number | null; closed_reason: string | null }
+  type FinalRow = { assignment_id: string | null; final_score: number | null; max_score: number | null; attempt_count: number | null; closed_reason: string | null; archived_at: string | null; unarchived_at: string | null }
   const finalMap = new Map<string, FinalRow>()
   for (const f of (finals ?? []) as FinalRow[]) {
     if (f.assignment_id) finalMap.set(f.assignment_id, f)
   }
+
+  // Порог архива (113) считаем здесь, а не в браузере: одно «сейчас» на всю
+  // страницу и без расхождения гидратации
+  const now = new Date()
+
+  // Задания прошлого учебного года уходят в архив сами (115): на этой
+  // странице они уже архивные, а итог пишется после ответа — ученик не ждёт
+  // сдачи и проверки старых попыток.
+  const autoArchived = new Set(
+    [...plainAssignments, ...roadmapItems]
+      .filter(a => shouldAutoArchive(a, finalMap.get(a.id), lastActivity.get(a.id), now))
+      .map(a => a.id)
+  )
+  if (autoArchived.size > 0) {
+    const studentId = user.id
+    after(async () => {
+      const admin = createAdminClient()
+      for (const assignmentId of autoArchived) {
+        try {
+          await archiveForStudent(admin, { assignmentId, studentId })
+        } catch (e) {
+          console.error('auto-archive failed', assignmentId, e)
+        }
+      }
+    })
+  }
+  const isArchived = (id: string, fin: FinalRow | undefined) => fin?.archived_at != null || autoArchived.has(id)
 
   // ── Собираем единые карточки для табов «Всё» / «Тесты» / «ДЗ» ──
   const cards: AssignmentCardData[] = []
@@ -218,7 +265,7 @@ export default async function StudentHomePage({ searchParams }: { searchParams: 
     const fin = finalMap.get(a.id)
     const status = (attempt?.status as AssignmentCardData['status']) ?? 'not_started'
     const attemptsUsed = Math.max(fin?.attempt_count ?? 0, usedByAssignment.get(a.id) ?? 0)
-    const closedReason = (a.closed_at ? 'forced' : null) ?? fin?.closed_reason ?? null
+    const closedReason = (a.closed_at ? 'forced' : null) ?? fin?.closed_reason ?? (autoArchived.has(a.id) ? 'archived' : null)
     const group = a.groups as any
 
     cards.push({
@@ -242,6 +289,10 @@ export default async function StudentHomePage({ searchParams }: { searchParams: 
       ends_at: a.ends_at,
       closed_reason: closedReason,
       submitted_late: attempt?.submitted_late ?? null,
+      is_extra_attempt: attempt?.is_extra_attempt ?? false,
+      extra_attempts: a.extra_attempts ?? 0,
+      archived: isArchived(a.id, fin),
+      can_archive: !isArchived(a.id, fin) && canArchive(a, settings.archive_after_days, now),
     })
   }
 
@@ -252,7 +303,7 @@ export default async function StudentHomePage({ searchParams }: { searchParams: 
     const fin = finalMap.get(a.id)
     const status = (attempt?.status as AssignmentCardData['status']) ?? 'not_started'
     const attemptsUsed = Math.max(fin?.attempt_count ?? 0, usedByAssignment.get(a.id) ?? 0)
-    const closedReason = fin?.closed_reason ?? (a.closed_at ? 'forced' : null)
+    const closedReason = fin?.closed_reason ?? (a.closed_at ? 'forced' : null) ?? (autoArchived.has(a.id) ? 'archived' : null)
     const topic = topicById.get(a.roadmap_topic_id as string)
     const roadmap = topic ? roadmapById.get(topic.roadmap_id) : null
 
@@ -273,6 +324,10 @@ export default async function StudentHomePage({ searchParams }: { searchParams: 
       ends_at: a.ends_at,
       closed_reason: closedReason,
       submitted_late: attempt?.submitted_late ?? null,
+      is_extra_attempt: attempt?.is_extra_attempt ?? false,
+      extra_attempts: a.extra_attempts ?? 0,
+      archived: isArchived(a.id, fin),
+      can_archive: !isArchived(a.id, fin) && canArchive(a, settings.archive_after_days, now),
     })
   }
 
@@ -304,8 +359,10 @@ export default async function StudentHomePage({ searchParams }: { searchParams: 
       max_attempts: a.max_attempts ?? 1,
       created_at: openedAt(a),
       ends_at: a.ends_at,
-      closed_reason: fin?.closed_reason ?? (a.closed_at ? 'forced' : null),
+      closed_reason: fin?.closed_reason ?? (a.closed_at ? 'forced' : null) ?? (autoArchived.has(a.id) ? 'archived' : null),
       submitted_late: attempt?.submitted_late ?? null,
+      is_extra_attempt: attempt?.is_extra_attempt ?? false,
+      extra_attempts: a.extra_attempts ?? 0,
     })
     itemsByTopic.set(tid, arr)
   }
@@ -314,6 +371,7 @@ export default async function StudentHomePage({ searchParams }: { searchParams: 
     id: r.id,
     title: r.title,
     subject: r.subject,
+    teacher: ownerName.get(r.created_by) || null,
     // Порядок тем — DFS-обход дерева (см. topicsInTreeOrder), не плоский
     // ORDER BY sort_order: то поле уникально только среди siblings одного
     // parent_id, поэтому глобальная сортировка перемешивала бы ветки.
@@ -330,7 +388,7 @@ export default async function StudentHomePage({ searchParams }: { searchParams: 
     }),
   }))
 
-  const initialTab = tab === 'test' || tab === 'homework' || tab === 'roadmap' ? tab : 'all'
+  const initialTab = tab === 'test' || tab === 'homework' || tab === 'roadmap' || tab === 'archive' ? tab : 'all'
 
   return <StudentHome assignments={cards} roadmaps={roadmapGroups} initialTab={initialTab} />
 }

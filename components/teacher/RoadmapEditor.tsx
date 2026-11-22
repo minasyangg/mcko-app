@@ -20,14 +20,17 @@ import { EditRoadmapDialog } from '@/components/teacher/EditRoadmapDialog'
 import { BroadcastDialog } from '@/components/teacher/BroadcastDialog'
 import { TestPreviewModalById } from '@/components/teacher/TestPreviewModalById'
 import { AssignmentStatsModal } from '@/components/teacher/AssignmentStatsModal'
+import { AddAttemptsDialog } from '@/components/teacher/AddAttemptsDialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { SearchableSelect } from '@/components/shared/SearchableSelect'
 import {
   ArrowLeft, Plus, Trash2, Pencil, Check, ChevronRight, ChevronDown as ChevronDownIcon,
   Users, Loader2, X, AlertTriangle, Search, GripVertical, Eye, EyeOff, Info,
+  ArrowUp, ArrowDown, ArrowRight, ArrowUpDown, CornerDownRight,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { localInputToIso, openingHint, opensLater, toLocalInputValue } from '@/lib/assignments/opening'
+import { localInputToIso, opensLater, toLocalInputValue } from '@/lib/assignments/opening'
+import { OpeningHint } from '@/components/teacher/OpeningHint'
 
 export interface EditorTopic {
   id: string
@@ -77,6 +80,15 @@ function buildTopicTree(topics: EditorTopic[]): TopicNode[] {
   }
   for (const root of roots) propagate(root, false)
   return roots
+}
+
+// Дерево в порядке показа (DFS) с глубиной — для списка «Переместить в…»
+function flattenTopicTree(nodes: TopicNode[], depth = 0, out: { node: TopicNode; depth: number }[] = []) {
+  for (const node of nodes) {
+    out.push({ node, depth })
+    flattenTopicTree(node.children, depth + 1, out)
+  }
+  return out
 }
 interface TestOption { id: string; title: string }
 interface StudentOption { id: string; full_name: string; grade: string | null }
@@ -308,43 +320,74 @@ export function RoadmapEditor({ roadmap, topics, tests, students, memberIds, gro
     router.refresh()
   }
 
-  // Собирает целевой уровень и решает, куда именно попадает перетаскиваемый
-  // узел, и зовёт moveTopic. mode: 'before'/'after' — переставить рядом с
-  // targetId в его же родителе, 'inside' — стать последним ребёнком targetId.
-  function handleTopicDrop(draggedId: string, targetId: string, mode: 'before' | 'after' | 'inside') {
-    if (draggedId === targetId) return
-    const target = topics.find(t => t.id === targetId)
-    if (!target) return
-
-    const newParentId = mode === 'inside' ? targetId : target.parent_id
-    // Нельзя перетащить узел в собственное поддерево — сервер тоже проверяет
-    // это (409), но локально стоит не отправлять заведомо неверный запрос.
-    const draggedSubtree = new Set<string>([draggedId])
+  // Тема и все её потомки — в собственное поддерево тему переносить нельзя
+  // (сервер тоже проверяет это, 409, но заведомо неверный запрос не шлём).
+  function subtreeIds(rootId: string): Set<string> {
+    const ids = new Set<string>([rootId])
     let grew = true
     while (grew) {
       grew = false
       for (const t of topics) {
-        if (t.parent_id && draggedSubtree.has(t.parent_id) && !draggedSubtree.has(t.id)) {
-          draggedSubtree.add(t.id); grew = true
-        }
+        if (t.parent_id && ids.has(t.parent_id) && !ids.has(t.id)) { ids.add(t.id); grew = true }
       }
     }
-    if (draggedSubtree.has(newParentId ?? '')) return
+    return ids
+  }
 
-    const siblingIds = topics
-      .filter(t => t.id !== draggedId && (t.parent_id ?? null) === (newParentId ?? null))
-      .sort((a, b) => a.sort_order - b.sort_order)
-      .map(t => t.id)
+  const siblingIdsOf = (parentId: string | null) => topics
+    .filter(t => (t.parent_id ?? null) === parentId)
+    .sort((a, b) => a.sort_order - b.sort_order)
+    .map(t => t.id)
 
-    let orderedIds: string[]
-    if (mode === 'inside') {
-      orderedIds = [...siblingIds, draggedId]
-    } else {
-      const idx = siblingIds.indexOf(targetId)
-      const insertAt = mode === 'before' ? idx : idx + 1
-      orderedIds = [...siblingIds.slice(0, insertAt), draggedId, ...siblingIds.slice(insertAt)]
+  // Ставит тему в уровень newParentId на позицию at(соседи без самой темы) и
+  // зовёт moveTopic. Если место не меняется — запрос не отправляется.
+  function placeTopic(movedId: string, newParentId: string | null, at: (siblingIds: string[]) => number) {
+    const moved = topics.find(t => t.id === movedId)
+    if (!moved || (newParentId && subtreeIds(movedId).has(newParentId))) return
+    const current = siblingIdsOf(newParentId)
+    const siblingIds = current.filter(id => id !== movedId)
+    const insertAt = Math.max(0, Math.min(at(siblingIds), siblingIds.length))
+    const orderedIds = [...siblingIds.slice(0, insertAt), movedId, ...siblingIds.slice(insertAt)]
+    if ((moved.parent_id ?? null) === newParentId && orderedIds.join() === current.join()) return
+    moveTopic(movedId, newParentId, orderedIds)
+  }
+
+  // mode: 'before'/'after' — рядом с targetId в его родителе, 'inside' —
+  // последней подтемой targetId, 'first' — первой (низ раскрытой главы).
+  function handleTopicDrop(draggedId: string, targetId: string, mode: DropMode) {
+    if (draggedId === targetId) return
+    const target = topics.find(t => t.id === targetId)
+    if (!target) return
+    if (mode === 'inside') return placeTopic(draggedId, targetId, s => s.length)
+    if (mode === 'first') return placeTopic(draggedId, targetId, () => 0)
+    placeTopic(draggedId, target.parent_id ?? null, s => s.indexOf(targetId) + (mode === 'after' ? 1 : 0))
+  }
+
+  // Подсвеченная цель перетаскивания — одна на весь редактор, поэтому две
+  // строки не могут подсветиться одновременно; сбрасывается вместе с drag.
+  const [hover, setHover] = useState<DropHover>(null)
+  const setDragState = (d: DragState) => { setDrag(d); setHover(null) }
+
+  // «Переместить…» — то же без перетаскивания: точно и на телефоне
+  const [movingId, setMovingId] = useState<string | null>(null)
+  const moving = topics.find(t => t.id === movingId) ?? null
+  const moveCtx = moving ? (() => {
+    const parentId = moving.parent_id ?? null
+    const siblings = siblingIdsOf(parentId)
+    const idx = siblings.indexOf(moving.id)
+    const blocked = subtreeIds(moving.id)
+    return {
+      prevId: siblings[idx - 1] ?? null,
+      nextId: siblings[idx + 1] ?? null,
+      parentId,
+      targets: flattenTopicTree(topicTree).filter(({ node }) => !blocked.has(node.id)),
     }
-    moveTopic(draggedId, newParentId, orderedIds)
+  })() : null
+  const titleOf = (id: string | null) => topics.find(t => t.id === id)?.title ?? ''
+
+  function moveAndClose(fn: () => void) {
+    fn()
+    setMovingId(null)
   }
 
   // Перенос уже привязанного ДЗ/теста в другую тему (drag-and-drop карточки
@@ -523,21 +566,74 @@ export function RoadmapEditor({ roadmap, topics, tests, students, memberIds, gro
               key={node.id} node={node} depth={0} roadmapId={roadmap.id} busy={busy}
               onRename={renameTopic} onDelete={deleteTopic} onAddChild={addTopicUnder}
               onOpenItem={openItem} onRemoveItem={removeItem} onToggleVisible={toggleTopicVisible}
-              onDropTopic={handleTopicDrop} onMoveItem={moveItemToTopic} drag={drag} setDrag={setDrag}
+              onDropTopic={handleTopicDrop} onMoveItem={moveItemToTopic} drag={drag} setDrag={setDragState}
+              hover={hover} setHover={setHover} onRequestMove={setMovingId}
               onPreviewTest={setPreviewTestId} onOpenStats={setStatsAssignmentId}
             />
           ))}
         </div>
-        {/* Перетаскивание — HTML5 DnD, на сенсорных экранах не работает,
-            поэтому на телефоне подсказку не показываем */}
+        {/* Перетаскивание — HTML5 DnD, на сенсорных экранах не работает:
+            на телефоне подсказка только про кнопку «Переместить» */}
         {topics.length > 1 && (
-          <p className="text-xs text-muted-foreground max-md:hidden">
-            Перетащите тему или задание за <GripVertical className="inline h-3 w-3 align-text-bottom" /> — наведите
-            на верх или низ другой темы, чтобы переставить рядом с ней (появится синяя полоска), или точно на
-            середину, чтобы сделать подтемой (строка подсветится целиком и появится подпись «станет подтемой»).
-            Задание — на любую тему, чтобы перенести его туда.
+          <p className="text-xs text-muted-foreground">
+            <span className="max-md:hidden">
+              Перетащите тему за строку: на левую часть другой темы — встанет перед ней или после (синяя
+              полоска), на правую часть с подписью «сделать подтемой» — станет её подтемой. Свёрнутая тема
+              раскроется, если задержать над ней курсор. Задание перетаскивается на любую тему.{' '}
+            </span>
+            Точно переместить тему можно кнопкой <ArrowUpDown className="inline h-3 w-3 align-text-bottom" /> в её строке.
           </p>
         )}
+
+        <Dialog open={moving != null} onOpenChange={(v) => { if (!v) setMovingId(null) }}>
+          <DialogContent className="max-w-lg">
+            <DialogHeader>
+              <DialogTitle>Переместить «{moving?.title}»</DialogTitle>
+            </DialogHeader>
+            {moving && moveCtx && (
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-2">
+                  <Button variant="outline" className="h-auto py-2 whitespace-normal" disabled={!moveCtx.prevId}
+                    onClick={() => moveAndClose(() => handleTopicDrop(moving.id, moveCtx.prevId!, 'before'))}>
+                    <ArrowUp className="h-4 w-4 mr-1.5 shrink-0" /> Выше
+                  </Button>
+                  <Button variant="outline" className="h-auto py-2 whitespace-normal" disabled={!moveCtx.nextId}
+                    onClick={() => moveAndClose(() => handleTopicDrop(moving.id, moveCtx.nextId!, 'after'))}>
+                    <ArrowDown className="h-4 w-4 mr-1.5 shrink-0" /> Ниже
+                  </Button>
+                  <Button variant="outline" className="h-auto py-2 whitespace-normal" disabled={!moveCtx.prevId}
+                    title={moveCtx.prevId ? `Станет подтемой «${titleOf(moveCtx.prevId)}»` : 'Выше нет темы того же уровня'}
+                    onClick={() => moveAndClose(() => handleTopicDrop(moving.id, moveCtx.prevId!, 'inside'))}>
+                    <ArrowRight className="h-4 w-4 mr-1.5 shrink-0" /> В подтемы темы выше
+                  </Button>
+                  <Button variant="outline" className="h-auto py-2 whitespace-normal" disabled={!moveCtx.parentId}
+                    title={moveCtx.parentId ? `Встанет после «${titleOf(moveCtx.parentId)}»` : 'Тема уже верхнего уровня'}
+                    onClick={() => moveAndClose(() => handleTopicDrop(moving.id, moveCtx.parentId!, 'after'))}>
+                    <ArrowLeft className="h-4 w-4 mr-1.5 shrink-0" /> На уровень выше
+                  </Button>
+                </div>
+                <div className="space-y-1.5">
+                  <p className="text-sm text-muted-foreground">Или выберите, куда перенести — тема встанет последней:</p>
+                  <div className="max-h-72 overflow-y-auto rounded-md border divide-y">
+                    <button type="button" disabled={moveCtx.parentId == null}
+                      onClick={() => moveAndClose(() => placeTopic(moving.id, null, s => s.length))}
+                      className="w-full text-left px-3 py-2 text-sm font-medium hover:bg-muted disabled:opacity-50 disabled:hover:bg-transparent">
+                      Верхний уровень программы{moveCtx.parentId == null && ' (сейчас здесь)'}
+                    </button>
+                    {moveCtx.targets.map(({ node, depth }) => (
+                      <button key={node.id} type="button" disabled={node.id === moveCtx.parentId}
+                        onClick={() => moveAndClose(() => placeTopic(moving.id, node.id, s => s.length))}
+                        className={cn('w-full text-left pr-3 py-2 text-sm hover:bg-muted disabled:opacity-50 disabled:hover:bg-transparent', depth === 0 && 'font-medium')}
+                        style={{ paddingLeft: `${12 + depth * 16}px` }}>
+                        {node.title}{node.id === moveCtx.parentId && ' (сейчас здесь)'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
 
         {/* Добавить тему верхнего уровня */}
         <div className="flex items-center gap-2 pt-1">
@@ -703,7 +799,7 @@ export function RoadmapEditor({ roadmap, topics, tests, students, memberIds, gro
                     onChange={(e) => setItemForm(p => ({ ...p, ends_at: e.target.value }))} />
                 </div>
               </div>
-              <p className="text-xs text-muted-foreground">{openingHint(opensLater(localInputToIso(itemForm.starts_at)))}</p>
+              <OpeningHint deferred={opensLater(localInputToIso(itemForm.starts_at))} />
             </div>
 
             {/* Мягкое предупреждение, не блокирует привязку — повтор задачи
@@ -746,13 +842,21 @@ interface DeletePreview {
 // inline-переименование (Pencil→Input→Check/X), удаление с серверным превью
 // (GET перед показом диалога) и жёсткой блокировкой, если у поддерева есть
 // сданные попытки — см. app/api/roadmaps/[id]/topics/[topicId]/route.ts.
-type DropMode = 'before' | 'after' | 'inside'
+type DropMode = 'before' | 'after' | 'inside' | 'first'
 
 type DragState = { id: string; kind: 'topic' | 'item' } | null
 
+// Над какой темой сейчас курсор и что произойдёт при отпускании ('item' —
+// задание переедет в эту тему)
+type DropHover = { targetId: string; mode: DropMode | 'item' } | null
+
+// Правая часть строки темы (от этой доли ширины) — «сделать подтемой»
+const INSIDE_ZONE_FROM = 0.6
+
 function TopicTreeItem({
   node, depth, roadmapId, busy, onRename, onDelete, onAddChild, onOpenItem, onRemoveItem, onToggleVisible,
-  onDropTopic, onMoveItem, drag, setDrag, onPreviewTest, onOpenStats,
+  onDropTopic, onMoveItem, drag, setDrag, hover, setHover, onRequestMove, inDraggedSubtree = false,
+  onPreviewTest, onOpenStats,
 }: {
   node: TopicNode
   depth: number
@@ -768,21 +872,38 @@ function TopicTreeItem({
   onMoveItem: (assignmentId: string, topicId: string) => void
   drag: DragState
   setDrag: (d: DragState) => void
+  hover: DropHover
+  setHover: (h: DropHover) => void
+  onRequestMove: (topicId: string) => void
+  /** Узел внутри перетаскиваемой темы — бросить в него нельзя */
+  inDraggedSubtree?: boolean
   onPreviewTest: (testId: string) => void
   onOpenStats: (assignmentId: string) => void
 }) {
   const [open, setOpen] = useState(depth < 1)
   const hasChildren = node.children.length > 0
 
-  // Зона наведения при перетаскивании темы над ЭТИМ узлом — верх/низ строки
-  // переставляет рядом (тот же родитель), середина — делает подтемой.
-  // Десктоп-only (HTML5 DnD API, без обработки touch-жестов). Перетаскивание
-  // ДЗ-карточки (drag.kind === 'item') не различает зоны — задание всегда
-  // просто переносится «в» эту тему, поэтому у него своя, более простая
-  // подсветка (isItemDropTarget) без before/after.
-  const [dropZone, setDropZone] = useState<DropMode | null>(null)
-  const [isItemDropTarget, setIsItemDropTarget] = useState(false)
+  // Перетаскивание (HTML5 DnD, только десктоп). Зоны считаются по СТРОКЕ
+  // темы, без её подтем: раньше обработчик висел на блоке вместе с
+  // раскрытыми детьми — «середина» главы оказывалась среди подтем, а событие
+  // всплывало и подсвечивало две цели сразу. Теперь: левая часть строки —
+  // верхняя половина «перед», нижняя «после» (у раскрытой главы — «первой
+  // подтемой», полоска рисуется там же); правая часть — «сделать подтемой»,
+  // широкая и подписанная, вместо узкой 20%-полоски посередине, куда
+  // приходилось прицеливаться. Задание (drag.kind === 'item') зон не
+  // различает — всегда переезжает в эту тему.
   const isDragSource = drag?.kind === 'topic' && drag.id === node.id
+  const canDropHere = drag != null && !isDragSource && !inDraggedSubtree
+  const zone = hover?.targetId === node.id ? hover.mode : null
+  const showInsideZone = drag?.kind === 'topic' && canDropHere
+
+  // Задержали курсор над «сделать подтемой» у свёрнутой темы — раскрываем,
+  // чтобы было видно, куда встанет (и можно было целиться в подтемы)
+  useEffect(() => {
+    if (zone !== 'inside' || open || !hasChildren) return
+    const t = setTimeout(() => setOpen(true), 700)
+    return () => clearTimeout(t)
+  }, [zone, open, hasChildren])
 
   const [renaming, setRenaming] = useState(false)
   const [titleDraft, setTitleDraft] = useState(node.title)
@@ -847,68 +968,78 @@ function TopicTreeItem({
   }
 
   return (
-    <div
-      className="relative"
-      onDragOver={(e) => {
-        if (!drag || (drag.kind === 'topic' && drag.id === node.id)) return
-        e.preventDefault()
-        e.dataTransfer.dropEffect = 'move'
-        if (drag.kind === 'item') { setIsItemDropTarget(true); return }
-        const rect = e.currentTarget.getBoundingClientRect()
-        const ratio = (e.clientY - rect.top) / rect.height
-        // Верх/низ — по 40% высоты каждая (переставить рядом, самое частое
-        // действие — щедрая зона, легко попасть). Середина — только 20%,
-        // узко и намеренно: «сделать подтемой» меняет структуру сильнее
-        // всего, случайное попадание сюда при простой перестановке — самая
-        // частая жалоба на нынешнюю версию (пороги были по 25%/50%/25%).
-        setDropZone(ratio < 0.4 ? 'before' : ratio > 0.6 ? 'after' : 'inside')
-      }}
-      onDragLeave={(e) => {
-        // Игнорируем переходы между дочерними элементами внутри той же строки —
-        // иначе индикатор мигает при каждом пикселе движения курсора.
-        if (e.currentTarget.contains(e.relatedTarget as Node)) return
-        setDropZone(null)
-        setIsItemDropTarget(false)
-      }}
-      onDrop={(e) => {
-        e.preventDefault()
-        if (drag?.kind === 'item') onMoveItem(drag.id, node.id)
-        else if (drag && drag.id !== node.id && dropZone) onDropTopic(drag.id, node.id, dropZone)
-        setDropZone(null)
-        setIsItemDropTarget(false)
-      }}
-    >
-      {/* Индикатор вставки — толстая полоса на том же отступе глубины, что и
-          сама строка: показывает буквально, где появится тема после drop, а
-          не просто «где-то у края». Раньше была линия 0.5px без отступа —
-          на плотном списке терялась и не показывала, на каком уровне
-          вложенности встанет тема. */}
-      {dropZone === 'before' && (
-        <div className="absolute right-0 top-0 h-1 bg-primary rounded-full z-10" style={{ left: `${12 + depth * 18}px` }} />
-      )}
-      {dropZone === 'after' && (
-        <div className="absolute right-0 bottom-0 h-1 bg-primary rounded-full z-10" style={{ left: `${12 + depth * 18}px` }} />
-      )}
+    <div>
       <div
+        // Тянуть можно за всю строку, а не только за ручку; на время
+        // переименования/добавления подтемы — нет, иначе не выделить текст
+        draggable={!renaming && !addingChild}
+        onDragStart={(e) => {
+          e.dataTransfer.effectAllowed = 'move'
+          e.dataTransfer.setData('text/plain', node.id)
+          setDrag({ id: node.id, kind: 'topic' })
+        }}
+        onDragEnd={() => setDrag(null)}
+        onDragOver={(e) => {
+          if (!drag || !canDropHere) return
+          e.preventDefault()
+          e.dataTransfer.dropEffect = 'move'
+          let mode: DropMode | 'item'
+          if (drag.kind === 'item') {
+            mode = 'item'
+          } else {
+            const rect = e.currentTarget.getBoundingClientRect()
+            const upper = e.clientY - rect.top < rect.height / 2
+            mode = e.clientX - rect.left > rect.width * INSIDE_ZONE_FROM ? 'inside'
+              : upper ? 'before'
+              : open && hasChildren ? 'first'
+              : 'after'
+          }
+          if (zone !== mode) setHover({ targetId: node.id, mode })
+        }}
+        onDragLeave={(e) => {
+          // переходы между элементами внутри той же строки — не уход с неё
+          if (e.currentTarget.contains(e.relatedTarget as Node)) return
+          if (hover?.targetId === node.id) setHover(null)
+        }}
+        onDrop={(e) => {
+          e.preventDefault()
+          if (drag?.kind === 'item') onMoveItem(drag.id, node.id)
+          else if (drag && zone && zone !== 'item') onDropTopic(drag.id, node.id, zone)
+          setDrag(null)
+        }}
         className={cn(
-          'group flex items-start gap-1.5 px-3 py-2 transition-colors',
+          'group relative flex items-start gap-1.5 px-3 py-2 transition-colors',
           isDragSource && 'opacity-40',
-          (dropZone === 'inside' || isItemDropTarget) && 'bg-primary/10 ring-2 ring-inset ring-primary',
+          zone === 'item' && 'bg-primary/10 ring-2 ring-inset ring-primary',
         )}
         style={{ paddingLeft: `${12 + depth * 18}px` }}
       >
+        {/* Полоса вставки — на отступе того уровня, куда встанет тема:
+            «первой подтемой» — на уровень глубже */}
+        {(zone === 'before' || zone === 'after' || zone === 'first') && (
+          <div
+            className={cn('absolute h-1 bg-primary rounded-full z-10 pointer-events-none', zone === 'before' ? 'top-0' : 'bottom-0')}
+            style={{ left: `${12 + (zone === 'first' ? depth + 1 : depth) * 18}px`, right: `${(1 - INSIDE_ZONE_FROM) * 100}%` }}
+          />
+        )}
+        {showInsideZone && (
+          <div
+            className={cn(
+              'absolute inset-y-1 right-1 z-10 pointer-events-none rounded-md border-2 border-dashed flex items-center justify-center gap-1 text-xs font-medium transition-colors',
+              zone === 'inside'
+                ? 'border-primary bg-primary/15 text-primary'
+                : 'border-muted-foreground/25 bg-background/80 text-muted-foreground',
+            )}
+            style={{ left: `${INSIDE_ZONE_FROM * 100}%` }}
+          >
+            <CornerDownRight className="h-3.5 w-3.5" /> сделать подтемой
+          </div>
+        )}
         <span
-          draggable
-          onDragStart={(e) => {
-            e.dataTransfer.effectAllowed = 'move'
-            e.dataTransfer.setData('text/plain', node.id)
-            setDrag({ id: node.id, kind: 'topic' })
-          }}
-          onDragEnd={() => { setDrag(null); setDropZone(null) }}
-          className="mt-0.5 shrink-0 cursor-grab active:cursor-grabbing text-muted-foreground/40 hover:text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity max-md:hidden"
-          title="Перетащите: край темы — переставить рядом, середина — сделать подтемой"
+          className="mt-0.5 shrink-0 cursor-grab active:cursor-grabbing text-muted-foreground/40 group-hover:text-muted-foreground transition-colors max-md:hidden"
+          title="Перетащите строку: левая часть другой темы — встанет рядом, правая — станет подтемой"
         >
-          <GripVertical className="h-3.5 w-3.5" />
+          <GripVertical className="h-4 w-4" />
         </span>
         {hasChildren ? (
           <button type="button" onClick={() => setOpen(!open)} className="mt-0.5 shrink-0 text-muted-foreground hover:text-foreground max-md:-m-1.5 max-md:p-1.5">
@@ -957,10 +1088,10 @@ function TopicTreeItem({
               {/* Явно проговаривает намерение drop вместо того, чтобы пользователь
                   угадывал по подсветке фона/толщине полоски — прямая причина
                   жалобы «не всегда понятно куда встанет тема». */}
-              {dropZone === 'inside' && drag?.kind === 'topic' && (
-                <span className="text-xs font-medium text-primary shrink-0">→ станет подтемой</span>
+              {zone === 'first' && (
+                <span className="text-xs font-medium text-primary shrink-0">→ станет первой подтемой</span>
               )}
-              {isItemDropTarget && (
+              {zone === 'item' && (
                 <span className="text-xs font-medium text-primary shrink-0">→ задание переедет сюда</span>
               )}
               <span className="flex gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity max-md:basis-full max-md:-ml-2 max-md:gap-0.5 max-md:opacity-100">
@@ -979,6 +1110,9 @@ function TopicTreeItem({
                 </button>
                 <button type="button" onClick={() => setAddingChild(true)} title="Добавить подтему" aria-label="Добавить подтему" className="text-muted-foreground hover:text-foreground max-md:rounded-md max-md:p-2">
                   <Plus className="h-3 w-3 max-md:h-4 max-md:w-4" />
+                </button>
+                <button type="button" onClick={() => onRequestMove(node.id)} title="Переместить: выше/ниже, в подтемы, на уровень выше" aria-label="Переместить тему" className="text-muted-foreground hover:text-foreground max-md:rounded-md max-md:p-2">
+                  <ArrowUpDown className="h-3 w-3 max-md:h-4 max-md:w-4" />
                 </button>
                 <button type="button" onClick={openDelete} title="Удалить тему (и подтемы)" aria-label="Удалить тему (и подтемы)" className="text-muted-foreground hover:text-destructive max-md:rounded-md max-md:p-2">
                   <Trash2 className="h-3 w-3 max-md:h-4 max-md:w-4" />
@@ -1050,7 +1184,13 @@ function TopicTreeItem({
                       откроется {new Date(it.starts_at!).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
                     </span>
                   )}
-                  <span className="text-xs text-muted-foreground shrink-0">{it.max_attempts} поп.</span>
+                  <AddAttemptsDialog assignmentId={it.assignment_id} maxAttempts={it.max_attempts} title={it.test_title}>
+                    <button type="button"
+                      className="text-xs text-muted-foreground shrink-0 rounded px-1 -mx-1 hover:bg-muted hover:text-foreground underline-offset-2 hover:underline max-md:py-1.5"
+                      title="Добавить попытки">
+                      {it.max_attempts} поп.
+                    </button>
+                  </AddAttemptsDialog>
                   <Button size="icon" variant="ghost" className="h-6 w-6 text-muted-foreground max-md:h-8 max-md:w-8"
                     title="Статистика назначения" aria-label="Статистика назначения" onClick={() => onOpenStats(it.assignment_id)}>
                     <Info className="h-3.5 w-3.5" />
@@ -1079,6 +1219,8 @@ function TopicTreeItem({
               onRename={onRename} onDelete={onDelete} onAddChild={onAddChild}
               onOpenItem={onOpenItem} onRemoveItem={onRemoveItem} onToggleVisible={onToggleVisible}
               onDropTopic={onDropTopic} onMoveItem={onMoveItem} drag={drag} setDrag={setDrag}
+              hover={hover} setHover={setHover} onRequestMove={onRequestMove}
+              inDraggedSubtree={inDraggedSubtree || isDragSource}
               onPreviewTest={onPreviewTest} onOpenStats={onOpenStats}
             />
           ))}

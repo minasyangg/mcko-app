@@ -65,6 +65,7 @@ async function loadAttemptRows(supabase: ServerClient, userId: string | null, is
         id,
         created_by,
         max_attempts,
+        extra_attempts,
         closed_at,
         test_version_id,
         test_versions!test_version_id (
@@ -173,6 +174,10 @@ async function loadAttemptRows(supabase: ServerClient, userId: string | null, is
       attempt_number: latestAttemptNum,
       total_attempts: totalAttempts,
       max_attempts: maxAttempts,
+      // попытка сверх исходного лимита (учитель добавил, 112) — по номеру, а не
+      // по attempts.is_extra_attempt: тот пишется только при сдаче, а строку
+      // надо отметить и пока попытка идёт
+      is_extra_attempt: (asgn?.extra_attempts ?? 0) > 0 && latestAttemptNum > maxAttempts - asgn.extra_attempts,
     }
   }).sort((a, b) => new Date(b.last_activity_at ?? 0).getTime() - new Date(a.last_activity_at ?? 0).getTime())
 }

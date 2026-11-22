@@ -41,6 +41,8 @@ export interface AttemptRow {
   attempt_number?: number
   total_attempts?: number
   max_attempts?: number
+  /** Попытка сверх исходного лимита назначения — добавлена учителем (112) */
+  is_extra_attempt?: boolean
 }
 
 interface Props {
@@ -48,6 +50,16 @@ interface Props {
   isAdmin?: boolean
   assignments?: AssignmentRow[]
   programSummaries?: ProgramSummaryRow[]
+}
+
+// Работа в попытку, добавленную учителем сверх исходного лимита: срок сдачи
+// у назначения прежний, но это не опоздание, а доп. попытка (112)
+function ExtraAttemptTag() {
+  return (
+    <span className="rounded border border-sky-300 bg-sky-50 px-1.5 py-0.5 text-[11px] font-medium text-sky-700 dark:border-sky-800 dark:bg-sky-950 dark:text-sky-300">
+      доп. попытка
+    </span>
+  )
 }
 
 function formatRelative(iso: string | null) {
@@ -202,6 +214,7 @@ function TableView({ rows, ...handlers }: RowHandlers & { rows: AttemptRow[] }) 
               <p className="text-sm text-muted-foreground line-clamp-2 wrap-break-word">{a.test_title}</p>
               <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted-foreground">
                 <StatusChip status={a.status} attemptNumber={a.attempt_number} maxAttempts={a.max_attempts} />
+                {a.is_extra_attempt && <ExtraAttemptTag />}
                 {tab === 'checked' && <span>Попыток: {used} из {max}</span>}
                 {a.started_at && <span>начата {formatTime(a.started_at)}</span>}
               </div>
@@ -242,7 +255,12 @@ function TableView({ rows, ...handlers }: RowHandlers & { rows: AttemptRow[] }) 
                       </div>
                     )}
                   </td>
-                  <td className="px-4 py-3"><StatusChip status={a.status} attemptNumber={a.attempt_number} maxAttempts={a.max_attempts} /></td>
+                  <td className="px-4 py-3">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <StatusChip status={a.status} attemptNumber={a.attempt_number} maxAttempts={a.max_attempts} />
+                      {a.is_extra_attempt && <ExtraAttemptTag />}
+                    </div>
+                  </td>
                   <td className="px-4 py-3 text-center font-medium tabular-nums">
                     {a.score !== null ? `${a.score}/${a.max_score ?? '?'}` : '—'}
                   </td>

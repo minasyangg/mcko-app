@@ -5,6 +5,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Badge } from '@/components/ui/badge'
 import { StatusChip } from '@/components/shared/StatusChip'
 import { closedReasonLabel } from '@/lib/assignments/completion'
+import { AddAttemptsDialog } from '@/components/teacher/AddAttemptsDialog'
 import { Loader2 } from 'lucide-react'
 
 interface StudentStat {
@@ -45,6 +46,8 @@ export function AssignmentStatsModal({ assignmentId, onClose }: { assignmentId: 
   // Результат привязан к id назначения: пока для текущего id ответа нет —
   // идёт загрузка, данные другого назначения не показываются
   const [result, setResult] = useState<{ id: string; stats?: AssignmentStats; error?: string } | null>(null)
+  // после добавления попыток перечитываем статистику: у учеников меняется статус
+  const [reloadKey, setReloadKey] = useState(0)
 
   useEffect(() => {
     if (!assignmentId) return
@@ -58,7 +61,7 @@ export function AssignmentStatsModal({ assignmentId, onClose }: { assignmentId: 
       .then(stats => { if (!cancelled) setResult({ id: assignmentId, stats }) })
       .catch(e => { if (!cancelled) setResult({ id: assignmentId, error: e instanceof Error ? e.message : 'Ошибка загрузки' }) })
     return () => { cancelled = true }
-  }, [assignmentId])
+  }, [assignmentId, reloadKey])
 
   const current = result && result.id === assignmentId ? result : null
   const shown = current?.stats ?? null
@@ -102,7 +105,15 @@ export function AssignmentStatsModal({ assignmentId, onClose }: { assignmentId: 
               <dt className="text-muted-foreground">Дедлайн</dt>
               <dd>{shown.ends_at ? formatDateTime(shown.ends_at) : 'без срока'}</dd>
               <dt className="text-muted-foreground">Попыток</dt>
-              <dd>{shown.max_attempts}</dd>
+              <dd className="flex items-center gap-2">
+                {shown.max_attempts}
+                <AddAttemptsDialog assignmentId={shown.id} maxAttempts={shown.max_attempts} title={shown.title}
+                  onAdded={() => setReloadKey(k => k + 1)}>
+                  <button type="button" className="text-xs text-primary hover:underline underline-offset-2">
+                    добавить
+                  </button>
+                </AddAttemptsDialog>
+              </dd>
               {shown.closed_at && (
                 <>
                   <dt className="text-muted-foreground">Статус</dt>

@@ -2,6 +2,9 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { NextResponse } from 'next/server'
 import { getAuthUser } from '@/lib/supabase/auth-user'
+import { openedAt } from '@/lib/assignments/opening'
+import { joinedTooLate } from '@/lib/settings/registry'
+import { getAppSettings } from '@/lib/settings/server'
 
 // GET /api/assignments/[id]/stats — детали ОДНОГО назначения для иконки
 // статистики в RoadmapEditor: когда создано, сроки, попытки и кто из
@@ -9,7 +12,6 @@ import { getAuthUser } from '@/lib/supabase/auth-user'
 // Лёгкий запрос на одно назначение, не весь прогресс программы
 // (getRoadmapDetail нужен только полной панели ProgramDetailSheet).
 
-const THREE_DAYS_MS = 3 * 24 * 60 * 60 * 1000
 const SUBMITTED_STATUSES = ['submitted', 'under_review', 'checked']
 
 type AttemptRow = {
@@ -91,13 +93,15 @@ export async function GET(
       : []
   const studentIds = members.map(m => m.user_id)
 
-  // Правило «3 дня» (миграция 058): вступивший в группу заметно позже
-  // создания назначения его не видит — это не «не начал», а «не получал»
-  const createdAtMs = assignment.created_at ? new Date(assignment.created_at).getTime() : null
+  // Правило «вступил позже» (058, 110, порог — late_join_days, 114):
+  // вступивший в группу заметно позже открытия назначения его не видит —
+  // это не «не начал», а «не получал». Отсчёт от открытия, как в RLS.
+  const { late_join_days: lateJoinDays } = await getAppSettings()
+  const assignmentOpenedAt = openedAt(assignment)
   const lateJoinIds = new Set(
-    assignment.group_id && createdAtMs != null
+    assignment.group_id
       ? members
-          .filter(m => m.added_at && new Date(m.added_at).getTime() > createdAtMs + THREE_DAYS_MS)
+          .filter(m => joinedTooLate(m.added_at, assignmentOpenedAt, lateJoinDays))
           .map(m => m.user_id)
       : []
   )

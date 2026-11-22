@@ -1,48 +1,11 @@
 import { NextRequest, NextResponse, after } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
-import { createAdminClient } from '@/lib/supabase/admin'
 import { closeAssignment, reopenAssignment } from '@/lib/assignments/close'
+import { authorizeAssignmentOwner } from '@/lib/assignments/authorize'
 import { notifyAttemptFinalized } from '@/lib/notifications/send'
-import { getAuthUser } from '@/lib/supabase/auth-user'
 
-// Скоуп тот же, что у DELETE /api/assignments/[id]: учитель распоряжается
-// своими назначениями, админ — любыми в организации. Мониторинг показывает
-// учителю и чужие назначения его учеников (RLS из 018 разрешает читать попытки
-// своих учеников), поэтому владение проверяем явно, а не полагаемся на видимость.
-async function authorize(assignmentId: string) {
-  const supabase = await createClient()
-  const { data: { user }, error: authError } = await getAuthUser(supabase)
-  if (authError || !user) {
-    return { error: NextResponse.json({ error: 'Unauthorized' }, { status: 401 }) }
-  }
-
-  const { data: profile } = await supabase
-    .from('profiles').select('role, organization_id').eq('id', user.id).single()
-  if (!profile || !['teacher', 'admin'].includes(profile.role)) {
-    return { error: NextResponse.json({ error: 'Forbidden' }, { status: 403 }) }
-  }
-
-  const admin = createAdminClient()
-  const { data: assignment } = await admin
-    .from('assignments')
-    .select('id, organization_id, created_by, student_id, group_id')
-    .eq('id', assignmentId)
-    .single()
-
-  if (!assignment || assignment.organization_id !== profile.organization_id) {
-    return { error: NextResponse.json({ error: 'Not found' }, { status: 404 }) }
-  }
-  if (profile.role !== 'admin' && assignment.created_by !== user.id) {
-    return {
-      error: NextResponse.json(
-        { error: 'Завершить может только создатель назначения или администратор' },
-        { status: 403 }
-      ),
-    }
-  }
-
-  return { admin, userId: user.id, assignment }
-}
+// Скоуп тот же, что у DELETE /api/assignments/[id]: создатель назначения или админ
+const authorize = (assignmentId: string) =>
+  authorizeAssignmentOwner(assignmentId, 'Завершить может только создатель назначения или администратор')
 
 // POST /api/assignments/[id]/close — принудительно завершить назначение, даже
 // если у учеников остались попытки. Body: { student_id?: string } — с ним

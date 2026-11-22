@@ -12,6 +12,7 @@ import {
 import { Plus, ClipboardList } from 'lucide-react'
 import { DeleteAssignmentButton } from '@/components/teacher/DeleteAssignmentButton'
 import { CloseAssignmentButton } from '@/components/teacher/CloseAssignmentButton'
+import { AddAttemptsDialog } from '@/components/teacher/AddAttemptsDialog'
 import { closedReasonLabel } from '@/lib/assignments/completion'
 import { ProgramSummaryTable } from '@/components/teacher/ProgramSummaryTable'
 import { ProgramDetailSheet } from '@/components/teacher/ProgramDetailSheet'
@@ -85,6 +86,7 @@ function AttemptsInfo({ a }: { a: AssignmentRow }) {
 function AssignmentActions({ a }: { a: AssignmentRow }) {
   return (
     <>
+      <AddAttemptsDialog assignmentId={a.id} maxAttempts={a.max_attempts} title={a.test_title} />
       <CloseAssignmentButton
         assignmentId={a.id}
         closedReason={a.closed_at ? 'forced' : a.is_group ? null : a.closed_reason}

@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Check, ChevronDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { closedReasonLabel } from '@/lib/assignments/completion'
+import { nextAttemptIsExtra } from '@/lib/assignments/deadline'
 import { cardKind, CARD_KIND_CLASS, isUnfinishedKind } from '@/lib/assignments/card-style'
 import { ShareAssignmentDialog } from '@/components/student/ShareAssignmentDialog'
 import { DeadlineNote } from '@/components/student/DeadlineNote'
@@ -26,6 +27,10 @@ export interface TimelineItem {
   closed_reason?: string | null
   /** Последняя попытка сдана после ends_at. null — срока не было. */
   submitted_late?: boolean | null
+  /** Последняя попытка — дополнительная, сверх исходного лимита (112) */
+  is_extra_attempt?: boolean
+  /** Сколько попыток учитель добавил сверх исходного лимита */
+  extra_attempts?: number
 }
 export interface TimelineTopic {
   id: string
@@ -59,8 +64,10 @@ function ItemStatus({ it }: { it: TimelineItem }) {
 }
 
 function LateNote({ it }: { it: TimelineItem }) {
-  if (!it.submitted_late) return null
   if (it.status !== 'submitted' && it.status !== 'checked') return null
+  // доп. попытку, добавленную учителем, не называем опозданием (112)
+  if (it.is_extra_attempt) return <span className="text-[11px] text-sky-700 dark:text-sky-400">решено в доп. попытку</span>
+  if (!it.submitted_late) return null
   return <span className="text-[11px] text-muted-foreground">сдано с опозданием</span>
 }
 
@@ -78,7 +85,9 @@ function ItemAction({ it }: { it: TimelineItem }) {
   const isDone = it.status === 'submitted' || it.status === 'checked'
   const attemptsLeft = it.max_attempts - it.attempts_used
   const canStart = !it.closed_reason && attemptsLeft > 0 && !['in_progress', 'submitted'].includes(it.status)
-  const nextAttemptLabel = `${it.attempts_used + 1}-я попытка`
+  const nextAttemptLabel = !it.closed_reason && nextAttemptIsExtra(it)
+    ? 'Доп. попытка'
+    : `${it.attempts_used + 1}-я попытка`
   // h-8/h-9 (32/36px), не h-7 (28px): рекомендованный минимум тач-цели —
   // 44px, к нему не дотягиваем и на увеличенном размере, но это уже
   // значимо ближе, чем было, при разумном визуальном весе внутри плотного
@@ -134,7 +143,7 @@ function AttemptsInfo({ it }: { it: TimelineItem }) {
           Попыток использовано: {it.attempts_used}/{it.max_attempts}
         </p>
       )}
-      {!isDone && <DeadlineNote createdAt={it.created_at} endsAt={it.ends_at} />}
+      {!isDone && <DeadlineNote createdAt={it.created_at} endsAt={it.ends_at} extraOpen={!it.closed_reason && nextAttemptIsExtra(it)} />}
     </>
   )
 }

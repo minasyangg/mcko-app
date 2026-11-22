@@ -144,11 +144,18 @@ export async function reopenAssignment(
 ): Promise<{ reopenedStudents: number }> {
   const { assignmentId, studentId } = opts
 
+  // Ученику учитель может открыть и задание, которое тот сам убрал в архив
+  // (113), — архив при этом снимается. «Открыть для всех» архивы учеников не
+  // трогает: их строки вернутся к closed_reason = archived при пересчёте.
+  // unarchived_at — чтобы автоархив прошлого года (115) не убрал его снова.
   let clearQuery = admin
     .from('student_final_results')
-    .update({ closed_reason: null, closed_at: null, closed_by: null, status: 'in_progress' })
+    .update({
+      closed_reason: null, closed_at: null, closed_by: null, status: 'in_progress',
+      ...(studentId ? { archived_at: null, unarchived_at: new Date().toISOString() } : {}),
+    })
     .eq('assignment_id', assignmentId)
-    .eq('closed_reason', 'forced')
+    .in('closed_reason', studentId ? ['forced', 'archived'] : ['forced'])
   if (studentId) clearQuery = clearQuery.eq('student_id', studentId)
   const { data: cleared } = await clearQuery.select('student_id')
 
