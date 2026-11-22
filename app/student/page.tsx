@@ -3,6 +3,7 @@ import { StudentHome, type AssignmentCardData, type RoadmapGroup } from '@/compo
 import type { TimelineTopic } from '@/components/student/RoadmapTimeline'
 import { getAuthUser } from '@/lib/supabase/auth-user'
 import { openedAt } from '@/lib/assignments/opening'
+import { canArchive } from '@/lib/assignments/archive'
 
 export const metadata = { title: 'Мои задания' }
 
@@ -185,7 +186,7 @@ export default async function StudentHomePage({ searchParams }: { searchParams: 
           .order('created_at', { ascending: false }),
         supabase
           .from('student_final_results')
-          .select('assignment_id, final_score, max_score, attempt_count, closed_reason')
+          .select('assignment_id, final_score, max_score, attempt_count, closed_reason, archived_at')
           .in('assignment_id', allAssignmentIds)
           .eq('student_id', user.id),
       ])
@@ -202,11 +203,15 @@ export default async function StudentHomePage({ searchParams }: { searchParams: 
     }
   }
 
-  type FinalRow = { assignment_id: string | null; final_score: number | null; max_score: number | null; attempt_count: number | null; closed_reason: string | null }
+  type FinalRow = { assignment_id: string | null; final_score: number | null; max_score: number | null; attempt_count: number | null; closed_reason: string | null; archived_at: string | null }
   const finalMap = new Map<string, FinalRow>()
   for (const f of (finals ?? []) as FinalRow[]) {
     if (f.assignment_id) finalMap.set(f.assignment_id, f)
   }
+
+  // Порог архива (113) считаем здесь, а не в браузере: одно «сейчас» на всю
+  // страницу и без расхождения гидратации
+  const now = new Date()
 
   // ── Собираем единые карточки для табов «Всё» / «Тесты» / «ДЗ» ──
   const cards: AssignmentCardData[] = []
@@ -244,6 +249,8 @@ export default async function StudentHomePage({ searchParams }: { searchParams: 
       submitted_late: attempt?.submitted_late ?? null,
       is_extra_attempt: attempt?.is_extra_attempt ?? false,
       extra_attempts: a.extra_attempts ?? 0,
+      archived: fin?.archived_at != null,
+      can_archive: fin?.archived_at == null && canArchive(a, now),
     })
   }
 
@@ -277,6 +284,8 @@ export default async function StudentHomePage({ searchParams }: { searchParams: 
       submitted_late: attempt?.submitted_late ?? null,
       is_extra_attempt: attempt?.is_extra_attempt ?? false,
       extra_attempts: a.extra_attempts ?? 0,
+      archived: fin?.archived_at != null,
+      can_archive: fin?.archived_at == null && canArchive(a, now),
     })
   }
 
@@ -336,7 +345,7 @@ export default async function StudentHomePage({ searchParams }: { searchParams: 
     }),
   }))
 
-  const initialTab = tab === 'test' || tab === 'homework' || tab === 'roadmap' ? tab : 'all'
+  const initialTab = tab === 'test' || tab === 'homework' || tab === 'roadmap' || tab === 'archive' ? tab : 'all'
 
   return <StudentHome assignments={cards} roadmaps={roadmapGroups} initialTab={initialTab} />
 }

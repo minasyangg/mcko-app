@@ -16,7 +16,8 @@ interface Props {
   /** Закрыть только для одного ученика; без него — всё назначение */
   studentId?: string
   /**
-   * Текущее состояние закрытия: 'forced' — можно открыть заново, остальные
+   * Текущее состояние закрытия: 'forced' (и 'archived' у одного ученика) —
+   * можно открыть заново, остальные
    * причины (max_score / attempts_exhausted) закрывают назначение сами по себе
    * и кнопкой не управляются, null — открыто.
    */
@@ -75,12 +76,16 @@ export function CloseAssignmentButton({
 
   const btnClass = size === 'row' ? 'h-8 px-2 text-xs' : 'px-2'
 
-  if (closedReason === 'forced') {
+  // archived — ученик сам убрал задание в архив (113); открыть можно только
+  // по ученику, у всего назначения такой причины не бывает
+  if (closedReason === 'forced' || (closedReason === 'archived' && studentId)) {
     return (
       <Button
         variant="ghost" size="sm" className={btnClass} disabled={loading}
         onClick={handleReopen}
-        title="Снять принудительное завершение (потраченные попытки не возвращаются)"
+        title={closedReason === 'archived'
+          ? 'Ученик убрал задание в архив — вернуть его ученику (потраченные попытки не возвращаются)'
+          : 'Снять принудительное завершение (потраченные попытки не возвращаются)'}
       >
         {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />}
         <span className="ml-1">Открыть</span>

@@ -13,6 +13,7 @@ import { cardKind, CARD_KIND_CLASS } from '@/lib/assignments/card-style'
 import { RoadmapTimeline, type TimelineTopic } from '@/components/student/RoadmapTimeline'
 import { ShareAssignmentDialog } from '@/components/student/ShareAssignmentDialog'
 import { DeadlineNote } from '@/components/student/DeadlineNote'
+import { ArchiveAssignmentButton } from '@/components/student/ArchiveAssignmentButton'
 
 export type AssignmentStatus = 'not_started' | 'in_progress' | 'submitted' | 'checked'
 
@@ -39,6 +40,10 @@ export interface AssignmentCardData {
   is_extra_attempt?: boolean
   /** Сколько попыток учитель добавил сверх исходного лимита */
   extra_attempts?: number
+  /** Ученик убрал задание в архив (113) */
+  archived?: boolean
+  /** Задание выдано больше полугода назад — можно убрать в архив */
+  can_archive?: boolean
 }
 
 export interface RoadmapGroup {
@@ -143,11 +148,14 @@ function AssignmentCard({ a }: { a: AssignmentCardData }) {
             <Button asChild size="sm" className="w-full">
               <Link href={`/student/attempt/${a.assignment_id}`}>Начать {a.kind === 'homework' ? 'ДЗ' : 'тест'}</Link>
             </Button>
-          ) : !isDone && !canStart ? (
+          ) : !isDone && !canStart && !a.archived ? (
             <p className="text-xs text-muted-foreground text-center">
               {isClosed ? 'Завершено' : 'Попытки исчерпаны'}
             </p>
           ) : null}
+          {(a.archived || a.can_archive) && (
+            <ArchiveAssignmentButton assignmentId={a.assignment_id} title={a.test_title} archived={!!a.archived} />
+          )}
         </div>
       </CardContent>
     </Card>
@@ -163,13 +171,14 @@ function EmptyState({ text }: { text: string }) {
   )
 }
 
-type Tab = 'all' | 'test' | 'homework' | 'roadmap'
+export type Tab = 'all' | 'test' | 'homework' | 'roadmap' | 'archive'
 
 const TABS: { key: Tab; label: string }[] = [
   { key: 'all', label: 'Всё' },
   { key: 'test', label: 'Тесты' },
   { key: 'homework', label: 'ДЗ' },
   { key: 'roadmap', label: 'Программа' },
+  { key: 'archive', label: 'Архив' },
 ]
 
 // Три стадии одной и той же работы, а не «Сделано» + «Результаты» отдельно:
@@ -208,8 +217,16 @@ export function StudentHome({
 }) {
   const [tab, setTab] = useState<Tab>(initialTab ?? 'all')
 
-  const filtered = tab === 'all' ? assignments : tab === 'roadmap' ? [] : assignments.filter(a => a.kind === tab)
+  // Архивные (113) — только во вкладке «Архив»; сама вкладка появляется,
+  // когда в архиве что-то есть. «Программа» архив не учитывает: там темы
+  // программы целиком, а не список дел.
+  const active = assignments.filter(a => !a.archived)
+  const archived = assignments.filter(a => a.archived)
+  const filtered = tab === 'all' ? active
+    : tab === 'roadmap' || tab === 'archive' ? []
+    : active.filter(a => a.kind === tab)
   const hasRoadmaps = roadmaps.length > 0
+  const tabs = TABS.filter(t => t.key !== 'archive' || archived.length > 0 || tab === 'archive')
 
   return (
     <div className="space-y-6">
@@ -227,7 +244,7 @@ export function StudentHome({
           прокрутки, даже когда контент физически помещался и скроллить
           было нечего. sm:overflow-visible явно гасит это на десктопе. */}
       <div className="flex gap-1 border-b overflow-x-auto sm:overflow-visible -mx-4 px-4 sm:mx-0 sm:px-0">
-        {TABS.map(t => (
+        {tabs.map(t => (
           <button
             key={t.key}
             onClick={() => setTab(t.key)}
@@ -239,11 +256,27 @@ export function StudentHome({
             }
           >
             {t.label}
+            {t.key === 'archive' && archived.length > 0 && (
+              <span className="ml-1.5 text-xs text-muted-foreground tabular-nums">{archived.length}</span>
+            )}
           </button>
         ))}
       </div>
 
-      {tab === 'roadmap' ? (
+      {tab === 'archive' ? (
+        archived.length === 0 ? (
+          <EmptyState text="В архиве пусто." />
+        ) : (
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Старые задания, которые вы убрали из списка. Результаты по ним сохранены у учителя.
+            </p>
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {archived.map(a => <AssignmentCard key={a.assignment_id} a={a} />)}
+            </div>
+          </div>
+        )
+      ) : tab === 'roadmap' ? (
         !hasRoadmaps ? (
           <EmptyState text="Вам пока не назначена ни одна программа." />
         ) : (

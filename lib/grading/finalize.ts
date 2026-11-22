@@ -303,7 +303,12 @@ export async function updateCumulativeResult(
   admin: AdminClient,
   assignmentId: string,
   studentId: string,
-  opts?: { preserveAttemptCount?: boolean; forceCloseBy?: string }
+  opts?: {
+    preserveAttemptCount?: boolean
+    forceCloseBy?: string
+    /** true — ученик убирает в архив, false — возвращает; без поля метка не меняется (113) */
+    archive?: boolean
+  }
 ): Promise<{
   finalScore: number
   maxScore: number
@@ -330,7 +335,7 @@ export async function updateCumulativeResult(
       .select('max_score')
       .eq('test_version_id', assignment.test_version_id),
     admin.from('student_final_results')
-      .select('attempt_count, closed_at, closed_by, closed_reason')
+      .select('attempt_count, closed_at, closed_by, closed_reason, archived_at')
       .eq('student_id', studentId)
       .eq('assignment_id', assignmentId)
       .maybeSingle(),
@@ -373,10 +378,17 @@ export async function updateCumulativeResult(
   const forced = opts?.forceCloseBy != null || existing?.closed_reason === 'forced'
   const perfect = maxScore > 0 && finalScore >= maxScore
   const allUsed = attemptCount >= (assignment.max_attempts ?? 1)
-  const closedReason: ClosedReason =
-    forced ? 'forced' : perfect ? 'max_score' : allUsed ? 'attempts_exhausted' : null
 
   const now = new Date().toISOString()
+
+  // Архив ученика (113) — тоже «липкий», но последний по приоритету: он
+  // закрывает назначение, только если ничто другое его уже не закрыло, —
+  // настоящая причина («попытки исчерпаны», полный балл) информативнее.
+  const archivedAt = opts?.archive === true ? (existing?.archived_at ?? now)
+    : opts?.archive === false ? null
+    : existing?.archived_at ?? null
+  const closedReason: ClosedReason =
+    forced ? 'forced' : perfect ? 'max_score' : allUsed ? 'attempts_exhausted' : archivedAt ? 'archived' : null
 
   await admin.from('student_final_results').upsert({
     student_id: studentId,
@@ -392,6 +404,7 @@ export async function updateCumulativeResult(
     // сдвигала бы дату «тест завершён»
     closed_at: closedReason ? (existing?.closed_at ?? now) : null,
     closed_by: closedReason === 'forced' ? (opts?.forceCloseBy ?? existing?.closed_by ?? null) : null,
+    archived_at: archivedAt,
     updated_at: now,
   }, { onConflict: 'student_id,assignment_id' })
 
