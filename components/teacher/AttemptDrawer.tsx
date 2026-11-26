@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Skeleton } from '@/components/ui/skeleton'
-import { CheckCircle2, XCircle, MinusCircle, Loader2, ZoomIn, X, Lock, ChevronDown, ChevronUp, Pencil, Check, Maximize2, FileDown } from 'lucide-react'
+import { CheckCircle2, XCircle, MinusCircle, Loader2, ZoomIn, X, Lock, ChevronDown, ChevronUp, Pencil, Check, Maximize2, FileDown, ShieldAlert } from 'lucide-react'
 import { toast } from 'sonner'
 import { MathText } from '@/components/shared/MathText'
 import MarkdownContent from '@/components/shared/MarkdownContent'
@@ -20,6 +20,7 @@ import { ImageGallery } from '@/components/shared/ImageGallery'
 import { useStorageUrl } from '@/components/shared/StorageUrlProvider'
 import type { Json } from '@/types/database'
 import { loadAttemptReview, type AttemptReviewData } from '@/lib/attempts/review-data'
+import { assessTask, formatDuration, median, summarizeAttempt, type AttemptIntegritySummary, type IntegrityFlag } from '@/lib/attempts/integrity'
 
 interface AttemptDetail {
   id: string
@@ -274,6 +275,9 @@ export function AttemptDrawer({ attemptId, onClose, onGraded, readOnly = false }
   const [savingAnswer, setSavingAnswer] = useState(false)
   const [answerSaveError, setAnswerSaveError] = useState<string | null>(null)
   const [changedTaskIds, setChangedTaskIds] = useState<Set<string>>(new Set())
+  // Признаки списывания (118) — только учителю, ученик их не видит
+  const [integrityByTask, setIntegrityByTask] = useState<Record<string, IntegrityFlag>>({})
+  const [integritySummary, setIntegritySummary] = useState<AttemptIntegritySummary | null>(null)
   const [expandedTaskIds, setExpandedTaskIds] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(false)
   const [grades, setGrades] = useState<Record<string, GradeState>>({})
@@ -291,7 +295,7 @@ export function AttemptDrawer({ attemptId, onClose, onGraded, readOnly = false }
     setAnswerEditInput('')
     setAnswerSaveError(null)
     setFullscreenAnswerId(null)
-    if (!attemptId) { setAttempt(null); setAnswers([]); setMediaByTask({}); setSolutionPhotosByTask({}); setSheetPhotos([]); setGrades({}); setCorrectAnswerMap({}); setAnswerKeyMap({}); setChangedTaskIds(new Set()); return }
+    if (!attemptId) { setAttempt(null); setAnswers([]); setMediaByTask({}); setSolutionPhotosByTask({}); setSheetPhotos([]); setGrades({}); setCorrectAnswerMap({}); setAnswerKeyMap({}); setChangedTaskIds(new Set()); setIntegrityByTask({}); setIntegritySummary(null); return }
     let cancelled = false
     setLoading(true); setSaveError(null)
 
@@ -347,6 +351,29 @@ export function AttemptDrawer({ attemptId, onClose, onGraded, readOnly = false }
           setCorrectAnswerMap(m)
           setAnswerKeyMap(km)
         }
+
+        // Медианы класса — по другим сданным попыткам этого назначения
+        const classByTask = new Map<string, number[]>()
+        const classTotals = new Map<string, number>()
+        for (const r of data.classSignals ?? []) {
+          if (r.attempt_id === attemptId) continue
+          const arr = classByTask.get(r.task_id) ?? []
+          arr.push(r.active_ms)
+          classByTask.set(r.task_id, arr)
+          classTotals.set(r.attempt_id, (classTotals.get(r.attempt_id) ?? 0) + r.active_ms)
+        }
+        const signalsByTask = new Map((data.signals ?? []).map((s) => [s.task_id, s]))
+        const flags: Record<string, IntegrityFlag> = {}
+        for (const ans of sorted) {
+          if (!ans.task_id) continue
+          const flag = assessTask(signalsByTask.get(ans.task_id), {
+            correct: ans.is_correct,
+            classMedianMs: median(classByTask.get(ans.task_id) ?? []),
+          })
+          if (flag) flags[ans.task_id] = flag
+        }
+        setIntegrityByTask(flags)
+        setIntegritySummary(summarizeAttempt(data.signals ?? [], [...classTotals.values()]))
 
         if (data.prevAnswers) {
           const prevMap = new Map(data.prevAnswers.map((p) => [p.task_id, JSON.stringify(p.answer_json)]))
@@ -643,6 +670,39 @@ export function AttemptDrawer({ attemptId, onClose, onGraded, readOnly = false }
               <div><span className="text-muted-foreground">Задание:</span> {attempt.current_task_number ?? '—'}</div>
             </div>
 
+            {integritySummary && (() => {
+              const flagged = answers.filter((a) => a.task_id && integrityByTask[a.task_id])
+              const likely = flagged.filter((a) => integrityByTask[a.task_id!].level === 'likely')
+              return (
+                <div className={cn(
+                  'rounded-md border px-3 py-2 text-xs space-y-0.5',
+                  likely.length > 0 ? 'border-red-200 bg-red-50/40 dark:border-red-900 dark:bg-red-950/30' : 'bg-muted/30',
+                )}>
+                  <div>
+                    <span className="text-muted-foreground">Активное время:</span> {formatDuration(integritySummary.activeMs)}
+                    {integritySummary.classMedianMs !== null && (
+                      <span className="text-muted-foreground"> (медиана класса {formatDuration(integritySummary.classMedianMs)})</span>
+                    )}
+                    {' · '}<span className="text-muted-foreground">вставок:</span> {integritySummary.pasteCount}
+                    {' · '}<span className="text-muted-foreground">уходов со вкладки:</span> {integritySummary.awayCount}
+                    {integritySummary.awayCount > 0 && ` (${formatDuration(integritySummary.awayMs)})`}
+                  </div>
+                  {flagged.length > 0 && (
+                    <div className="flex items-center gap-1 font-medium text-red-700 dark:text-red-400">
+                      <ShieldAlert className="h-3.5 w-3.5 shrink-0" />
+                      {likely.length > 0 && <>Вероятно списано: {likely.map((a) => `№${a.test_tasks?.task_number ?? '?'}`).join(', ')}</>}
+                      {likely.length > 0 && flagged.length > likely.length && ' · '}
+                      {flagged.length > likely.length && (
+                        <span className="text-amber-700 dark:text-amber-400">
+                          подозрительно: {flagged.filter((a) => !likely.includes(a)).map((a) => `№${a.test_tasks?.task_number ?? '?'}`).join(', ')}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )
+            })()}
+
             {/* Бланк ответов по PDF: фото решения на всю работу, не к заданию */}
             {sheetPhotos.some((m) => m.signedUrl) && (
               <div className="space-y-1.5">
@@ -671,6 +731,7 @@ export function AttemptDrawer({ attemptId, onClose, onGraded, readOnly = false }
                                    ans.test_tasks?.task_type === 'short_text'
                   const g = grades[ans.id]
                   const taskMedia = (mediaByTask[ans.task_id ?? ''] ?? [])
+                  const integrity = integrityByTask[ans.task_id ?? '']
 
                   return (
                     <LazyAnswerCard key={ans.id} eager={idx < 4}>
@@ -697,6 +758,17 @@ export function AttemptDrawer({ attemptId, onClose, onGraded, readOnly = false }
                               <Lock className="h-2.5 w-2.5" />Засчитано
                             </span>
                           )}
+                          {integrity && (
+                            <span className={cn(
+                              'flex items-center gap-0.5 text-[10px] rounded px-1.5 py-0.5',
+                              integrity.level === 'likely'
+                                ? 'text-red-700 bg-red-100 dark:bg-red-900/40 dark:text-red-400'
+                                : 'text-amber-800 bg-amber-100 dark:bg-amber-900/40 dark:text-amber-300',
+                            )}>
+                              <ShieldAlert className="h-2.5 w-2.5" />
+                              {integrity.level === 'likely' ? 'Вероятно списано' : 'Подозрительно'}
+                            </span>
+                          )}
                         </div>
                         <div className="flex items-center gap-2 shrink-0">
                           <button
@@ -716,6 +788,15 @@ export function AttemptDrawer({ attemptId, onClose, onGraded, readOnly = false }
                           </span>
                         </div>
                       </div>
+
+                      {integrity && (
+                        <p className={cn(
+                          'text-[11px]',
+                          integrity.level === 'likely' ? 'text-red-700 dark:text-red-400' : 'text-amber-800 dark:text-amber-300',
+                        )}>
+                          {integrity.reasons.join('; ')}
+                        </p>
+                      )}
 
                       {/* Task text with expand toggle */}
                       {(() => {

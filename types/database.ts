@@ -410,6 +410,63 @@ export type Database = {
           },
         ]
       }
+      attempt_task_signals: {
+        Row: {
+          active_ms: number
+          attempt_id: string
+          away_count: number
+          away_ms: number
+          away_paste_count: number
+          blind_paste_count: number
+          paste_count: number
+          pasted_chars: number
+          task_id: string
+          typed_inputs: number
+          updated_at: string
+        }
+        Insert: {
+          active_ms?: number
+          attempt_id: string
+          away_count?: number
+          away_ms?: number
+          away_paste_count?: number
+          blind_paste_count?: number
+          paste_count?: number
+          pasted_chars?: number
+          task_id: string
+          typed_inputs?: number
+          updated_at?: string
+        }
+        Update: {
+          active_ms?: number
+          attempt_id?: string
+          away_count?: number
+          away_ms?: number
+          away_paste_count?: number
+          blind_paste_count?: number
+          paste_count?: number
+          pasted_chars?: number
+          task_id?: string
+          typed_inputs?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "attempt_task_signals_attempt_id_fkey"
+            columns: ["attempt_id"]
+            isOneToOne: false
+            referencedRelation: "attempts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attempt_task_signals_task_id_fkey"
+            columns: ["task_id"]
+            isOneToOne: false
+            referencedRelation: "test_tasks"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       attempts: {
         Row: {
           assignment_id: string
@@ -3708,6 +3765,10 @@ export type Database = {
       }
     }
     Functions: {
+      add_attempt_task_signals: {
+        Args: { p_attempt_id: string; p_rows: Json; p_student_id: string }
+        Returns: number
+      }
       app_setting_int: {
         Args: { p_default: number; p_key: string }
         Returns: number

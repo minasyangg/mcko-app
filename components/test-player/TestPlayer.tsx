@@ -20,6 +20,7 @@ import { SubmitDialog } from './SubmitDialog'
 import type { TheoryBlock } from '@/lib/theory/types'
 import { TheoryCard } from '@/components/theory/TheoryCard'
 import { TheorySheetButton } from '@/components/theory/TheorySheetButton'
+import { useIntegritySignals } from './useIntegritySignals'
 
 interface TestPlayerProps {
   assignmentId: string
@@ -91,6 +92,9 @@ export function TestPlayer({
   const [savedTaskIds, setSavedTaskIds] = useState<Set<string>>(
     () => new Set(Object.keys(initialAnswers))
   )
+
+  // Признаки списывания (118) — копятся молча, ученику не показываются
+  const { flushSignals } = useIntegritySignals(attemptId, tasks[currentIdx]?.id ?? null)
 
   // Track pending (unsaved) answer per task
   const pendingRef = useRef<Record<string, Json>>({})
@@ -227,6 +231,8 @@ export function TestPlayer({
       debounceTimerRef.current = null
     }
     await flushPending()
+    // после сдачи попытка не in_progress — сигналы дописать уже нельзя
+    await flushSignals()
 
     try {
       const res = await fetch(`/api/attempts/${attemptId}/submit`, {
@@ -259,6 +265,8 @@ export function TestPlayer({
     } catch {
       // не блокируем выход из-за неудачного сохранения — статус уже показан
     }
+    // переход внутри приложения pagehide не вызывает — досылаем сами
+    flushSignals(true)
     router.push(backHref)
   }
 
