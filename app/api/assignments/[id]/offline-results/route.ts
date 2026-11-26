@@ -37,6 +37,8 @@ type Ctx = {
     created_at: string | null
     starts_at: string | null
     title: string
+    /** отсутствовавшие могут написать на сайте (у работы «только баллы», 117, — нечего) */
+    makeup: boolean
   }
   tasks: { id: string; task_number: number; max_score: number }[]
   roster: { id: string; full_name: string }[]
@@ -45,7 +47,7 @@ type Ctx = {
 async function loadContext(admin: AdminClient, assignmentId: string): Promise<Ctx | null> {
   const { data: a } = await admin
     .from('assignments')
-    .select('id, mode, conducted_on, ends_at, group_id, test_version_id, created_at, starts_at, test_versions!test_version_id(tests!test_id(title))')
+    .select('id, mode, conducted_on, ends_at, group_id, test_version_id, created_at, starts_at, test_versions!test_version_id(tests!test_id(title, scores_only))')
     .eq('id', assignmentId)
     .single()
   if (!a) return null
@@ -85,6 +87,7 @@ async function loadContext(admin: AdminClient, assignmentId: string): Promise<Ct
       created_at: a.created_at,
       starts_at: a.starts_at,
       title: (a.test_versions as { tests?: { title?: string } } | null)?.tests?.title ?? 'Тест',
+      makeup: !(a.test_versions as { tests?: { scores_only?: boolean } } | null)?.tests?.scores_only,
     },
     tasks: (tasks ?? []).map(t => ({ id: t.id, task_number: t.task_number, max_score: Number(t.max_score ?? 1) })),
     roster,
@@ -154,6 +157,7 @@ export async function GET(
       title: ctx.assignment.title,
       conducted_on: ctx.assignment.conducted_on,
       ends_at: ctx.assignment.ends_at,
+      makeup: ctx.assignment.makeup,
     },
     tasks: ctx.tasks,
     students: ctx.roster.map(s => {
@@ -350,8 +354,9 @@ export async function PUT(
   }
 
   // Отмеченным «н» — обычное «назначен тест» с пояснением: без него ученик
-  // не узнает, что пропущенную работу надо написать на сайте
-  if (newlyAbsent.length > 0) {
+  // не узнает, что пропущенную работу надо написать на сайте. У работы
+  // «только баллы» писать на сайте нечего — «н» остаётся просто отметкой
+  if (newlyAbsent.length > 0 && ctx.assignment.makeup) {
     after(() => notifyAssignmentCreated(assignmentId, { studentIds: newlyAbsent, conductedOn }))
   }
 

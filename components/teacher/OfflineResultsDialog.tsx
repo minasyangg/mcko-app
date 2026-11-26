@@ -21,7 +21,7 @@ interface StudentRow {
   online: { status: string; score: number | null; max_score: number | null; submitted_at: string | null } | null
 }
 interface Data {
-  assignment: { id: string; title: string; conducted_on: string | null; ends_at: string | null }
+  assignment: { id: string; title: string; conducted_on: string | null; ends_at: string | null; makeup: boolean }
   tasks: Task[]
   students: StudentRow[]
 }
@@ -47,7 +47,7 @@ const ONLINE_STATUS: Record<string, string> = {
 // Таблица результатов очной работы (миграция 116): ученики программы ×
 // задания теста. Баллы пишутся обычной попыткой ученика — см.
 // app/api/assignments/[id]/offline-results. «Не был» открывает ученику тест
-// на сайте; кто уже писал онлайн — показан результатом, без правки.
+// на сайте (кроме работы «только баллы», 117 — там это просто «н»); кто уже писал онлайн — показан результатом, без правки.
 export function OfflineResultsDialog({
   assignmentId, onClose,
 }: {
@@ -213,7 +213,10 @@ export function OfflineResultsDialog({
           <DialogTitle>Результаты очной работы{data ? ` «${data.assignment.title}»` : ''}</DialogTitle>
           <DialogDescription>
             Баллы попадут в статистику и прогресс программы так же, как онлайн-тест.
-            Пустая строка — результат не внесён. «Не был» — ученику откроется тест на сайте.
+            Пустая строка — результат не внесён.{' '}
+            {data && !data.assignment.makeup
+              ? '«Не был» — отметка «н», работы на сайте у неё нет.'
+              : '«Не был» — ученику откроется тест на сайте.'}
           </DialogDescription>
         </DialogHeader>
 

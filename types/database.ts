@@ -3520,6 +3520,7 @@ export type Database = {
           kind: string
           organization_id: string
           scoring_rule_id: string | null
+          scores_only: boolean
           status: string
           subject: string | null
           title: string
@@ -3539,6 +3540,7 @@ export type Database = {
           kind?: string
           organization_id: string
           scoring_rule_id?: string | null
+          scores_only?: boolean
           status?: string
           subject?: string | null
           title: string
@@ -3558,6 +3560,7 @@ export type Database = {
           kind?: string
           organization_id?: string
           scoring_rule_id?: string | null
+          scores_only?: boolean
           status?: string
           subject?: string | null
           title?: string

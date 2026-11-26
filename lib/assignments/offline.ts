@@ -33,14 +33,25 @@ export function formatConductedOn(conductedOn: string | null | undefined): strin
 /** Сведения об очной работе для карточки ученика */
 export interface OfflineInfo {
   conducted_on: string | null
-  /** Ученик отмечен «н» — ему открыт тест онлайн */
+  /** Ученик отмечен «н» */
   absent: boolean
+  /**
+   * Отсутствовавшему открыт тест онлайн. Нет у работы «только баллы» (117):
+   * писать на сайте нечего, «н» — просто отметка.
+   */
+  makeup: boolean
 }
 
 /**
- * Очная работа, по которой у ученика ещё нет результата и он не отмечен
- * отсутствующим: писал на бумаге, баллы внесёт учитель. Начать онлайн нельзя.
+ * Очная работа, которую ученик не может начать онлайн и по которой у него ещё
+ * нет результата: писал на бумаге (баллы внесёт учитель) или отсутствовал на
+ * работе «только баллы».
  */
 export function offlineAwaitingResult(it: { offline?: OfflineInfo | null; status: string }): boolean {
-  return !!it.offline && !it.offline.absent && it.status === 'not_started'
+  return !!it.offline && !(it.offline.absent && it.offline.makeup) && it.status === 'not_started'
+}
+
+/** Подпись статуса такой работы: «Ждёт результата» или «Пропущено» */
+export function offlineAwaitingLabel(offline: OfflineInfo): string {
+  return offline.absent ? 'Пропущено' : 'Ждёт результата'
 }

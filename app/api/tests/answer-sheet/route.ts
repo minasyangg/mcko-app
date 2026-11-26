@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getAuthUser } from '@/lib/supabase/auth-user'
-import { publishTestVersion } from '@/lib/tests/publish'
+import { createSimpleTest } from '@/lib/tests/simple-test'
 import { zUuid } from '@/lib/uuid'
 
 // Работа по PDF — бланк ответов (tests.answer_sheet, миграция 116).
@@ -11,9 +11,10 @@ import { zUuid } from '@/lib/uuid'
 // Файлы PDF браузер учителя заранее кладёт в test-documents сам (как
 // ImportFlow: тело запроса к функции Vercel ограничено ~4.5 МБ, а вариант
 // работы бывает больше) под префикс ANSWER_SHEET_PREFIX, а сюда передаёт
-// только пути. Роут создаёт тест сразу опубликованным: задания «Задание N»
-// без условия (условие — в PDF), необязательный ключ ответов — задания с
-// ключом проверяются автоматически, без ключа уходят учителю.
+// только пути. Роут создаёт тест сразу опубликованным (createSimpleTest):
+// задания «Задание N» без условия (условие — в PDF), необязательный ключ
+// ответов — задания с ключом проверяются автоматически, без ключа уходят
+// учителю.
 
 const ANSWER_SHEET_PREFIX = 'answer-sheets/'
 const BUCKET = 'test-documents'
@@ -67,70 +68,23 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  const { data: test, error: testError } = await admin.from('tests').insert({
-    organization_id: profile.organization_id,
-    created_by: user.id,
+  const created = await createSimpleTest(admin, {
+    orgId: profile.organization_id,
+    userId: user.id,
     title: body.title,
-    subject: body.subject || null,
+    subject: body.subject,
     kind: body.kind,
-    status: 'draft',
-    answer_sheet: true,
-    scoring_rule_id: body.scoring_rule_id ?? null,
-  }).select('id').single()
-  if (testError || !test) {
-    return NextResponse.json({ error: testError?.message ?? 'Не удалось создать работу' }, { status: 500 })
+    scoringRuleId: body.scoring_rule_id,
+    tasks: body.tasks,
+    answerSheet: true,
+    files: body.files,
+  })
+  if (!created.ok) {
+    // недосозданный тест остаётся черновиком — его видно в списке тестов,
+    // учитель удалит или исправит
+    const suffix = created.testId ? '. Работа сохранена черновиком в «Тестах».' : ''
+    return NextResponse.json({ error: created.error + suffix }, { status: 500 })
   }
 
-  // Дальше при ошибке тест остаётся черновиком — его видно в списке тестов,
-  // учитель удалит или исправит; опубликованным он становится только в конце
-  const fail = (message: string) =>
-    NextResponse.json({ error: `${message}. Работа сохранена черновиком в «Тестах».` }, { status: 500 })
-
-  const { data: version, error: versionError } = await admin.from('test_versions').insert({
-    test_id: test.id,
-    version_number: 1,
-    status: 'draft',
-  }).select('id').single()
-  if (versionError || !version) return fail(versionError?.message ?? 'Не удалось создать версию')
-
-  const { data: tasks, error: tasksError } = await admin.from('test_tasks').insert(
-    body.tasks.map((t, i) => ({
-      test_version_id: version.id,
-      task_number: i + 1,
-      sort_order: i + 1,
-      prompt_text: `Задание ${i + 1}`,
-      task_type: 'short_text',
-      grading_method: t.answer ? 'normalized' : 'manual',
-      max_score: t.max_score,
-      review_status: 'approved',
-    }))
-  ).select('id, task_number')
-  if (tasksError || !tasks) return fail(tasksError?.message ?? 'Не удалось создать задания')
-
-  const idByNumber = new Map(tasks.map(t => [t.task_number, t.id]))
-  const keys = body.tasks
-    .map((t, i) => ({ task_id: idByNumber.get(i + 1)!, answer: t.answer }))
-    .filter((k): k is { task_id: string; answer: string } => !!k.answer)
-  if (keys.length > 0) {
-    const { error: keysError } = await admin.from('task_answer_keys').insert(
-      keys.map(k => ({ task_id: k.task_id, correct_answer: k.answer, grading_method: 'normalized' }))
-    )
-    if (keysError) return fail(keysError.message)
-  }
-
-  const { error: docsError } = await admin.from('test_documents').insert(
-    body.files.map(f => ({
-      test_version_id: version.id,
-      doc_type: 'variant',
-      original_filename: f.name,
-      storage_path: f.path,
-      parse_status: 'done',
-    }))
-  )
-  if (docsError) return fail(docsError.message)
-
-  const published = await publishTestVersion(admin, version.id, user.id)
-  if (!published.ok) return fail(published.error)
-
-  return NextResponse.json({ test_id: test.id, title: body.title }, { status: 201 })
+  return NextResponse.json({ test_id: created.testId, title: body.title }, { status: 201 })
 }

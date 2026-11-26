@@ -166,7 +166,7 @@ export default async function StudentHomePage({ searchParams }: { searchParams: 
     // ни здесь, ни в общем списке (тот исключает их фильтром roadmap_topic_id
     // is null) — кнопка технически открывала доступ, но кабинет его не видел.
     supabase.from('assignments')
-      .select('id, roadmap_topic_id, kind, mode, conducted_on, max_attempts, extra_attempts, starts_at, ends_at, closed_at, created_at, group_id, test_versions!test_version_id(tests!test_id(title, subject, exam_type, is_active))')
+      .select('id, roadmap_topic_id, kind, mode, conducted_on, max_attempts, extra_attempts, starts_at, ends_at, closed_at, created_at, group_id, test_versions!test_version_id(tests!test_id(title, subject, exam_type, is_active, scores_only))')
       .or(groupIds.length > 0
         ? `student_id.eq.${user.id},group_id.in.(${groupIds.join(',')})`
         : `student_id.eq.${user.id}`)
@@ -220,8 +220,14 @@ export default async function StudentHomePage({ searchParams }: { searchParams: 
     : [{ data: [] }, { data: [] }, { data: [] }]
 
   const absentIn = new Set((absences ?? []).map(a => a.assignment_id))
-  const offlineInfo = (a: { id: string; mode: string; conducted_on: string | null }): OfflineInfo | null =>
-    a.mode === 'offline' ? { conducted_on: a.conducted_on, absent: absentIn.has(a.id) } : null
+  const offlineInfo = (a: { id: string; mode: string; conducted_on: string | null; test_versions: unknown }): OfflineInfo | null =>
+    a.mode === 'offline'
+      ? {
+          conducted_on: a.conducted_on,
+          absent: absentIn.has(a.id),
+          makeup: !(a.test_versions as { tests?: { scores_only?: boolean } | null } | null)?.tests?.scores_only,
+        }
+      : null
 
   type AttemptRow = { id: string; assignment_id: string | null; status: string; score: number | null; max_score: number | null; submitted_late: boolean | null; is_extra_attempt: boolean | null; created_at: string | null; last_activity_at: string | null }
   const attemptMap = new Map<string, AttemptRow>()

@@ -56,7 +56,8 @@ export default async function AttemptPage({ params }: PageProps) {
           title,
           subject,
           exam_type,
-          answer_sheet
+          answer_sheet,
+          scores_only
         )
       )
     `)
@@ -156,8 +157,9 @@ export default async function AttemptPage({ params }: PageProps) {
   // финализирует in_progress и гасит not_started), но если она осталась из-за
   // гонки — закрытие важнее: дорешивать в закрытом назначении нечего.
   // Очная работа без отметки «н»: ученик писал её на бумаге, баллы вносит
-  // учитель — начать онлайн нельзя (то же правило в check_attempt_startable)
-  const offlineLocked = assignment.mode === 'offline' && !absence
+  // учитель — начать онлайн нельзя; работу «только баллы» (117) не начать и
+  // отсутствовавшему — писать нечего (то же правило в check_attempt_startable)
+  const offlineLocked = assignment.mode === 'offline' && (!absence || !!test?.scores_only)
   const isClosed = assignment.closed_at != null || finalResult?.closed_reason != null || offlineLocked
   if (isClosed) {
     // на страницу результата — только если есть что показать: иначе она

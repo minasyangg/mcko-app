@@ -14,7 +14,7 @@ import { RoadmapTimeline, type TimelineTopic } from '@/components/student/Roadma
 import { ShareAssignmentDialog } from '@/components/student/ShareAssignmentDialog'
 import { DeadlineNote } from '@/components/student/DeadlineNote'
 import { ArchiveAssignmentButton } from '@/components/student/ArchiveAssignmentButton'
-import { offlineAwaitingResult, type OfflineInfo } from '@/lib/assignments/offline'
+import { offlineAwaitingLabel, offlineAwaitingResult, type OfflineInfo } from '@/lib/assignments/offline'
 import { OfflineNote } from '@/components/student/OfflineNote'
 
 export type AssignmentStatus = 'not_started' | 'in_progress' | 'submitted' | 'checked'
@@ -136,7 +136,8 @@ function AssignmentCard({ a }: { a: AssignmentCardData }) {
   const isDone = a.status === 'submitted' || a.status === 'checked'
   const attemptsLeft = a.max_attempts - a.attempts_used
   const isClosed = a.closed_reason != null
-  // Очная работа без отметки «н»: ученик писал на бумаге, баллы внесёт учитель
+  // Очная работа, которую не начать онлайн: писал на бумаге (баллы внесёт
+  // учитель) или пропустил работу «только баллы»
   const awaitingOffline = offlineAwaitingResult(a)
   const canStart = !isClosed && !awaitingOffline && attemptsLeft > 0 && !['in_progress', 'submitted'].includes(a.status)
   const kind = cardKind({ status: awaitingOffline ? 'submitted' : a.status, score: a.score, maxScore: a.max_score, isClosed })
@@ -167,8 +168,8 @@ function AssignmentCard({ a }: { a: AssignmentCardData }) {
         {/* накопительный итог, а не балл последней попытки — то же число,
             что на странице результата */}
         <div className="flex items-center gap-1.5 flex-wrap">
-          {awaitingOffline
-            ? <Badge variant="secondary">Ждёт результата</Badge>
+          {awaitingOffline && a.offline
+            ? <Badge variant="secondary">{offlineAwaitingLabel(a.offline)}</Badge>
             : <StatusBadge status={a.status} score={a.score} maxScore={a.max_score} />}
           {isDone && (a.is_extra_attempt
             ? <span className="text-[11px] text-sky-700 dark:text-sky-400">решено в доп. попытку</span>
@@ -215,7 +216,7 @@ function AssignmentCard({ a }: { a: AssignmentCardData }) {
             </Button>
           ) : !isDone && !canStart && !a.archived ? (
             <p className="text-xs text-muted-foreground text-center">
-              {awaitingOffline ? 'Результат внесёт учитель' : isClosed ? 'Завершено' : 'Попытки исчерпаны'}
+              {awaitingOffline ? (a.offline?.absent ? 'Работа пропущена' : 'Результат внесёт учитель') : isClosed ? 'Завершено' : 'Попытки исчерпаны'}
             </p>
           ) : null}
           {(a.archived || a.can_archive) && (

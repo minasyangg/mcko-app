@@ -6,9 +6,12 @@ import { deleteAssignmentsDeep } from '@/lib/assignments/cleanup'
 import { notifyAssignmentCreated } from '@/lib/notifications/send'
 import { opensLater, parseAssignmentDates } from '@/lib/assignments/opening'
 import { isValidConductedOn } from '@/lib/assignments/offline'
+import { createSimpleTest } from '@/lib/tests/simple-test'
+import { deleteTest } from '@/lib/tests/delete'
 
 const schema = z.object({
-  test_id: zUuid(),
+  // либо готовый тест, либо (только очно) new_work — работа по названию
+  test_id: zUuid().optional().nullable(),
   kind: z.enum(['homework', 'test']).default('homework'),
   starts_at: z.string().optional().nullable(),
   ends_at: z.string().optional().nullable(),
@@ -17,6 +20,13 @@ const schema = z.object({
   // Для неё ends_at — срок, до которого отсутствовавшие могут дописать онлайн.
   mode: z.enum(['online', 'offline']).default('online'),
   conducted_on: z.string().optional().nullable(),
+  // Очная работа «только баллы» (117): учитель вписывает название и баллы
+  // заданий прямо в окне привязки, тест регистрируется здесь же
+  new_work: z.object({
+    title: z.string().trim().min(1, 'Впишите название работы').max(200),
+    tasks: z.array(z.object({ max_score: z.number().positive().max(100) }))
+      .min(1, 'Добавьте хотя бы одно задание').max(100),
+  }).optional().nullable(),
 })
 
 type Params = { params: Promise<{ id: string; topicId: string }> }
@@ -34,8 +44,11 @@ export async function POST(request: NextRequest, { params }: Params) {
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.issues[0]?.message ?? 'Invalid body' }, { status: 400 })
   }
-  const { test_id, kind, mode } = parsed.data
+  const { kind, mode, new_work } = parsed.data
   const offline = mode === 'offline'
+  if (new_work ? !offline : !parsed.data.test_id) {
+    return NextResponse.json({ error: new_work ? 'Работу по названию можно добавить только очно' : 'Выберите тест' }, { status: 400 })
+  }
   if (offline && !isValidConductedOn(parsed.data.conducted_on)) {
     return NextResponse.json({ error: 'Укажите дату проведения' }, { status: 400 })
   }
@@ -50,6 +63,20 @@ export async function POST(request: NextRequest, { params }: Params) {
   const { data: topic } = await admin
     .from('roadmap_topics').select('id').eq('id', topicId).eq('roadmap_id', id).single()
   if (!topic) return NextResponse.json({ error: 'Тема не найдена' }, { status: 404 })
+
+  let test_id = parsed.data.test_id ?? ''
+  if (new_work) {
+    const { data: roadmap } = await admin.from('roadmaps').select('subject').eq('id', id).single()
+    const created = await createSimpleTest(admin, {
+      orgId, userId, kind, title: new_work.title, subject: roadmap?.subject,
+      tasks: new_work.tasks, scoresOnly: true,
+    })
+    if (!created.ok) {
+      if (created.testId) await deleteTest(admin, created.testId, 'hard')
+      return NextResponse.json({ error: created.error }, { status: 500 })
+    }
+    test_id = created.testId
+  }
 
   // Тест — свой, опубликованный, из своей организации
   const { data: test } = await admin
@@ -83,7 +110,11 @@ export async function POST(request: NextRequest, { params }: Params) {
     // (отсутствовавшим уведомление уходит при отметке «н»).
     notified_at: deferred ? null : new Date().toISOString(),
   }).select('id').single()
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  if (error) {
+    // работа по названию без назначения не нужна — не оставляем её в «Тестах»
+    if (new_work) await deleteTest(admin, test_id, 'hard')
+    return NextResponse.json({ error: error.message }, { status: 500 })
+  }
 
   // телеграм-уведомление ученикам программы — после ответа
   if (!deferred && !offline) after(() => notifyAssignmentCreated(assignment.id))

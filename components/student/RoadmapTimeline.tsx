@@ -12,7 +12,7 @@ import { cardKind, CARD_KIND_CLASS, isUnfinishedKind } from '@/lib/assignments/c
 import { ShareAssignmentDialog } from '@/components/student/ShareAssignmentDialog'
 import { DeadlineNote } from '@/components/student/DeadlineNote'
 import { OfflineNote } from '@/components/student/OfflineNote'
-import { offlineAwaitingResult, type OfflineInfo } from '@/lib/assignments/offline'
+import { offlineAwaitingLabel, offlineAwaitingResult, type OfflineInfo } from '@/lib/assignments/offline'
 
 export interface TimelineItem {
   assignment_id: string
@@ -64,7 +64,7 @@ function displayStatus(it: TimelineItem): string {
 }
 
 function ItemStatus({ it }: { it: TimelineItem }) {
-  if (offlineAwaitingResult(it)) return <Badge variant="secondary">Ждёт результата</Badge>
+  if (it.offline && offlineAwaitingResult(it)) return <Badge variant="secondary">{offlineAwaitingLabel(it.offline)}</Badge>
   if (it.status === 'checked') {
     const pct = it.max_score && it.max_score > 0 ? Math.round(((it.score ?? 0) / it.max_score) * 100) : null
     return <Badge variant={pct != null && pct >= 60 ? 'default' : 'destructive'}>Проверено {it.score ?? 0}/{it.max_score ?? 0}</Badge>
