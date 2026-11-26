@@ -14,6 +14,8 @@ export interface SimpleTestInput {
   userId: string
   title: string
   subject?: string | null
+  examType?: string | null
+  grade?: string | null
   kind: 'test' | 'homework'
   scoringRuleId?: string | null
   /** несколько верных вариантов ответа — через «|», как в остальных ключах */
@@ -35,6 +37,8 @@ export async function createSimpleTest(admin: AdminClient, input: SimpleTestInpu
     created_by: input.userId,
     title: input.title,
     subject: input.subject || null,
+    exam_type: input.examType || null,
+    grade: input.grade || null,
     kind: input.kind,
     status: 'draft',
     answer_sheet: input.answerSheet ?? false,

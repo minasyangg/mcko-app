@@ -101,6 +101,7 @@ function flattenTopicTree(nodes: TopicNode[], depth = 0, out: { node: TopicNode;
 interface TestOption { id: string; title: string }
 interface StudentOption { id: string; full_name: string; grade: string | null }
 interface GroupOption { id: string; name: string; student_ids: string[] }
+interface ScoringRuleOption { id: string; name: string; scoring_rule_items: { task_number: number; max_score: number }[] }
 interface Roadmap { id: string; title: string; subject: string | null; description: string | null; group_id: string | null }
 
 export function RoadmapEditor({ roadmap, topics, tests, students, memberIds, groups = [], sourceGroupIds = [] }: {
@@ -426,8 +427,11 @@ export function RoadmapEditor({ roadmap, topics, tests, students, memberIds, gro
     mode: 'online' as 'online' | 'offline', conducted_on: '',
     // очно: new — работа по названию (117, тест регистрируется сам),
     // system — тест из системы
-    source: 'new' as 'new' | 'system', title: '', scores: ['1'],
+    source: 'new' as 'new' | 'system', title: '', scores: ['1'], rule_id: 'none',
   })
+  // Правила оценивания для очной работы по названию — грузим при первом
+  // открытии окна привязки
+  const [scoringRules, setScoringRules] = useState<ScoringRuleOption[] | null>(null)
 
   // Сверка повторов при привязке теста к теме — тот же механизм и те же
   // пороги, что на экране «Назначить тест» (см. /api/assignments/duplicates).
@@ -447,9 +451,15 @@ export function RoadmapEditor({ roadmap, topics, tests, students, memberIds, gro
       test_id: '', kind: 'homework', max_attempts: 1, starts_at: toLocalInputValue(), ends_at: '',
       // дата проведения очной работы по умолчанию — сегодня
       mode: 'online', conducted_on: toLocalInputValue().slice(0, 10),
-      source: 'new', title: '', scores: ['1'],
+      source: 'new', title: '', scores: ['1'], rule_id: 'none',
     })
     setItemGroupWarning(null)
+    if (scoringRules === null) {
+      fetch('/api/scoring-rules')
+        .then(r => (r.ok ? r.json() : []))
+        .then((d: ScoringRuleOption[]) => setScoringRules(Array.isArray(d) ? d : []))
+        .catch(() => setScoringRules([]))
+    }
   }
 
   useEffect(() => {
@@ -474,6 +484,20 @@ export function RoadmapEditor({ roadmap, topics, tests, students, memberIds, gro
   const newWork = itemForm.mode === 'offline' && itemForm.source === 'new'
   const newWorkScores = itemForm.scores.map(v => Number(v.trim().replace(',', '.')))
   const newWorkTotal = newWorkScores.reduce((sum, n) => sum + (Number.isFinite(n) ? n : 0), 0)
+
+  // Разбалловка из «Правил оценивания»: задания — номера правила с их
+  // максимумами, как у онлайн-тестов этого экзамена
+  function applyScoringRule(ruleId: string) {
+    const rule = scoringRules?.find(r => r.id === ruleId)
+    const items = [...(rule?.scoring_rule_items ?? [])].sort((a, b) => a.task_number - b.task_number)
+    if (!rule || items.length === 0) { setItemForm(p => ({ ...p, rule_id: 'none' })); return }
+    const byNumber = new Map(items.map(i => [i.task_number, i.max_score]))
+    setItemForm(p => ({
+      ...p,
+      rule_id: ruleId,
+      scores: Array.from({ length: items[items.length - 1].task_number }, (_, i) => String(byNumber.get(i + 1) ?? 1)),
+    }))
+  }
 
   function setTaskCount(n: number) {
     const count = Math.min(100, Math.max(1, n || 1))
@@ -500,7 +524,11 @@ export function RoadmapEditor({ roadmap, topics, tests, students, memberIds, gro
         body: JSON.stringify(offline
           ? {
               ...(newWork
-                ? { new_work: { title: itemForm.title.trim(), tasks: newWorkScores.map(max_score => ({ max_score })) } }
+                ? { new_work: {
+                    title: itemForm.title.trim(),
+                    tasks: newWorkScores.map(max_score => ({ max_score })),
+                    scoring_rule_id: itemForm.rule_id !== 'none' ? itemForm.rule_id : null,
+                  } }
                 : { test_id: itemForm.test_id }),
               kind: itemForm.kind, mode: 'offline',
               conducted_on: itemForm.conducted_on,
@@ -858,10 +886,22 @@ export function RoadmapEditor({ roadmap, topics, tests, students, memberIds, gro
                     или выбрать тест из системы
                   </button>
                 </div>
-                <div className="space-y-1">
-                  <Label htmlFor="it-count">Заданий</Label>
-                  <Input id="it-count" type="number" min={1} max={100} className="w-24" value={itemForm.scores.length}
-                    onChange={(e) => setTaskCount(Number(e.target.value))} />
+                <div className="grid grid-cols-[6rem_minmax(0,1fr)] gap-3">
+                  <div className="space-y-1">
+                    <Label htmlFor="it-count">Заданий</Label>
+                    <Input id="it-count" type="number" min={1} max={100} value={itemForm.scores.length}
+                      onChange={(e) => setTaskCount(Number(e.target.value))} />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Баллы по правилу</Label>
+                    <Select value={itemForm.rule_id} onValueChange={applyScoringRule}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">— задать вручную —</SelectItem>
+                        {(scoringRules ?? []).map(r => <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
                 <div className="space-y-1">
                   <Label>Максимальный балл за задание</Label>

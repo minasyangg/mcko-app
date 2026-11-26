@@ -26,6 +26,9 @@ const schema = z.object({
     title: z.string().trim().min(1, 'Впишите название работы').max(200),
     tasks: z.array(z.object({ max_score: z.number().positive().max(100) }))
       .min(1, 'Добавьте хотя бы одно задание').max(100),
+    // правило оценивания (ОГЭ/ЕГЭ/ВПР): тест получает его разбалловку,
+    // экзамен, класс и предмет — статистика по номерам совпадает с онлайн
+    scoring_rule_id: zUuid().optional().nullable(),
   }).optional().nullable(),
 })
 
@@ -66,9 +69,20 @@ export async function POST(request: NextRequest, { params }: Params) {
 
   let test_id = parsed.data.test_id ?? ''
   if (new_work) {
-    const { data: roadmap } = await admin.from('roadmaps').select('subject').eq('id', id).single()
+    const [{ data: roadmap }, { data: rule }] = await Promise.all([
+      admin.from('roadmaps').select('subject').eq('id', id).single(),
+      new_work.scoring_rule_id
+        ? admin.from('scoring_rules').select('id, exam_type, grade, subject')
+            .eq('id', new_work.scoring_rule_id).eq('organization_id', orgId).maybeSingle()
+        : Promise.resolve({ data: null }),
+    ])
+    if (new_work.scoring_rule_id && !rule) {
+      return NextResponse.json({ error: 'Правило оценивания не найдено' }, { status: 404 })
+    }
     const created = await createSimpleTest(admin, {
-      orgId, userId, kind, title: new_work.title, subject: roadmap?.subject,
+      orgId, userId, kind, title: new_work.title,
+      subject: rule?.subject || roadmap?.subject,
+      examType: rule?.exam_type, grade: rule?.grade, scoringRuleId: rule?.id,
       tasks: new_work.tasks, scoresOnly: true,
     })
     if (!created.ok) {
