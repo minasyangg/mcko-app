@@ -75,13 +75,15 @@ export function AssignmentStatsModal({ assignmentId, onClose }: { assignmentId: 
     <Dialog open={!!assignmentId} onOpenChange={(open) => { if (!open) onClose() }}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2 pr-6">
+          {/* длинное название переносится, а не обрезается: по нему учитель
+              отличает похожие задания программы */}
+          <DialogTitle className="flex items-start gap-2 pr-6">
             {shown && (
-              <Badge variant={shown.kind === 'homework' ? 'outline' : 'secondary'} className="text-[11px] shrink-0">
+              <Badge variant={shown.kind === 'homework' ? 'outline' : 'secondary'} className="text-[11px] shrink-0 mt-0.5">
                 {shown.kind === 'homework' ? 'ДЗ' : 'Тест'}
               </Badge>
             )}
-            <span className="truncate">{shown?.title ?? 'Статистика назначения'}</span>
+            <span className="min-w-0 wrap-break-word">{shown?.title ?? 'Статистика назначения'}</span>
           </DialogTitle>
         </DialogHeader>
 
@@ -95,7 +97,7 @@ export function AssignmentStatsModal({ assignmentId, onClose }: { assignmentId: 
 
         {shown && (
           <div className="space-y-4">
-            <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-sm">
+            <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1.5 text-sm">
               <dt className="text-muted-foreground">Кому</dt>
               <dd className="min-w-0 wrap-break-word">{shown.target}</dd>
               <dt className="text-muted-foreground">Создано</dt>
