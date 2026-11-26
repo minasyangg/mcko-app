@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Database } from '@/types/database'
+import type { TaskSignals } from '@/lib/attempts/integrity'
 
 // Данные окна проверки попытки (AttemptDrawer). Запросы вынесены сюда из
 // компонента без изменений, чтобы выполнять их в двух местах одним кодом:
@@ -32,6 +33,10 @@ export interface AttemptReviewData {
   prevAnswers: { task_id: string | null; answer_json: unknown }[] | null
   taskMedia: ReviewMediaRow[] | null
   solutionMedia: ReviewMediaRow[] | null
+  // Признаки списывания (118): счётчики этой попытки и активное время
+  // сданных попыток того же назначения — для медиан класса
+  signals: TaskSignals[] | null
+  classSignals: { attempt_id: string; task_id: string; active_ms: number }[] | null
 }
 
 export async function loadAttemptReview(
@@ -40,6 +45,7 @@ export async function loadAttemptReview(
 ): Promise<AttemptReviewData> {
   const result: AttemptReviewData = {
     attempt: null, answers: null, answerKeys: null, prevAnswers: null, taskMedia: null, solutionMedia: null,
+    signals: null, classSignals: null,
   }
 
   const [attemptRes, answersRes] = await Promise.all([
@@ -80,7 +86,7 @@ export async function loadAttemptReview(
 
   const a = result.attempt as { assignment_id: string | null; student_id: string | null } | null
 
-  const [ansKeysRes, prevAttemptsRes, rawMediaRes, rawSolutionMediaRes] = await Promise.all([
+  const [ansKeysRes, prevAttemptsRes, rawMediaRes, rawSolutionMediaRes, signalsRes, classSignalsRes] = await Promise.all([
     supabase.from('task_answer_keys').select('task_id, correct_answer, grading_method').in('task_id', taskIds),
     // assignment_id/student_id уже пришли с первым запросом — повторно в
     // attempts за ними не ходим.
@@ -95,7 +101,22 @@ export async function loadAttemptReview(
     supabase.from('attempt_answer_media')
       .select('id, task_id, storage_path, width_px, height_px, sort_order')
       .eq('attempt_id', attemptId).order('sort_order', { ascending: true }),
+    supabase.from('attempt_task_signals')
+      .select('task_id, active_ms, away_count, away_ms, paste_count, pasted_chars, typed_inputs, away_paste_count, blind_paste_count')
+      .eq('attempt_id', attemptId).limit(200),
+    a?.assignment_id
+      ? supabase.from('attempt_task_signals')
+          .select('attempt_id, task_id, active_ms, attempts!inner(assignment_id, status)')
+          .eq('attempts.assignment_id', a.assignment_id)
+          .in('attempts.status', ['submitted', 'checked'])
+          .limit(5000)
+      : Promise.resolve({ data: null }),
   ])
+
+  if (signalsRes.data) result.signals = signalsRes.data
+  if (classSignalsRes.data) {
+    result.classSignals = classSignalsRes.data.map(r => ({ attempt_id: r.attempt_id, task_id: r.task_id, active_ms: r.active_ms }))
+  }
 
   if (ansKeysRes.data) result.answerKeys = ansKeysRes.data
 
