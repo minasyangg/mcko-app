@@ -22,7 +22,7 @@ export default async function RoadmapEditPage({ params }: { params: Promise<{ id
   const [{ data: topics }, { data: itemRows }, { data: tests }, { data: links }, { data: members }, { data: sourceGroups }] = await Promise.all([
     supabase.from('roadmap_topics').select('id, title, description, sort_order, parent_id, visible_to_students').eq('roadmap_id', id).order('sort_order'),
     supabase.from('assignments')
-      .select('id, roadmap_topic_id, kind, max_attempts, starts_at, ends_at, test_versions!test_version_id(tests!test_id(id, title))')
+      .select('id, roadmap_topic_id, kind, mode, conducted_on, max_attempts, starts_at, ends_at, test_versions!test_version_id(tests!test_id(id, title))')
       .eq('group_id', roadmap.group_id || '').not('roadmap_topic_id', 'is', null),
     supabase.from('tests').select('id, title')
       .eq('created_by', user.id).eq('status', 'published').eq('is_active', true)
@@ -69,7 +69,7 @@ export default async function RoadmapEditPage({ params }: { params: Promise<{ id
     const tid = a.roadmap_topic_id as string
     const test = (a.test_versions as { tests?: { id?: string; title?: string } } | null)?.tests
     const arr = itemsByTopic.get(tid) ?? []
-    arr.push({ assignment_id: a.id, test_id: test?.id ?? null, test_title: test?.title ?? 'Тест', kind: (a.kind as 'homework' | 'test') ?? 'test', max_attempts: a.max_attempts ?? 1, starts_at: a.starts_at, ends_at: a.ends_at })
+    arr.push({ assignment_id: a.id, test_id: test?.id ?? null, test_title: test?.title ?? 'Тест', kind: (a.kind as 'homework' | 'test') ?? 'test', max_attempts: a.max_attempts ?? 1, starts_at: a.starts_at, ends_at: a.ends_at, mode: a.mode === 'offline' ? 'offline' : 'online', conducted_on: a.conducted_on })
     itemsByTopic.set(tid, arr)
   }
 

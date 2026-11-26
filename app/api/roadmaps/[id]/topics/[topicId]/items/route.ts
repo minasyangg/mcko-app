@@ -5,6 +5,7 @@ import { authorizeRoadmap } from '@/lib/roadmaps/authorize'
 import { deleteAssignmentsDeep } from '@/lib/assignments/cleanup'
 import { notifyAssignmentCreated } from '@/lib/notifications/send'
 import { opensLater, parseAssignmentDates } from '@/lib/assignments/opening'
+import { isValidConductedOn } from '@/lib/assignments/offline'
 
 const schema = z.object({
   test_id: zUuid(),
@@ -12,6 +13,10 @@ const schema = z.object({
   starts_at: z.string().optional().nullable(),
   ends_at: z.string().optional().nullable(),
   max_attempts: z.number().int().min(1).default(1),
+  // Очная работа (116): проведена на бумаге, результаты вносит учитель.
+  // Для неё ends_at — срок, до которого отсутствовавшие могут дописать онлайн.
+  mode: z.enum(['online', 'offline']).default('online'),
+  conducted_on: z.string().optional().nullable(),
 })
 
 type Params = { params: Promise<{ id: string; topicId: string }> }
@@ -29,10 +34,17 @@ export async function POST(request: NextRequest, { params }: Params) {
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.issues[0]?.message ?? 'Invalid body' }, { status: 400 })
   }
-  const { test_id, kind, max_attempts } = parsed.data
-  const dates = parseAssignmentDates(parsed.data)
+  const { test_id, kind, mode } = parsed.data
+  const offline = mode === 'offline'
+  if (offline && !isValidConductedOn(parsed.data.conducted_on)) {
+    return NextResponse.json({ error: 'Укажите дату проведения' }, { status: 400 })
+  }
+  // Очная работа открыта сразу (онлайн её начнут только отмеченные «н», см.
+  // check_attempt_startable) и всегда на одну попытку
+  const dates = parseAssignmentDates(offline ? { ends_at: parsed.data.ends_at } : parsed.data)
   if (!dates.ok) return NextResponse.json({ error: dates.error }, { status: 400 })
-  const deferred = opensLater(dates.startsAt)
+  const max_attempts = offline ? 1 : parsed.data.max_attempts
+  const deferred = !offline && opensLater(dates.startsAt)
 
   // Тема принадлежит программе
   const { data: topic } = await admin
@@ -63,14 +75,18 @@ export async function POST(request: NextRequest, { params }: Params) {
     starts_at: dates.startsAt,
     ends_at: dates.endsAt,
     max_attempts,
+    mode,
+    conducted_on: offline ? parsed.data.conducted_on : null,
     created_by: userId,
-    // Откроется позже — уведомит /api/notifications/dispatch в момент открытия
+    // Откроется позже — уведомит /api/notifications/dispatch в момент открытия.
+    // Очную работу ученики уже написали — «вам назначен тест» им не шлём
+    // (отсутствовавшим уведомление уходит при отметке «н»).
     notified_at: deferred ? null : new Date().toISOString(),
   }).select('id').single()
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
   // телеграм-уведомление ученикам программы — после ответа
-  if (!deferred) after(() => notifyAssignmentCreated(assignment.id))
+  if (!deferred && !offline) after(() => notifyAssignmentCreated(assignment.id))
 
   return NextResponse.json({ id: assignment.id }, { status: 201 })
 }

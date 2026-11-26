@@ -11,6 +11,8 @@ import { loadTestTheory } from '@/lib/theory/load'
 import { openedAt } from '@/lib/assignments/opening'
 import { joinedTooLate } from '@/lib/settings/registry'
 import { getAppSettings } from '@/lib/settings/server'
+import { AnswerSheetPlayer } from '@/components/test-player/AnswerSheetPlayer'
+import { loadSheetMaterials } from '@/lib/tests/answer-sheet'
 
 export const metadata = { title: 'Выполнение задания' }
 
@@ -44,6 +46,7 @@ export default async function AttemptPage({ params }: PageProps) {
       created_at,
       preserve_answers,
       roadmap_topic_id,
+      mode,
       test_versions!test_version_id (
         id,
         time_limit_sec,
@@ -52,7 +55,8 @@ export default async function AttemptPage({ params }: PageProps) {
           id,
           title,
           subject,
-          exam_type
+          exam_type,
+          answer_sheet
         )
       )
     `)
@@ -70,7 +74,7 @@ export default async function AttemptPage({ params }: PageProps) {
   // ученика (см. нагрузочный тест: открытие теста — самая медленная фаза).
   const needMembershipCheck = assignment.student_id !== user.id && !!assignment.group_id
 
-  const [{ data: membership }, { data: existingAttempts }, { data: finalResult }] = await Promise.all([
+  const [{ data: membership }, { data: existingAttempts }, { data: finalResult }, { data: absence }] = await Promise.all([
     needMembershipCheck
       ? supabase
           .from('group_members')
@@ -92,6 +96,15 @@ export default async function AttemptPage({ params }: PageProps) {
       .eq('assignment_id', assignmentId)
       .eq('student_id', user.id)
       .maybeSingle(),
+    // Очная работа (116): онлайн её пишет только отмеченный «н»
+    assignment.mode === 'offline'
+      ? supabase
+          .from('assignment_absences')
+          .select('student_id')
+          .eq('assignment_id', assignmentId)
+          .eq('student_id', user.id)
+          .maybeSingle()
+      : Promise.resolve({ data: null }),
   ])
 
   // Групповое назначение не показываем, если ученик вступил в группу больше
@@ -142,7 +155,10 @@ export default async function AttemptPage({ params }: PageProps) {
   // Активной попытки после закрытия быть не должно (closeAssignment
   // финализирует in_progress и гасит not_started), но если она осталась из-за
   // гонки — закрытие важнее: дорешивать в закрытом назначении нечего.
-  const isClosed = assignment.closed_at != null || finalResult?.closed_reason != null
+  // Очная работа без отметки «н»: ученик писал её на бумаге, баллы вносит
+  // учитель — начать онлайн нельзя (то же правило в check_attempt_startable)
+  const offlineLocked = assignment.mode === 'offline' && !absence
+  const isClosed = assignment.closed_at != null || finalResult?.closed_reason != null || offlineLocked
   if (isClosed) {
     // на страницу результата — только если есть что показать: иначе она
     // отправит обратно сюда и получится цикл редиректов
@@ -378,6 +394,34 @@ export default async function AttemptPage({ params }: PageProps) {
     })
   }
 
+  const backLabel = assignment.roadmap_topic_id != null ? 'Вернуться в программы' : 'Вернуться к списку тестов'
+
+  // Бланк ответов по PDF (116): условие в файлах работы, ученик вводит только
+  // ответы и прикладывает до 3 фото на всю работу (task_id = null). Доступ к
+  // назначению проверен выше — ссылки на файлы подписываем service-role.
+  if (test?.answer_sheet) {
+    const materials = await loadSheetMaterials(createAdminClient(), assignment.test_version_id)
+    const sheetPhotos: SolutionPhoto[] = (rawSolutionMedia ?? [])
+      .filter((m) => !m.task_id)
+      .map((m) => ({ id: m.id, sort_order: m.sort_order, url: solutionMediaUrls[m.storage_path] ?? '' }))
+    return (
+      <AnswerSheetPlayer
+        assignmentId={assignmentId}
+        attemptId={attempt.id}
+        startedAt={attempt.started_at ?? null}
+        tasks={tasks.map((t) => ({ id: t.id, task_number: t.task_number, max_score: Number(t.max_score ?? 1) }))}
+        initialAnswers={initialAnswers}
+        lockedTaskIds={lockedTaskIds}
+        materials={materials}
+        sheetPhotos={sheetPhotos}
+        timeLimitSec={timeLimitSec}
+        testTitle={test?.title ?? 'Работа'}
+        backHref={listHref}
+        backLabel={backLabel}
+      />
+    )
+  }
+
   return (
     <TestPlayer
       assignmentId={assignmentId}
@@ -395,7 +439,7 @@ export default async function AttemptPage({ params }: PageProps) {
       subject={test?.subject ?? null}
       examType={test?.exam_type ?? null}
       backHref={listHref}
-      backLabel={assignment.roadmap_topic_id != null ? 'Вернуться в программы' : 'Вернуться к списку тестов'}
+      backLabel={backLabel}
       theory={theory}
     />
   )

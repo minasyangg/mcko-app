@@ -59,6 +59,42 @@ export type Database = {
         }
         Relationships: []
       }
+      assignment_absences: {
+        Row: {
+          assignment_id: string
+          created_at: string
+          marked_by: string | null
+          student_id: string
+        }
+        Insert: {
+          assignment_id: string
+          created_at?: string
+          marked_by?: string | null
+          student_id: string
+        }
+        Update: {
+          assignment_id?: string
+          created_at?: string
+          marked_by?: string | null
+          student_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "assignment_absences_assignment_id_fkey"
+            columns: ["assignment_id"]
+            isOneToOne: false
+            referencedRelation: "assignments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "assignment_absences_student_id_fkey"
+            columns: ["student_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       assignment_shares: {
         Row: {
           assignment_id: string
@@ -138,6 +174,8 @@ export type Database = {
           group_id: string | null
           id: string
           kind: string | null
+          mode: string
+          conducted_on: string | null
           max_attempts: number | null
           extra_attempts: number
           notified_at: string | null
@@ -158,6 +196,8 @@ export type Database = {
           group_id?: string | null
           id?: string
           kind?: string | null
+          mode?: string
+          conducted_on?: string | null
           max_attempts?: number | null
           extra_attempts?: number
           notified_at?: string | null
@@ -178,6 +218,8 @@ export type Database = {
           group_id?: string | null
           id?: string
           kind?: string | null
+          mode?: string
+          conducted_on?: string | null
           max_attempts?: number | null
           extra_attempts?: number
           notified_at?: string | null
@@ -251,7 +293,7 @@ export type Database = {
           id: string
           sort_order: number
           storage_path: string
-          task_id: string
+          task_id: string | null
           width_px: number | null
         }
         Insert: {
@@ -263,7 +305,7 @@ export type Database = {
           id?: string
           sort_order?: number
           storage_path: string
-          task_id: string
+          task_id?: string | null
           width_px?: number | null
         }
         Update: {
@@ -275,7 +317,7 @@ export type Database = {
           id?: string
           sort_order?: number
           storage_path?: string
-          task_id?: string
+          task_id?: string | null
           width_px?: number | null
         }
         Relationships: [
@@ -385,6 +427,7 @@ export type Database = {
           submitted_at: string | null
           submitted_late: boolean | null
           is_extra_attempt: boolean
+          is_offline: boolean
           teacher_comment: string | null
           teacher_reviewed_at: string | null
         }
@@ -404,6 +447,7 @@ export type Database = {
           submitted_at?: string | null
           submitted_late?: boolean | null
           is_extra_attempt?: boolean
+          is_offline?: boolean
           teacher_comment?: string | null
           teacher_reviewed_at?: string | null
         }
@@ -423,6 +467,7 @@ export type Database = {
           submitted_at?: string | null
           submitted_late?: boolean | null
           is_extra_attempt?: boolean
+          is_offline?: boolean
           teacher_comment?: string | null
           teacher_reviewed_at?: string | null
         }
@@ -3471,6 +3516,7 @@ export type Database = {
           grade: string | null
           id: string
           is_active: boolean
+          answer_sheet: boolean
           kind: string
           organization_id: string
           scoring_rule_id: string | null
@@ -3489,6 +3535,7 @@ export type Database = {
           grade?: string | null
           id?: string
           is_active?: boolean
+          answer_sheet?: boolean
           kind?: string
           organization_id: string
           scoring_rule_id?: string | null
@@ -3507,6 +3554,7 @@ export type Database = {
           grade?: string | null
           id?: string
           is_active?: boolean
+          answer_sheet?: boolean
           kind?: string
           organization_id?: string
           scoring_rule_id?: string | null

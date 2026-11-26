@@ -63,7 +63,20 @@ export async function loadAttemptReview(
   result.answers = answersRes.data
 
   const taskIds = answersRes.data.map((a) => a.task_id).filter(Boolean) as string[]
-  if (taskIds.length === 0) return result
+  if (taskIds.length === 0) {
+    // Бланк ответов по PDF (116): ответов может не быть вовсе, а фото решения
+    // на всю работу — есть; без них учителю нечего было бы проверять
+    const { data: sheetMedia } = await supabase.from('attempt_answer_media')
+      .select('id, task_id, storage_path, width_px, height_px, sort_order')
+      .eq('attempt_id', attemptId).is('task_id', null).order('sort_order', { ascending: true })
+    if (sheetMedia && sheetMedia.length > 0) {
+      const { data: signed } = await supabase.storage.from('student-solution-media')
+        .createSignedUrls(sheetMedia.map((m) => m.storage_path), 3600)
+      const urlMap = Object.fromEntries((signed ?? []).map((s) => [s.path, s.signedUrl]))
+      result.solutionMedia = sheetMedia.map((m) => ({ ...m, alt_text: null, signedUrl: urlMap[m.storage_path] ?? '' }))
+    }
+    return result
+  }
 
   const a = result.attempt as { assignment_id: string | null; student_id: string | null } | null
 

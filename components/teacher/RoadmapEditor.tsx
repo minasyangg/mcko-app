@@ -31,6 +31,9 @@ import {
 import { cn } from '@/lib/utils'
 import { localInputToIso, opensLater, toLocalInputValue } from '@/lib/assignments/opening'
 import { OpeningHint } from '@/components/teacher/OpeningHint'
+import { OfflineResultsDialog } from '@/components/teacher/OfflineResultsDialog'
+import { CreateAnswerSheetDialog } from '@/components/teacher/CreateAnswerSheetDialog'
+import { formatConductedOn } from '@/lib/assignments/offline'
 
 export interface EditorTopic {
   id: string
@@ -39,7 +42,12 @@ export interface EditorTopic {
   sort_order: number
   parent_id: string | null
   visible_to_students: boolean
-  items: { assignment_id: string; test_id: string | null; test_title: string; kind: 'homework' | 'test'; max_attempts: number; starts_at: string | null; ends_at: string | null }[]
+  items: {
+    assignment_id: string; test_id: string | null; test_title: string; kind: 'homework' | 'test'
+    max_attempts: number; starts_at: string | null; ends_at: string | null
+    /** offline — очная работа (116): результаты вносит учитель */
+    mode: 'online' | 'offline'; conducted_on: string | null
+  }[]
 }
 
 interface TopicNode extends EditorTopic {
@@ -115,6 +123,12 @@ export function RoadmapEditor({ roadmap, topics, tests, students, memberIds, gro
   // Статистика одного назначения (иконка Info рядом с заданием) — когда
   // создано, дедлайн, попытки, кто из учеников уже решил.
   const [statsAssignmentId, setStatsAssignmentId] = useState<string | null>(null)
+  // Таблица результатов очной работы (116)
+  const [offlineAssignmentId, setOfflineAssignmentId] = useState<string | null>(null)
+  // Новая работа по PDF (бланк ответов, 116) прямо из диалога привязки: после
+  // создания сразу выбрана в списке, не дожидаясь обновления страницы
+  const [sheetDialogOpen, setSheetDialogOpen] = useState(false)
+  const [createdTests, setCreatedTests] = useState<{ id: string; title: string }[]>([])
 
   // — Ученики —
   const [studentsOpen, setStudentsOpen] = useState(false)
@@ -407,7 +421,10 @@ export function RoadmapEditor({ roadmap, topics, tests, students, memberIds, gro
 
   // — Привязка задания к теме —
   const [itemTopic, setItemTopic] = useState<EditorTopic | null>(null)
-  const [itemForm, setItemForm] = useState({ test_id: '', kind: 'homework' as 'homework' | 'test', max_attempts: 1, starts_at: '', ends_at: '' })
+  const [itemForm, setItemForm] = useState({
+    test_id: '', kind: 'homework' as 'homework' | 'test', max_attempts: 1, starts_at: '', ends_at: '',
+    mode: 'online' as 'online' | 'offline', conducted_on: '',
+  })
 
   // Сверка повторов при привязке теста к теме — тот же механизм и те же
   // пороги, что на экране «Назначить тест» (см. /api/assignments/duplicates).
@@ -423,7 +440,11 @@ export function RoadmapEditor({ roadmap, topics, tests, students, memberIds, gro
   function openItem(topic: EditorTopic) {
     setItemTopic(topic)
     // открытие по умолчанию — сейчас (диалог открывается кликом, в браузере)
-    setItemForm({ test_id: '', kind: 'homework', max_attempts: 1, starts_at: toLocalInputValue(), ends_at: '' })
+    setItemForm({
+      test_id: '', kind: 'homework', max_attempts: 1, starts_at: toLocalInputValue(), ends_at: '',
+      // дата проведения очной работы по умолчанию — сегодня
+      mode: 'online', conducted_on: toLocalInputValue().slice(0, 10),
+    })
     setItemGroupWarning(null)
   }
 
@@ -447,21 +468,32 @@ export function RoadmapEditor({ roadmap, topics, tests, students, memberIds, gro
 
   async function addItem() {
     if (!itemTopic || !itemForm.test_id) return
+    const offline = itemForm.mode === 'offline'
+    if (offline && !itemForm.conducted_on) { toast.error('Укажите дату проведения'); return }
     setBusy(true)
     try {
       const res = await fetch(`/api/roadmaps/${roadmap.id}/topics/${itemTopic.id}/items`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          test_id: itemForm.test_id, kind: itemForm.kind,
-          max_attempts: itemForm.max_attempts,
-          // datetime-local без часового пояса — переводим в UTC в поясе учителя
-          starts_at: localInputToIso(itemForm.starts_at), ends_at: localInputToIso(itemForm.ends_at),
-        }),
+        body: JSON.stringify(offline
+          ? {
+              test_id: itemForm.test_id, kind: itemForm.kind, mode: 'offline',
+              conducted_on: itemForm.conducted_on,
+              // срок, до которого отсутствовавшие могут дописать на сайте
+              ends_at: localInputToIso(itemForm.ends_at),
+            }
+          : {
+              test_id: itemForm.test_id, kind: itemForm.kind,
+              max_attempts: itemForm.max_attempts,
+              // datetime-local без часового пояса — переводим в UTC в поясе учителя
+              starts_at: localInputToIso(itemForm.starts_at), ends_at: localInputToIso(itemForm.ends_at),
+            }),
       })
       const json = await res.json().catch(() => ({}))
       if (!res.ok) { toast.error(json.error ?? 'Ошибка'); return }
-      toast.success('Задание привязано')
+      toast.success(offline ? 'Очная работа добавлена — внесите результаты' : 'Задание привязано')
       setItemTopic(null)
+      // очная работа: сразу к таблице результатов
+      if (offline) setOfflineAssignmentId(json.id)
       router.refresh()
     } finally { setBusy(false) }
   }
@@ -569,6 +601,7 @@ export function RoadmapEditor({ roadmap, topics, tests, students, memberIds, gro
               onDropTopic={handleTopicDrop} onMoveItem={moveItemToTopic} drag={drag} setDrag={setDragState}
               hover={hover} setHover={setHover} onRequestMove={setMovingId}
               onPreviewTest={setPreviewTestId} onOpenStats={setStatsAssignmentId}
+              onOpenOffline={setOfflineAssignmentId}
             />
           ))}
         </div>
@@ -648,6 +681,19 @@ export function RoadmapEditor({ roadmap, topics, tests, students, memberIds, gro
 
       <TestPreviewModalById testId={previewTestId} onClose={() => setPreviewTestId(null)} />
       <AssignmentStatsModal assignmentId={statsAssignmentId} onClose={() => setStatsAssignmentId(null)} />
+      <OfflineResultsDialog key={offlineAssignmentId ?? 'none'} assignmentId={offlineAssignmentId} onClose={() => setOfflineAssignmentId(null)} />
+      <CreateAnswerSheetDialog
+        open={sheetDialogOpen}
+        onClose={() => setSheetDialogOpen(false)}
+        defaultKind={itemForm.kind}
+        defaultSubject={roadmap.subject}
+        onCreated={(t) => {
+          setCreatedTests(prev => [t, ...prev])
+          setItemForm(p => ({ ...p, test_id: t.id }))
+          setSheetDialogOpen(false)
+          router.refresh()
+        }}
+      />
 
       {/* Диалог состава учеников */}
       <Dialog open={studentsOpen} onOpenChange={(v) => { if (!v) resetStudentsDialog() }}>
@@ -763,13 +809,17 @@ export function RoadmapEditor({ roadmap, topics, tests, students, memberIds, gro
             <div className="space-y-1">
               <Label>Тест</Label>
               <SearchableSelect
-                options={tests.map(t => ({ value: t.id, label: t.title }))}
+                options={[...createdTests.filter(c => !tests.some(t => t.id === c.id)), ...tests].map(t => ({ value: t.id, label: t.title }))}
                 value={itemForm.test_id}
                 onChange={(v) => setItemForm(p => ({ ...p, test_id: v }))}
                 placeholder="Выберите свой опубликованный тест"
                 recentLabel="Недавно созданные"
                 emptyText="Нет опубликованных тестов"
               />
+              <button type="button" className="text-xs text-primary hover:underline underline-offset-2"
+                onClick={() => setSheetDialogOpen(true)}>
+                + Новая работа по PDF — ученики впишут только ответы
+              </button>
             </div>
             <div className="space-y-1">
               <Label>Тип</Label>
@@ -781,6 +831,34 @@ export function RoadmapEditor({ roadmap, topics, tests, students, memberIds, gro
                 </SelectContent>
               </Select>
             </div>
+            <div className="space-y-1">
+              <Label>Формат</Label>
+              <Select value={itemForm.mode} onValueChange={(v) => setItemForm(p => ({ ...p, mode: v as 'online' | 'offline' }))}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="online">Онлайн — ученики проходят на сайте</SelectItem>
+                  <SelectItem value="offline">Очно — результаты внесу сам</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {itemForm.mode === 'offline' ? (
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label htmlFor="it-cond">Дата проведения</Label>
+                  <Input id="it-cond" type="date" value={itemForm.conducted_on}
+                    onChange={(e) => setItemForm(p => ({ ...p, conducted_on: e.target.value }))} />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="it-makeup">Отсутствовавшим — до</Label>
+                  <Input id="it-makeup" type="datetime-local" value={itemForm.ends_at}
+                    onChange={(e) => setItemForm(p => ({ ...p, ends_at: e.target.value }))} />
+                </div>
+                <p className="col-span-2 text-xs text-muted-foreground">
+                  После привязки откроется таблица для баллов. Отмеченным «не был» тест откроется на сайте
+                  {itemForm.ends_at ? ' до указанного срока' : ' без срока'}.
+                </p>
+              </div>
+            ) : (<>
             <div className="space-y-1">
               <Label htmlFor="it-att">Попыток</Label>
               <Input id="it-att" type="number" min={1} className="w-32" value={itemForm.max_attempts}
@@ -801,6 +879,7 @@ export function RoadmapEditor({ roadmap, topics, tests, students, memberIds, gro
               </div>
               <OpeningHint deferred={opensLater(localInputToIso(itemForm.starts_at))} />
             </div>
+            </>)}
 
             {/* Мягкое предупреждение, не блокирует привязку — повтор задачи
                 для закрепления может быть осознанным решением учителя. */}
@@ -820,7 +899,7 @@ export function RoadmapEditor({ roadmap, topics, tests, students, memberIds, gro
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setItemTopic(null)} disabled={busy}>Отмена</Button>
-            <Button onClick={addItem} disabled={busy || !itemForm.test_id}>{busy ? 'Сохранение...' : 'Привязать'}</Button>
+            <Button onClick={addItem} disabled={busy || !itemForm.test_id}>{busy ? 'Сохранение...' : itemForm.mode === 'offline' ? 'Привязать и внести результаты' : 'Привязать'}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -856,7 +935,7 @@ const INSIDE_ZONE_FROM = 0.6
 function TopicTreeItem({
   node, depth, roadmapId, busy, onRename, onDelete, onAddChild, onOpenItem, onRemoveItem, onToggleVisible,
   onDropTopic, onMoveItem, drag, setDrag, hover, setHover, onRequestMove, inDraggedSubtree = false,
-  onPreviewTest, onOpenStats,
+  onPreviewTest, onOpenStats, onOpenOffline,
 }: {
   node: TopicNode
   depth: number
@@ -879,6 +958,7 @@ function TopicTreeItem({
   inDraggedSubtree?: boolean
   onPreviewTest: (testId: string) => void
   onOpenStats: (assignmentId: string) => void
+  onOpenOffline: (assignmentId: string) => void
 }) {
   const [open, setOpen] = useState(depth < 1)
   const hasChildren = node.children.length > 0
@@ -1179,18 +1259,31 @@ function TopicTreeItem({
                   ) : (
                     <span className="flex-1 truncate max-md:line-clamp-2 max-md:whitespace-normal max-md:wrap-break-word">{it.test_title}</span>
                   )}
-                  {opensLater(it.starts_at) && (
+                  {it.mode === 'offline' ? (
+                    <>
+                      <span className="text-xs text-muted-foreground shrink-0" title="Работа проведена очно, результаты вносит учитель">
+                        очно{it.conducted_on ? ` · ${formatConductedOn(it.conducted_on)}` : ''}
+                      </span>
+                      <Button size="sm" variant="outline" className="h-6 px-2 text-xs shrink-0 max-md:h-8"
+                        onClick={() => onOpenOffline(it.assignment_id)}>
+                        Результаты
+                      </Button>
+                    </>
+                  ) : opensLater(it.starts_at) && (
                     <span className="text-xs text-amber-700 dark:text-amber-400 shrink-0" title="До этого момента ученики задание не видят">
                       откроется {new Date(it.starts_at!).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
                     </span>
                   )}
-                  <AddAttemptsDialog assignmentId={it.assignment_id} maxAttempts={it.max_attempts} title={it.test_title}>
-                    <button type="button"
-                      className="text-xs text-muted-foreground shrink-0 rounded px-1 -mx-1 hover:bg-muted hover:text-foreground underline-offset-2 hover:underline max-md:py-1.5"
-                      title="Добавить попытки">
-                      {it.max_attempts} поп.
-                    </button>
-                  </AddAttemptsDialog>
+                  {/* у очной работы одна попытка — для отсутствовавших; добавлять нечего */}
+                  {it.mode !== 'offline' && (
+                    <AddAttemptsDialog assignmentId={it.assignment_id} maxAttempts={it.max_attempts} title={it.test_title}>
+                      <button type="button"
+                        className="text-xs text-muted-foreground shrink-0 rounded px-1 -mx-1 hover:bg-muted hover:text-foreground underline-offset-2 hover:underline max-md:py-1.5"
+                        title="Добавить попытки">
+                        {it.max_attempts} поп.
+                      </button>
+                    </AddAttemptsDialog>
+                  )}
                   <Button size="icon" variant="ghost" className="h-6 w-6 text-muted-foreground max-md:h-8 max-md:w-8"
                     title="Статистика назначения" aria-label="Статистика назначения" onClick={() => onOpenStats(it.assignment_id)}>
                     <Info className="h-3.5 w-3.5" />
@@ -1222,6 +1315,7 @@ function TopicTreeItem({
               hover={hover} setHover={setHover} onRequestMove={onRequestMove}
               inDraggedSubtree={inDraggedSubtree || isDragSource}
               onPreviewTest={onPreviewTest} onOpenStats={onOpenStats}
+              onOpenOffline={onOpenOffline}
             />
           ))}
         </div>

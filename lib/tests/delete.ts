@@ -134,6 +134,14 @@ export async function deleteTest(
       await admin.from('parsing_jobs').delete().in('id', jobIds)
     }
 
+    // Файлы бланка ответов по PDF (116) живут, пока жив тест, — убираем и их;
+    // исходники импорта конвейер парсинга удаляет сам после разбора
+    const { data: sheetDocs } = await admin
+      .from('test_documents').select('storage_path')
+      .in('test_version_id', versionIds).eq('doc_type', 'variant')
+    if (sheetDocs?.length) {
+      await admin.storage.from('test-documents').remove(sheetDocs.map(d => d.storage_path))
+    }
     await admin.from('test_documents').delete().in('test_version_id', versionIds)
 
     // Назначения без попыток (иначе режим был бы soft) — просто убираем
