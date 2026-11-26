@@ -8,6 +8,7 @@ import { openedAt } from '@/lib/assignments/opening'
 import { archiveForStudent, canArchive, shouldAutoArchive } from '@/lib/assignments/archive'
 import { DAY_MS } from '@/lib/settings/registry'
 import { getAppSettings } from '@/lib/settings/server'
+import type { OfflineInfo } from '@/lib/assignments/offline'
 
 export const metadata = { title: 'Мои задания' }
 
@@ -165,7 +166,7 @@ export default async function StudentHomePage({ searchParams }: { searchParams: 
     // ни здесь, ни в общем списке (тот исключает их фильтром roadmap_topic_id
     // is null) — кнопка технически открывала доступ, но кабинет его не видел.
     supabase.from('assignments')
-      .select('id, roadmap_topic_id, kind, max_attempts, extra_attempts, starts_at, ends_at, closed_at, created_at, group_id, test_versions!test_version_id(tests!test_id(title, subject, exam_type, is_active))')
+      .select('id, roadmap_topic_id, kind, mode, conducted_on, max_attempts, extra_attempts, starts_at, ends_at, closed_at, created_at, group_id, test_versions!test_version_id(tests!test_id(title, subject, exam_type, is_active, scores_only))')
       .or(groupIds.length > 0
         ? `student_id.eq.${user.id},group_id.in.(${groupIds.join(',')})`
         : `student_id.eq.${user.id}`)
@@ -192,7 +193,10 @@ export default async function StudentHomePage({ searchParams }: { searchParams: 
     ...plainAssignments.map(a => a.id),
     ...roadmapItems.map(a => a.id),
   ]
-  const [{ data: attempts }, { data: finals }] = allAssignmentIds.length > 0
+  // Очные работы программы (116): отметка «н» решает, открыт ли ученику тест
+  // онлайн или он ждёт, пока учитель внесёт баллы за бумажную работу
+  const offlineIds = roadmapItems.filter(a => a.mode === 'offline').map(a => a.id)
+  const [{ data: attempts }, { data: finals }, { data: absences }] = allAssignmentIds.length > 0
     ? await Promise.all([
         supabase
           .from('attempts')
@@ -205,8 +209,25 @@ export default async function StudentHomePage({ searchParams }: { searchParams: 
           .select('assignment_id, final_score, max_score, attempt_count, closed_reason, archived_at, unarchived_at')
           .in('assignment_id', allAssignmentIds)
           .eq('student_id', user.id),
+        offlineIds.length > 0
+          ? supabase
+              .from('assignment_absences')
+              .select('assignment_id')
+              .in('assignment_id', offlineIds)
+              .eq('student_id', user.id)
+          : Promise.resolve({ data: [] as { assignment_id: string }[] }),
       ])
-    : [{ data: [] }, { data: [] }]
+    : [{ data: [] }, { data: [] }, { data: [] }]
+
+  const absentIn = new Set((absences ?? []).map(a => a.assignment_id))
+  const offlineInfo = (a: { id: string; mode: string; conducted_on: string | null; test_versions: unknown }): OfflineInfo | null =>
+    a.mode === 'offline'
+      ? {
+          conducted_on: a.conducted_on,
+          absent: absentIn.has(a.id),
+          makeup: !(a.test_versions as { tests?: { scores_only?: boolean } | null } | null)?.tests?.scores_only,
+        }
+      : null
 
   type AttemptRow = { id: string; assignment_id: string | null; status: string; score: number | null; max_score: number | null; submitted_late: boolean | null; is_extra_attempt: boolean | null; created_at: string | null; last_activity_at: string | null }
   const attemptMap = new Map<string, AttemptRow>()
@@ -314,6 +335,7 @@ export default async function StudentHomePage({ searchParams }: { searchParams: 
       exam_type: test?.exam_type ?? null,
       kind: (a.kind as 'homework' | 'test') ?? 'test',
       source: `Программа «${roadmap?.title ?? 'без названия'}»${topic ? ` → ${topic.title}` : ''}`,
+      offline: offlineInfo(a),
       time_limit_sec: null,
       status,
       score: fin?.final_score ?? attempt?.score ?? null,
@@ -352,6 +374,7 @@ export default async function StudentHomePage({ searchParams }: { searchParams: 
       assignment_id: a.id,
       test_title: tv?.tests?.title ?? 'Тест',
       kind: (a.kind as 'homework' | 'test') ?? 'test',
+      offline: offlineInfo(a),
       status: attempt?.status ?? 'not_started',
       score: fin?.final_score ?? attempt?.score ?? null,
       max_score: fin?.max_score ?? attempt?.max_score ?? null,

@@ -61,6 +61,11 @@ const { Client } = await import('pg')
 async function connect() {
   for (let attempt = 1; attempt <= 6; attempt++) {
     const client = new Client({ connectionString, ssl: { rejectUnauthorized: false }, connectionTimeoutMillis: 15_000, query_timeout: 70_000 })
+    // Обрыв соединения pg сообщает событием 'error' на клиенте; без слушателя
+    // Node роняет весь процесс («Connection terminated unexpectedly», живой
+    // случай 2026-11-26) мимо повторов и отката ниже. Со слушателем обрыв
+    // приходит обычной ошибкой текущего/следующего запроса.
+    client.on('error', (e) => console.log(`соединение оборвалось: ${e.message}`))
     try {
       await client.connect()
       if (attempt > 1) console.log(`подключено с ${attempt}-й попытки`)

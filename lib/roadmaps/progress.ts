@@ -174,6 +174,8 @@ export interface ProgramItemStatus {
    * ссылка, чтобы UI не предлагал открыть повторно.
    */
   personalAssignmentId: string | null
+  /** Очная работа (116): ученик отмечен «н» — отсутствовал */
+  absent: boolean
 }
 
 export interface ProgramTopicItem {
@@ -185,6 +187,9 @@ export interface ProgramTopicItem {
   starts_at: string | null
   ends_at: string | null
   test_version_id: string
+  /** offline — очная работа (116), результаты вносит учитель */
+  mode: 'online' | 'offline'
+  conducted_on: string | null
 }
 
 export interface ProgramTopic {
@@ -229,7 +234,7 @@ export async function getRoadmapDetail(supabase: Client, roadmapId: string): Pro
         .from('assignments')
         .select(`
           id, roadmap_topic_id, kind, max_attempts, starts_at, ends_at, closed_at, test_version_id,
-          group_id, student_id, created_at,
+          group_id, student_id, created_at, mode, conducted_on,
           test_versions!test_version_id ( tests!test_id ( title, kind ) )
         `)
         .in('roadmap_topic_id', topicIds)
@@ -237,7 +242,7 @@ export async function getRoadmapDetail(supabase: Client, roadmapId: string): Pro
         id: string; roadmap_topic_id: string | null; kind: string | null
         max_attempts: number | null; starts_at: string | null; ends_at: string | null; closed_at: string | null
         test_version_id: string; group_id: string | null; student_id: string | null
-        created_at: string | null
+        created_at: string | null; mode: string; conducted_on: string | null
         test_versions: { tests: { title: string; kind: string } | null } | null
       }[] }
 
@@ -256,7 +261,8 @@ export async function getRoadmapDetail(supabase: Client, roadmapId: string): Pro
 
   const assignmentIds = (assignmentRows ?? []).map(a => a.id)
 
-  const [{ data: attemptsRaw }, { data: sfr }] = await Promise.all([
+  const offlineIds = (assignmentRows ?? []).filter(a => a.mode === 'offline').map(a => a.id)
+  const [{ data: attemptsRaw }, { data: sfr }, { data: absences }] = await Promise.all([
     assignmentIds.length
       ? supabase.from('attempts')
           .select('id, assignment_id, student_id, status, score, max_score, last_activity_at, started_at')
@@ -279,7 +285,12 @@ export async function getRoadmapDetail(supabase: Client, roadmapId: string): Pro
           final_score: number | null; max_score: number | null; attempt_count: number | null
           closed_reason: string | null
         }[] }),
+    // Отметки «н» очных работ (116)
+    offlineIds.length
+      ? supabase.from('assignment_absences').select('assignment_id, student_id').in('assignment_id', offlineIds)
+      : Promise.resolve({ data: [] as { assignment_id: string; student_id: string }[] }),
   ])
+  const absentKeys = new Set((absences ?? []).map(r => `${r.assignment_id}_${r.student_id}`))
 
   // Последняя попытка на пару (assignment_id, student_id) — тот же паттерн,
   // что в app/teacher/monitor/page.tsx (сортировка по активности, первый на ключ)
@@ -355,6 +366,7 @@ export async function getRoadmapDetail(supabase: Client, roadmapId: string): Pro
         personalAssignmentId: hidden
           ? personalByVersionAndStudent.get(`${a.test_version_id}_${sid}`) ?? null
           : null,
+        absent: absentKeys.has(key),
       })
     }
   }
@@ -377,6 +389,7 @@ export async function getRoadmapDetail(supabase: Client, roadmapId: string): Pro
       closed_reason: a.closed_at ? 'forced' : sfrRow?.closed_reason ?? null,
       hiddenByLateJoin: false,
       personalAssignmentId: null,
+      absent: absentKeys.has(key),
     })
   }
 
@@ -397,6 +410,8 @@ export async function getRoadmapDetail(supabase: Client, roadmapId: string): Pro
       starts_at: a.starts_at,
       ends_at: a.ends_at,
       test_version_id: a.test_version_id,
+      mode: a.mode === 'offline' ? 'offline' : 'online',
+      conducted_on: a.conducted_on,
     })
     itemsByTopic.set(tid, arr)
   }

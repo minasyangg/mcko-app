@@ -11,6 +11,8 @@ import { nextAttemptIsExtra } from '@/lib/assignments/deadline'
 import { cardKind, CARD_KIND_CLASS, isUnfinishedKind } from '@/lib/assignments/card-style'
 import { ShareAssignmentDialog } from '@/components/student/ShareAssignmentDialog'
 import { DeadlineNote } from '@/components/student/DeadlineNote'
+import { OfflineNote } from '@/components/student/OfflineNote'
+import { offlineAwaitingLabel, offlineAwaitingResult, type OfflineInfo } from '@/lib/assignments/offline'
 
 export interface TimelineItem {
   assignment_id: string
@@ -31,6 +33,8 @@ export interface TimelineItem {
   is_extra_attempt?: boolean
   /** Сколько попыток учитель добавил сверх исходного лимита */
   extra_attempts?: number
+  /** Очная работа (116); null — обычное онлайн-задание */
+  offline?: OfflineInfo | null
 }
 export interface TimelineTopic {
   id: string
@@ -49,11 +53,18 @@ export interface TimelineTopic {
 // полностью пройденный сворачивается.
 function itemUnfinished(it: TimelineItem): boolean {
   return isUnfinishedKind(cardKind({
-    status: it.status, score: it.score, maxScore: it.max_score, isClosed: it.closed_reason != null,
+    status: displayStatus(it), score: it.score, maxScore: it.max_score, isClosed: it.closed_reason != null,
   }))
 }
 
+// Очная работа, по которой учитель ещё не внёс баллы, выглядит как «на
+// проверке»: ученик её уже написал, ждёт результата
+function displayStatus(it: TimelineItem): string {
+  return offlineAwaitingResult(it) ? 'submitted' : it.status
+}
+
 function ItemStatus({ it }: { it: TimelineItem }) {
+  if (it.offline && offlineAwaitingResult(it)) return <Badge variant="secondary">{offlineAwaitingLabel(it.offline)}</Badge>
   if (it.status === 'checked') {
     const pct = it.max_score && it.max_score > 0 ? Math.round(((it.score ?? 0) / it.max_score) * 100) : null
     return <Badge variant={pct != null && pct >= 60 ? 'default' : 'destructive'}>Проверено {it.score ?? 0}/{it.max_score ?? 0}</Badge>
@@ -77,14 +88,14 @@ function LateNote({ it }: { it: TimelineItem }) {
 // программное задание визуально не отличалось от обычного «Проверено»).
 function rowStatusClass(it: TimelineItem): string {
   return CARD_KIND_CLASS[cardKind({
-    status: it.status, score: it.score, maxScore: it.max_score, isClosed: it.closed_reason != null,
+    status: displayStatus(it), score: it.score, maxScore: it.max_score, isClosed: it.closed_reason != null,
   })]
 }
 
 function ItemAction({ it }: { it: TimelineItem }) {
   const isDone = it.status === 'submitted' || it.status === 'checked'
   const attemptsLeft = it.max_attempts - it.attempts_used
-  const canStart = !it.closed_reason && attemptsLeft > 0 && !['in_progress', 'submitted'].includes(it.status)
+  const canStart = !it.closed_reason && !offlineAwaitingResult(it) && attemptsLeft > 0 && !['in_progress', 'submitted'].includes(it.status)
   const nextAttemptLabel = !it.closed_reason && nextAttemptIsExtra(it)
     ? 'Доп. попытка'
     : `${it.attempts_used + 1}-я попытка`
@@ -117,6 +128,12 @@ function ItemAction({ it }: { it: TimelineItem }) {
 // несмотря на то, что assignment.attempts_used/max_attempts там тоже
 // вычислялись — использовались только для canStart, не выводились текстом.
 function AttemptsInfo({ it }: { it: TimelineItem }) {
+  const isDone = it.status === 'submitted' || it.status === 'checked'
+  const attemptsLeft = it.max_attempts - it.attempts_used
+  const offlineNote = it.offline ? <OfflineNote offline={it.offline} isDone={isDone} /> : null
+  // Очная работа на одну попытку: ни остаток попыток, ни причина закрытия
+  // ничего не объясняют — достаточно подписи с датой
+  if (it.offline && (isDone || offlineAwaitingResult(it))) return offlineNote
   // Завершение по полному баллу / решению учителя показываем и у однопопыточных
   // заданий: там остаток попыток ничего не объясняет, а причина — объясняет
   const note = closedReasonLabel(it.closed_reason)
@@ -127,8 +144,6 @@ function AttemptsInfo({ it }: { it: TimelineItem }) {
       </p>
     )
   }
-  const isDone = it.status === 'submitted' || it.status === 'checked'
-  const attemptsLeft = it.max_attempts - it.attempts_used
   if (note || (isDone && attemptsLeft <= 0)) {
     return (
       <p className="text-xs font-medium text-emerald-700 dark:text-emerald-400">
@@ -138,6 +153,7 @@ function AttemptsInfo({ it }: { it: TimelineItem }) {
   }
   return (
     <>
+      {offlineNote}
       {it.max_attempts > 1 && (
         <p className="text-xs text-muted-foreground">
           Попыток использовано: {it.attempts_used}/{it.max_attempts}

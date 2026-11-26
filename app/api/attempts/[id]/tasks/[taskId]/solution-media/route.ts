@@ -3,16 +3,14 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { MEDIA_CACHE_CONTROL, SOLUTION_PHOTO_URL_TTL } from '@/lib/media/signed-urls'
 import { NextRequest } from 'next/server'
 import { getAuthUser } from '@/lib/supabase/auth-user'
-
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const sharp = require('sharp')
+import { prepareSolutionPhoto, STUDENT_SOLUTION_BUCKET } from '@/lib/media/solution-photo'
 
 // Сжатие фото с телефона (до 20 МБ, 12+ мегапикселей) занимает секунды —
 // дефолтных 10с Vercel хватает не всегда, а обрыв на полпути ученик увидит
 // как «фото не прикрепилось» посреди контрольной.
 export const maxDuration = 60
 
-const BUCKET = 'student-solution-media'
+const BUCKET = STUDENT_SOLUTION_BUCKET
 const MAX_PHOTOS_PER_TASK = 2
 
 // POST /api/attempts/[id]/tasks/[taskId]/solution-media
@@ -73,36 +71,9 @@ export async function POST(
   }
 
   const formData = await request.formData()
-  const file = formData.get('file') as File | null
-  if (!file) return Response.json({ error: 'No file provided' }, { status: 400 })
-  if (!file.type.startsWith('image/')) {
-    return Response.json({ error: 'File must be an image' }, { status: 400 })
-  }
-  // Мобильные фото из галереи часто 5-15MB — принимаем крупнее лимита
-  // бакета (5MB, это лимит УЖЕ СЖАТОГО webp), sharp сожмёт перед заливкой.
-  if (file.size > 20 * 1024 * 1024) {
-    return Response.json({ error: 'Файл слишком большой (максимум 20 МБ)' }, { status: 400 })
-  }
-
-  const rawBuffer = Buffer.from(await file.arrayBuffer())
-
-  let webpBuffer: Buffer
-  let width: number | null = null
-  let height: number | null = null
-  try {
-    const meta = await sharp(rawBuffer).metadata()
-    width = meta.width ?? null
-    height = meta.height ?? null
-    webpBuffer = await sharp(rawBuffer)
-      // Фото листа А4 с телефона — ширины 1600px достаточно для читаемости
-      // почерка, тот же порог, что уже используют task-media (media/route.ts)
-      .resize({ width: 1600, withoutEnlargement: true })
-      .rotate() // учитывает EXIF-ориентацию камеры телефона
-      .webp({ quality: 82 })
-      .toBuffer()
-  } catch {
-    return Response.json({ error: 'Не удалось обработать изображение' }, { status: 422 })
-  }
+  const photo = await prepareSolutionPhoto(formData.get('file') as File | null)
+  if (!photo.ok) return Response.json({ error: photo.error }, { status: photo.status })
+  const { buffer: webpBuffer, width, height } = photo
 
   const admin = createAdminClient()
   // Свободный слот — 0, если ничего ещё нет, иначе первый неиспользованный

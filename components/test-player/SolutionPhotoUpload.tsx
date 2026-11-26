@@ -26,7 +26,12 @@ const MAX_FILE_BYTES = 20 * 1024 * 1024
 
 interface Props {
   attemptId: string
-  taskId: string
+  taskId?: string
+  /** Свой адрес загрузки (без ?media_id) — фото на всю работу бланка ответов:
+   *  /api/attempts/[id]/sheet-media. По умолчанию — фото к заданию taskId. */
+  endpoint?: string
+  /** Лимит фото; по умолчанию MAX_PHOTOS на задание */
+  maxPhotos?: number
   photos: SolutionPhoto[]
   onChange: (photos: SolutionPhoto[]) => void
   disabled?: boolean
@@ -43,13 +48,14 @@ interface Props {
 // «Повторить» и лайтбокс. Для ученика на школьной сети это критичнее, чем
 // где-либо ещё: свой же черновик, не загрузившийся молча, читается как
 // «работа пропала».
-export function SolutionPhotoUpload({ attemptId, taskId, photos, onChange, disabled }: Props) {
+export function SolutionPhotoUpload({ attemptId, taskId, endpoint, maxPhotos = MAX_PHOTOS, photos, onChange, disabled }: Props) {
+  const url = endpoint ?? `/api/attempts/${attemptId}/tasks/${taskId}/solution-media`
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const canAddMore = photos.length < MAX_PHOTOS
+  const canAddMore = photos.length < maxPhotos
 
   async function handleFileSelected(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
@@ -66,7 +72,7 @@ export function SolutionPhotoUpload({ attemptId, taskId, photos, onChange, disab
     try {
       const formData = new FormData()
       formData.append('file', file)
-      const res = await fetch(`/api/attempts/${attemptId}/tasks/${taskId}/solution-media`, {
+      const res = await fetch(url, {
         method: 'POST',
         body: formData,
       })
@@ -94,7 +100,7 @@ export function SolutionPhotoUpload({ attemptId, taskId, photos, onChange, disab
     onChange(photos.filter((p) => p.id !== photoId))
     try {
       const res = await fetch(
-        `/api/attempts/${attemptId}/tasks/${taskId}/solution-media?media_id=${photoId}`,
+        `${url}?media_id=${photoId}`,
         { method: 'DELETE' }
       )
       if (!res.ok) {
@@ -194,7 +200,7 @@ export function SolutionPhotoUpload({ attemptId, taskId, photos, onChange, disab
       {!disabled && (
         <>
           <p className="text-xs text-muted-foreground">
-            Сфотографируйте письменное решение (до {MAX_PHOTOS} фото) — учитель увидит его при проверке.
+            Сфотографируйте письменное решение (до {maxPhotos} фото) — учитель увидит его при проверке.
           </p>
           {/* Без capture: на телефоне откроется выбор «камера или галерея».
               С capture="environment" камера открывалась бы сразу, и уже

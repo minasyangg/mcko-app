@@ -99,10 +99,13 @@ export async function cleanupSourceDocuments(
   testVersionId: string
 ): Promise<void> {
   try {
+    // Файлы бланка ответов по PDF (doc_type='variant', 116) — не исходники:
+    // их смотрит ученик, пока жив тест
     const { data: docs } = await client
       .from('test_documents')
       .select('storage_path')
       .eq('test_version_id', testVersionId)
+      .neq('doc_type', 'variant')
     const paths = (docs ?? []).map((d) => d.storage_path).filter(Boolean)
     if (paths.length > 0) {
       await client.storage.from('test-documents').remove(paths)

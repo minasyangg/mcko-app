@@ -5,13 +5,31 @@ import { authorizeRoadmap } from '@/lib/roadmaps/authorize'
 import { deleteAssignmentsDeep } from '@/lib/assignments/cleanup'
 import { notifyAssignmentCreated } from '@/lib/notifications/send'
 import { opensLater, parseAssignmentDates } from '@/lib/assignments/opening'
+import { isValidConductedOn } from '@/lib/assignments/offline'
+import { createSimpleTest } from '@/lib/tests/simple-test'
+import { deleteTest } from '@/lib/tests/delete'
 
 const schema = z.object({
-  test_id: zUuid(),
+  // либо готовый тест, либо (только очно) new_work — работа по названию
+  test_id: zUuid().optional().nullable(),
   kind: z.enum(['homework', 'test']).default('homework'),
   starts_at: z.string().optional().nullable(),
   ends_at: z.string().optional().nullable(),
   max_attempts: z.number().int().min(1).default(1),
+  // Очная работа (116): проведена на бумаге, результаты вносит учитель.
+  // Для неё ends_at — срок, до которого отсутствовавшие могут дописать онлайн.
+  mode: z.enum(['online', 'offline']).default('online'),
+  conducted_on: z.string().optional().nullable(),
+  // Очная работа «только баллы» (117): учитель вписывает название и баллы
+  // заданий прямо в окне привязки, тест регистрируется здесь же
+  new_work: z.object({
+    title: z.string().trim().min(1, 'Впишите название работы').max(200),
+    tasks: z.array(z.object({ max_score: z.number().positive().max(100) }))
+      .min(1, 'Добавьте хотя бы одно задание').max(100),
+    // правило оценивания (ОГЭ/ЕГЭ/ВПР): тест получает его разбалловку,
+    // экзамен, класс и предмет — статистика по номерам совпадает с онлайн
+    scoring_rule_id: zUuid().optional().nullable(),
+  }).optional().nullable(),
 })
 
 type Params = { params: Promise<{ id: string; topicId: string }> }
@@ -29,15 +47,50 @@ export async function POST(request: NextRequest, { params }: Params) {
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.issues[0]?.message ?? 'Invalid body' }, { status: 400 })
   }
-  const { test_id, kind, max_attempts } = parsed.data
-  const dates = parseAssignmentDates(parsed.data)
+  const { kind, mode, new_work } = parsed.data
+  const offline = mode === 'offline'
+  if (new_work ? !offline : !parsed.data.test_id) {
+    return NextResponse.json({ error: new_work ? 'Работу по названию можно добавить только очно' : 'Выберите тест' }, { status: 400 })
+  }
+  if (offline && !isValidConductedOn(parsed.data.conducted_on)) {
+    return NextResponse.json({ error: 'Укажите дату проведения' }, { status: 400 })
+  }
+  // Очная работа открыта сразу (онлайн её начнут только отмеченные «н», см.
+  // check_attempt_startable) и всегда на одну попытку
+  const dates = parseAssignmentDates(offline ? { ends_at: parsed.data.ends_at } : parsed.data)
   if (!dates.ok) return NextResponse.json({ error: dates.error }, { status: 400 })
-  const deferred = opensLater(dates.startsAt)
+  const max_attempts = offline ? 1 : parsed.data.max_attempts
+  const deferred = !offline && opensLater(dates.startsAt)
 
   // Тема принадлежит программе
   const { data: topic } = await admin
     .from('roadmap_topics').select('id').eq('id', topicId).eq('roadmap_id', id).single()
   if (!topic) return NextResponse.json({ error: 'Тема не найдена' }, { status: 404 })
+
+  let test_id = parsed.data.test_id ?? ''
+  if (new_work) {
+    const [{ data: roadmap }, { data: rule }] = await Promise.all([
+      admin.from('roadmaps').select('subject').eq('id', id).single(),
+      new_work.scoring_rule_id
+        ? admin.from('scoring_rules').select('id, exam_type, grade, subject')
+            .eq('id', new_work.scoring_rule_id).eq('organization_id', orgId).maybeSingle()
+        : Promise.resolve({ data: null }),
+    ])
+    if (new_work.scoring_rule_id && !rule) {
+      return NextResponse.json({ error: 'Правило оценивания не найдено' }, { status: 404 })
+    }
+    const created = await createSimpleTest(admin, {
+      orgId, userId, kind, title: new_work.title,
+      subject: rule?.subject || roadmap?.subject,
+      examType: rule?.exam_type, grade: rule?.grade, scoringRuleId: rule?.id,
+      tasks: new_work.tasks, scoresOnly: true,
+    })
+    if (!created.ok) {
+      if (created.testId) await deleteTest(admin, created.testId, 'hard')
+      return NextResponse.json({ error: created.error }, { status: 500 })
+    }
+    test_id = created.testId
+  }
 
   // Тест — свой, опубликованный, из своей организации
   const { data: test } = await admin
@@ -63,14 +116,22 @@ export async function POST(request: NextRequest, { params }: Params) {
     starts_at: dates.startsAt,
     ends_at: dates.endsAt,
     max_attempts,
+    mode,
+    conducted_on: offline ? parsed.data.conducted_on : null,
     created_by: userId,
-    // Откроется позже — уведомит /api/notifications/dispatch в момент открытия
+    // Откроется позже — уведомит /api/notifications/dispatch в момент открытия.
+    // Очную работу ученики уже написали — «вам назначен тест» им не шлём
+    // (отсутствовавшим уведомление уходит при отметке «н»).
     notified_at: deferred ? null : new Date().toISOString(),
   }).select('id').single()
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  if (error) {
+    // работа по названию без назначения не нужна — не оставляем её в «Тестах»
+    if (new_work) await deleteTest(admin, test_id, 'hard')
+    return NextResponse.json({ error: error.message }, { status: 500 })
+  }
 
   // телеграм-уведомление ученикам программы — после ответа
-  if (!deferred) after(() => notifyAssignmentCreated(assignment.id))
+  if (!deferred && !offline) after(() => notifyAssignmentCreated(assignment.id))
 
   return NextResponse.json({ id: assignment.id }, { status: 201 })
 }

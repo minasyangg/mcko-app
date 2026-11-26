@@ -261,6 +261,8 @@ export function AttemptDrawer({ attemptId, onClose, onGraded, readOnly = false }
   const [answers, setAnswers] = useState<AnswerRow[]>([])
   const [mediaByTask, setMediaByTask] = useState<Record<string, MediaRow[]>>({})
   const [solutionPhotosByTask, setSolutionPhotosByTask] = useState<Record<string, MediaRow[]>>({})
+  // Фото решения на всю работу бланка ответов по PDF (116): task_id = null
+  const [sheetPhotos, setSheetPhotos] = useState<MediaRow[]>([])
   const [correctAnswerMap, setCorrectAnswerMap] = useState<Record<string, string>>({})
   // Сырой correct_answer (Json) + grading_method — нужны отдельно от
   // отформатированной строки выше: показ идёт через formatAnswerJson, а
@@ -289,7 +291,7 @@ export function AttemptDrawer({ attemptId, onClose, onGraded, readOnly = false }
     setAnswerEditInput('')
     setAnswerSaveError(null)
     setFullscreenAnswerId(null)
-    if (!attemptId) { setAttempt(null); setAnswers([]); setMediaByTask({}); setSolutionPhotosByTask({}); setGrades({}); setCorrectAnswerMap({}); setAnswerKeyMap({}); setChangedTaskIds(new Set()); return }
+    if (!attemptId) { setAttempt(null); setAnswers([]); setMediaByTask({}); setSolutionPhotosByTask({}); setSheetPhotos([]); setGrades({}); setCorrectAnswerMap({}); setAnswerKeyMap({}); setChangedTaskIds(new Set()); return }
     let cancelled = false
     setLoading(true); setSaveError(null)
 
@@ -372,12 +374,14 @@ export function AttemptDrawer({ attemptId, onClose, onGraded, readOnly = false }
         // student-solution-media и своя таблица (см. миграцию 077).
         if (data.solutionMedia) {
           const byTask: Record<string, MediaRow[]> = {}
+          const sheet: MediaRow[] = []
           for (const m of data.solutionMedia) {
-            if (!m.task_id) continue
+            if (!m.task_id) { sheet.push({ ...m, alt_text: null }); continue }
             if (!byTask[m.task_id]) byTask[m.task_id] = []
             byTask[m.task_id].push({ ...m, alt_text: null })
           }
           setSolutionPhotosByTask(byTask)
+          setSheetPhotos(sheet)
         }
       }
       setLoading(false)
@@ -638,6 +642,24 @@ export function AttemptDrawer({ attemptId, onClose, onGraded, readOnly = false }
               <div><span className="text-muted-foreground">Проверена:</span> {formatDt(attempt.checked_at)}</div>
               <div><span className="text-muted-foreground">Задание:</span> {attempt.current_task_number ?? '—'}</div>
             </div>
+
+            {/* Бланк ответов по PDF: фото решения на всю работу, не к заданию */}
+            {sheetPhotos.some((m) => m.signedUrl) && (
+              <div className="space-y-1.5">
+                <h3 className="text-sm font-semibold">Фото решения ({sheetPhotos.length})</h3>
+                <ImageGallery
+                  images={sheetPhotos
+                    .filter((m) => m.signedUrl)
+                    .map((m, i) => ({
+                      id: m.id,
+                      signedUrl: m.signedUrl!,
+                      alt: `Фото решения ${i + 1}`,
+                      sort_order: m.sort_order ?? i,
+                    }))}
+                  lightboxZIndex={100}
+                />
+              </div>
+            )}
 
             {/* Answers */}
             <div className="space-y-3">

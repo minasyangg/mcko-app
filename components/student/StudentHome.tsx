@@ -14,6 +14,8 @@ import { RoadmapTimeline, type TimelineTopic } from '@/components/student/Roadma
 import { ShareAssignmentDialog } from '@/components/student/ShareAssignmentDialog'
 import { DeadlineNote } from '@/components/student/DeadlineNote'
 import { ArchiveAssignmentButton } from '@/components/student/ArchiveAssignmentButton'
+import { offlineAwaitingLabel, offlineAwaitingResult, type OfflineInfo } from '@/lib/assignments/offline'
+import { OfflineNote } from '@/components/student/OfflineNote'
 
 export type AssignmentStatus = 'not_started' | 'in_progress' | 'submitted' | 'checked'
 
@@ -44,6 +46,8 @@ export interface AssignmentCardData {
   archived?: boolean
   /** Задание выдано больше полугода назад — можно убрать в архив */
   can_archive?: boolean
+  /** Очная работа (116); null — обычное онлайн-задание */
+  offline?: OfflineInfo | null
 }
 
 export interface RoadmapGroup {
@@ -132,8 +136,11 @@ function AssignmentCard({ a }: { a: AssignmentCardData }) {
   const isDone = a.status === 'submitted' || a.status === 'checked'
   const attemptsLeft = a.max_attempts - a.attempts_used
   const isClosed = a.closed_reason != null
-  const canStart = !isClosed && attemptsLeft > 0 && !['in_progress', 'submitted'].includes(a.status)
-  const kind = cardKind({ status: a.status, score: a.score, maxScore: a.max_score, isClosed })
+  // Очная работа, которую не начать онлайн: писал на бумаге (баллы внесёт
+  // учитель) или пропустил работу «только баллы»
+  const awaitingOffline = offlineAwaitingResult(a)
+  const canStart = !isClosed && !awaitingOffline && attemptsLeft > 0 && !['in_progress', 'submitted'].includes(a.status)
+  const kind = cardKind({ status: awaitingOffline ? 'submitted' : a.status, score: a.score, maxScore: a.max_score, isClosed })
   const extraNext = !isClosed && nextAttemptIsExtra(a)
 
   return (
@@ -161,7 +168,9 @@ function AssignmentCard({ a }: { a: AssignmentCardData }) {
         {/* накопительный итог, а не балл последней попытки — то же число,
             что на странице результата */}
         <div className="flex items-center gap-1.5 flex-wrap">
-          <StatusBadge status={a.status} score={a.score} maxScore={a.max_score} />
+          {awaitingOffline && a.offline
+            ? <Badge variant="secondary">{offlineAwaitingLabel(a.offline)}</Badge>
+            : <StatusBadge status={a.status} score={a.score} maxScore={a.max_score} />}
           {isDone && (a.is_extra_attempt
             ? <span className="text-[11px] text-sky-700 dark:text-sky-400">решено в доп. попытку</span>
             : a.submitted_late && <span className="text-[11px] text-muted-foreground">сдано с опозданием</span>
@@ -169,10 +178,12 @@ function AssignmentCard({ a }: { a: AssignmentCardData }) {
         </div>
 
         <div className="space-y-1 text-xs">
+          {a.offline && <OfflineNote offline={a.offline} isDone={isDone} />}
           {a.time_limit_sec && <p>Время: {Math.round(a.time_limit_sec / 60)} мин</p>}
-          {!isClosed && !isDone && <DeadlineNote createdAt={a.created_at} endsAt={a.ends_at} extraOpen={extraNext} />}
+          {!isClosed && !isDone && !awaitingOffline && <DeadlineNote createdAt={a.created_at} endsAt={a.ends_at} extraOpen={extraNext} />}
           {isClosed
-            ? ((a.max_attempts ?? 1) > 1 || a.closed_reason !== 'attempts_exhausted') && (
+            // у очной работы одна попытка — причина закрытия ничего не добавляет
+            ? !a.offline && ((a.max_attempts ?? 1) > 1 || a.closed_reason !== 'attempts_exhausted') && (
                 <p className="font-medium text-emerald-700 dark:text-emerald-400">
                   ✓ Завершено — {closedReasonLabel(a.closed_reason)} ({a.attempts_used}/{a.max_attempts} попыток)
                 </p>
@@ -205,7 +216,7 @@ function AssignmentCard({ a }: { a: AssignmentCardData }) {
             </Button>
           ) : !isDone && !canStart && !a.archived ? (
             <p className="text-xs text-muted-foreground text-center">
-              {isClosed ? 'Завершено' : 'Попытки исчерпаны'}
+              {awaitingOffline ? (a.offline?.absent ? 'Работа пропущена' : 'Результат внесёт учитель') : isClosed ? 'Завершено' : 'Попытки исчерпаны'}
             </p>
           ) : null}
           {(a.archived || a.can_archive) && (
@@ -259,6 +270,7 @@ function sectionOf(a: AssignmentCardData): Section {
   // работа зависала бы в «Нужно сделать», хотя сделать её уже нельзя.
   if (a.closed_reason != null) return 'checked'
   if (a.status === 'checked') return 'checked'
+  if (offlineAwaitingResult(a)) return 'review'
   if (a.status === 'submitted') return 'review'
   return 'todo'
 }

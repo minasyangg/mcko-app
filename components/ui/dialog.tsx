@@ -63,8 +63,11 @@ function DialogContent({
         className={cn(
           // max-h + overflow-y-auto: высокое окно (правка ученика с шарингом,
           // создание пользователя) на телефоне выходило за экран без прокрутки —
-          // нижние поля и кнопки были недоступны. dvh — без адресной строки
-          "fixed top-1/2 left-1/2 z-50 grid max-h-[calc(100dvh-2rem)] w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 overflow-y-auto overscroll-contain rounded-xl bg-popover p-4 text-sm text-popover-foreground ring-1 ring-foreground/10 duration-100 outline-none sm:max-w-lg data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
+          // нижние поля и кнопки были недоступны. dvh — без адресной строки.
+          // grid-cols-1 = minmax(0,1fr): без него неявная колонка грида
+          // растягивалась под самую длинную строку (название задания), truncate
+          // не срабатывал, и окно получало горизонтальную прокрутку целиком
+          "fixed top-1/2 left-1/2 z-50 grid grid-cols-1 max-h-[calc(100dvh-2rem)] w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 overflow-y-auto overscroll-contain rounded-xl bg-popover p-4 text-sm text-popover-foreground ring-1 ring-foreground/10 duration-100 outline-none sm:max-w-lg data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
           className
         )}
         {...props}

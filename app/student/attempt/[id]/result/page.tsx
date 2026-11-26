@@ -23,6 +23,8 @@ import { TheoryCard } from '@/components/theory/TheoryCard'
 import { openedAt } from '@/lib/assignments/opening'
 import { joinedTooLate } from '@/lib/settings/registry'
 import { getAppSettings } from '@/lib/settings/server'
+import { loadSheetMaterials } from '@/lib/tests/answer-sheet'
+import { SheetMaterials } from '@/components/test-player/SheetMaterials'
 
 export const metadata = { title: 'Результат' }
 
@@ -40,7 +42,7 @@ export default async function ResultPage({ params }: PageProps) {
   const { data: assignment } = await supabase
     .from('assignments')
     .select(`id, student_id, group_id, test_version_id, roadmap_topic_id, max_attempts, closed_at, created_at, starts_at,
-      test_versions!test_version_id ( id, result_visibility, tests!test_id ( id, title, subject, exam_type ) )`)
+      test_versions!test_version_id ( id, result_visibility, tests!test_id ( id, title, subject, exam_type, answer_sheet ) )`)
     .eq('id', assignmentId)
     .single()
 
@@ -83,7 +85,7 @@ export default async function ResultPage({ params }: PageProps) {
   const [{ data: attempts }, { data: finalResult }, { data: tasks }] = await Promise.all([
     supabase
       .from('attempts')
-      .select('id, status, score, max_score, submitted_at, checked_at, teacher_comment')
+      .select('id, status, score, max_score, submitted_at, checked_at, teacher_comment, is_offline')
       .eq('assignment_id', assignmentId).eq('student_id', user.id)
       .in('status', ['submitted', 'checked'])
       .order('submitted_at', { ascending: false }).limit(1),
@@ -266,6 +268,11 @@ export default async function ResultPage({ params }: PageProps) {
   const backHref = fromRoadmap ? '/student/roadmap' : '/student'
   const backLabel = fromRoadmap ? 'Вернуться в программы' : 'Вернуться к списку тестов'
   const theory = await theoryPromise
+  // Файлы бланка ответов по PDF — доступ к назначению проверен выше,
+  // ссылки подписывает service-role (бакет test-documents ученику закрыт)
+  const sheetMaterials = test?.answer_sheet
+    ? await loadSheetMaterials(createAdminClient(), assignment.test_version_id)
+    : []
 
   return (
     <div className="min-h-screen bg-background">
@@ -347,7 +354,13 @@ export default async function ResultPage({ params }: PageProps) {
                 Задания на ручную проверку ожидают учителя — балл может вырасти.
               </p>
             )}
-            {attempt.submitted_at && (
+            {attempt.is_offline ? (
+              // Очная работа (116): писали на бумаге, баллы внёс учитель —
+              // времени отправки и ответов ученика у такой попытки нет
+              <p className="text-xs text-muted-foreground">
+                Очная работа{attempt.submitted_at ? ` · ${new Date(attempt.submitted_at).toLocaleDateString('ru-RU', { dateStyle: 'medium' })}` : ''} — баллы внёс учитель
+              </p>
+            ) : attempt.submitted_at && (
               <p className="text-xs text-muted-foreground">
                 Отправлено: {new Date(attempt.submitted_at).toLocaleString('ru-RU', { dateStyle: 'medium', timeStyle: 'short' })}
               </p>
@@ -375,6 +388,11 @@ export default async function ResultPage({ params }: PageProps) {
         {showDetails && tasks && tasks.length > 0 && (
           <div className="space-y-4">
             <h2 className="text-lg font-semibold">Детали по задачам</h2>
+            {/* Бланк ответов по PDF (116): условия — в файлах работы,
+                ученик сверяет с ними свои ответы */}
+            {sheetMaterials.length > 0 && (
+              <SheetMaterials materials={sheetMaterials} preview={false} />
+            )}
             <div className="space-y-3">
               {tasks.map((task) => {
                 const ans = answerMap.get(task.id)
@@ -441,14 +459,14 @@ export default async function ResultPage({ params }: PageProps) {
                           <div className="text-sm">
                             <MarkdownContent content={markdownSource(task.prompt_html, task.prompt_text)} />
                           </div>
-                          <p className="text-sm">
+                          {!attempt.is_offline && <p className="text-sm">
                             <span className="text-muted-foreground">Ваш ответ: </span>
                             {/* Свободный ввод ученика, показан голым <span>, не
                                 MathText — formatAnswerJsonRaw без $…$-обёртки
                                 (formatAnswerJson тут добавил бы видимые доллары
                                 без всякого КaTeX-парсинга, который бы их убрал). */}
                             <span className="font-medium">{formatAnswerJsonRaw(ans?.answer_json ?? null)}</span>
-                          </p>
+                          </p>}
                           {isChecked && ans?.teacher_comment && (
                             <div className="rounded bg-yellow-50 dark:bg-yellow-950/30 border border-yellow-200 dark:border-yellow-800 px-3 py-2 text-sm">
                               <span className="font-medium text-yellow-800 dark:text-yellow-300 mr-1">Комментарий учителя:</span>

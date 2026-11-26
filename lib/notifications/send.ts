@@ -253,7 +253,13 @@ async function loadAssignmentContext(
 }
 
 // ── Событие: назначен тест/ДЗ → ученикам цели назначения ────────────────────
-export async function notifyAssignmentCreated(assignmentId: string): Promise<void> {
+// absentees — очная работа (116): сообщение только отмеченным «н», с
+// пояснением, что пропущенную работу можно написать онлайн. Остальные
+// ученики очную работу уже написали — им это событие не шлём вовсе.
+export async function notifyAssignmentCreated(
+  assignmentId: string,
+  absentees?: { studentIds: string[]; conductedOn: string | null },
+): Promise<void> {
   try {
     const admin = createAdminClient()
     const ctx = await loadAssignmentContext(admin, assignmentId)
@@ -275,10 +281,17 @@ export async function notifyAssignmentCreated(assignmentId: string): Promise<voi
         .map(m => m.profiles as unknown as { id: string; full_name: string } | null)
         .filter((p): p is { id: string; full_name: string } => p != null)
     }
+    if (absentees) {
+      const only = new Set(absentees.studentIds)
+      students = students.filter(s => only.has(s.id))
+    }
     if (students.length === 0) return
     const userIds = students.map(s => s.id)
 
     const due = fmtDate(ctx.endsAt)
+    const missed = absentees
+      ? `Вы пропустили очную работу${absentees.conductedOn ? ` ${fmtDate(absentees.conductedOn)}` : ''} — её можно написать на сайте.`
+      : null
     // Источник (программа/группа) показываем и ученику — иначе при большом
     // числе одинаково озаглавленных заданий (тест из программы и тот же тест
     // назначенный группе отдельно) непонятно, что именно искать в списке.
@@ -288,6 +301,7 @@ export async function notifyAssignmentCreated(assignmentId: string): Promise<voi
       : null
     const message = lines([
       `📝 Вам ${ctx.words.assigned} ${ctx.words.nominative}: «${ctx.title}»`,
+      missed,
       ctx.subject ? `Предмет: ${ctx.subject}` : null,
       sourceLine,
       `Попыток: ${ctx.maxAttempts}${due ? ` · выполнить до ${due}` : ''}`,
@@ -315,6 +329,9 @@ export async function notifyAssignmentCreated(assignmentId: string): Promise<voi
       groupId: groupIdByStudent.get(s.id),
       message: lines([
         `📝 Ученику ${s.full_name} ${ctx.words.assigned} ${ctx.words.nominative}: «${ctx.title}»`,
+        absentees
+          ? `Ученик пропустил очную работу${absentees.conductedOn ? ` ${fmtDate(absentees.conductedOn)}` : ''} — её можно написать на сайте.`
+          : null,
         ctx.subject ? `Предмет: ${ctx.subject}` : null,
         sourceLine,
         `Попыток: ${ctx.maxAttempts}${due ? ` · выполнить до ${due}` : ''}`,

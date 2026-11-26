@@ -11,6 +11,7 @@ import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 import { closedReasonLabel } from '@/lib/assignments/completion'
 import { opensLater } from '@/lib/assignments/opening'
+import { formatConductedOn } from '@/lib/assignments/offline'
 import { CloseAssignmentButton } from '@/components/teacher/CloseAssignmentButton'
 import type { ProgramDetail } from '@/lib/roadmaps/progress'
 
@@ -178,6 +179,11 @@ export function ProgramProgressView({ program, readOnly = false, onSelectAttempt
                                       личный доступ
                                     </span>
                                   )}
+                                  {item.mode === 'offline' && (
+                                    <span className="text-[11px] text-muted-foreground/70" title="Работа проведена очно">
+                                      очно{item.conducted_on ? ` · ${formatConductedOn(item.conducted_on)}` : ''}
+                                    </span>
+                                  )}
                                   {s && s.score !== null && (
                                     <span className="text-xs font-medium tabular-nums text-muted-foreground">
                                       {s.score}/{s.max_score ?? '?'}
@@ -196,7 +202,18 @@ export function ProgramProgressView({ program, readOnly = false, onSelectAttempt
                                       ✓ завершено
                                     </span>
                                   )}
-                                  <StatusChip status={s?.status ?? 'not_started'} />
+                                  {/* Очная работа (116): «н» — отсутствовал и ещё не
+                                      написал онлайн; без отметки и без баллов —
+                                      учитель ещё не внёс результат */}
+                                  {item.mode === 'offline' && (s?.status ?? 'not_started') === 'not_started' ? (
+                                    s?.absent ? (
+                                      <span className="text-xs font-semibold" title="Отсутствовал на очной работе — тест открыт на сайте">н</span>
+                                    ) : (
+                                      <span className="text-[11px] text-muted-foreground" title="Баллы ещё не внесены">ждёт баллов</span>
+                                    )
+                                  ) : (
+                                    <StatusChip status={s?.status ?? 'not_started'} />
+                                  )}
                                   {/* stopPropagation: строка кликабельна и открывает
                                       попытку — кнопка не должна её открывать */}
                                   {!readOnly && (
